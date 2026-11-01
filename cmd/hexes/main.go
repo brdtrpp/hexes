@@ -565,6 +565,10 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 			g.label(screen, g.small, rarityName[f.Slot%skill.NumRarities], x, y-s*0.9-float64(k)*s*1.2, fade(c, a), true)
 		case game.FXSalvage:
 			g.label(screen, g.face, fmt.Sprintf("SALVAGED %.0f", f.Value), x, y-s*1.1-float64(k)*s*1.4, fade(colSalvage, a), true)
+		case game.FXShape:
+			name := skill.ShapeKind(f.Slot).String()
+			g.label(screen, g.face, "LEARNED "+strings.ToUpper(name), x, y-s*1.1-float64(k)*s*1.2, fade(colShape, a), true)
+			g.label(screen, g.small, "HEX > SHAPE to use it", x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
 		case game.FXFull:
 			g.label(screen, g.small, "PACK FULL", x, y-s*0.9-float64(k)*s, fade(colHot, a), true)
 		case game.FXVent:

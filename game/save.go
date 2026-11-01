@@ -186,6 +186,11 @@ type Save struct {
 	// preset Arc Lance for a new run, in the pack for a save from before
 	// Calls existed.
 	CallGiven bool
+	// Shapes are the found shapes learned so far; ShapeGiven is set once
+	// the first one is found. Saves from before shapes have neither and
+	// load with every hex a Ring.
+	Shapes     []skill.Shape `json:",omitempty"`
+	ShapeGiven bool          `json:",omitempty"`
 }
 
 // Snapshot is the current progress. While dead it already counts the
@@ -198,6 +203,7 @@ func (s *Sim) Snapshot() Save {
 		Inv: s.Stash.Inv, Fresh: s.Stash.Fresh,
 		Cache: s.Cache, Deaths: s.Deaths, LastDeathAt: s.LastDeathAt, PlayTime: s.Time,
 		CallGiven: s.CallGiven,
+		Shapes:    append([]skill.Shape(nil), s.Shapes...), ShapeGiven: s.ShapeGiven,
 	}
 	switch s.State {
 	case Dead:
@@ -237,6 +243,12 @@ func (s *Sim) Restore(sv Save) error {
 	if sv.Depth < 1 {
 		return errors.New("save has no depth")
 	}
+	shapes := sv.Shapes[:0:0]
+	for _, sh := range sv.Shapes {
+		if sh.Valid() && sh.ID != 0 && len(shapes) < MaxShapes {
+			shapes = append(shapes, sh)
+		}
+	}
 	l := Loadout{Hexes: sv.Hexes, Names: sv.Names, Blurb: sv.Blurb, Edited: sv.Edited}
 	for i, h := range l.Hexes {
 		if h == nil {
@@ -258,6 +270,7 @@ func (s *Sim) Restore(sv Save) error {
 	s.Cache, s.Deaths, s.LastDeathAt, s.Time = sv.Cache, sv.Deaths, sv.LastDeathAt, sv.PlayTime
 	s.LastDeath = Death{}
 	s.CallGiven = sv.CallGiven
+	s.Shapes, s.ShapeGiven = shapes, sv.ShapeGiven || len(shapes) > 0
 	dirty := s.giveCall()
 	s.load(sv.Depth, sv.HPFrac)
 	s.Dirty = dirty

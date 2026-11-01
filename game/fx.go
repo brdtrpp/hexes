@@ -19,6 +19,7 @@ const (
 	FXLoot                  // picked up a part at At; Slot is its rarity
 	FXFull                  // walked over a part with a full inventory
 	FXSalvage               // recovered a salvage cache at At; Value is how many parts
+	FXShape                 // learned a shape at At; Slot is its kind
 )
 
 // FX is one effect.

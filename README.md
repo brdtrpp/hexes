@@ -22,6 +22,14 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 
 `web/index.html` loads the gzipped build (shipped as base64 text, since the artifact host doesn't serve .gz) and falls back to the raw `hexes.wasm`. Raw is about 15 MB, the fast path about 4.7 MB.
 
+The editor's layout test (every shape fits phone and desktop screens without overlaps) lives in `cmd/hexes`, which only builds for js here. It runs under node with a stub DOM:
+
+```
+GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
+```
+
+(If node complains the command line is too long, run it under `env -i` with just PATH, HOME and the Go cache variables.)
+
 ## Controls
 
 - Desktop: WASD or arrows to move (or hold the mouse button and point), Space casts every on-cast hex, R or Shift vents heat, Tab or E opens the hex editor (1 to 4 pick a hex, Esc closes), Enter redeploys after dying, Esc or M opens the menu.
@@ -48,6 +56,7 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 | `damage.go`, `default_types.json` | Damage types as data. The six seed types live in the JSON; adding one is a new row, not code. |
 | `part.go` | Loot parts: triggers, targets, effects, multipliers, with rarity and Power/Heat costs. |
 | `hex.go` | Templates, sockets, `Learn` (seeded layout roll), slotting parts and nesting hexes. |
+| `shape.go` | Shapes: Triangle, Ring, Hub, Fork, Loop as control flow, their quirks, and who feeds whom. |
 | `compile.go`, `program.go` | Compiles a hex tree into a flat `[]Step` with all multipliers baked in, plus a disassembler. |
 | `eval.go` | Runs a program against a `World`. Fixed arrays only: zero allocations per run. |
 | `combat.go` | Units, per-hit cap by level gap, adaptive resistance, damage over time. |
@@ -128,6 +137,33 @@ Starter: **Arc Lance** has a Call in its last slot pointing at Nanite Swarm. Cas
 
 - **Loot:** Calls weigh 7 against charges' 8. Three in ten roll pointing at themselves, the rest at hex 1 to 4. No quirks.
 - Under the hood: `OpCall` queues `{program, subject}` on a fixed 32-slot ring in the Evaluator; `Run` drains it after the first program, charging Heat through `Ctx.Rig` before each one. `Ctx.Calls` is the dispatcher's equipped programs. `Result` gains `Calls`, `Called` (which hexes ran, for the HUD flash), `Dropped` and `Halted`. Still zero allocations per run: the 3x4 multiply is 69 calls in about 2 µs.
+
+## Shapes (`skill/shape.go`, `skill/compile.go`, `game/shape.go`)
+
+A hex's shape is its control flow. The parts are the same in every shape; the shape decides which slots feed which and in what order they run. Every hex used to be a six-slot ring; that's now one of five.
+
+| Shape | Slots | How it runs |
+| --- | --- | --- |
+| Triangle | 3 | A line: trigger, then two slots, no edge back. Runs on 25% less Heat. The cheap starter. |
+| Ring | 6 | Clockwise from the trigger, each slot feeding the next. Unchanged. |
+| Hub | 7 | A ring plus a center. Every ring slot feeds the center, which runs last. An effect there lands once on everything the ring targeted, pooled with no double hits (on the subject if the ring targets nothing). A multiplier there scales the whole ring. The center takes effects, multipliers, charges and calls, not targets or gates, and is never a gate's branch. Heat x1.2. |
+| Fork | 7 | The trigger sits in the center and feeds two chains, slots 1-3 and 4-6, which run one after the other in the same firing. Neither chain feeds the other and gates stay inside their chain. Heat x1.1. |
+| Loop | 6 | A ring whose last slot feeds back into the first. After the ring runs, it runs again once for each entity the last slot carries: its targets, whoever its effect or Call landed on, a gate's yes half, a charge's half in a branch. Each pass goes through the same queue as a self Call, so it pays the hex's Heat and counts against the 256-call cap. A last slot that carries nobody (empty, a multiplier, a charge outside a branch, a cut back edge, an empty gate half) ends it. `SPEND A at 1` in the last slot loops once per coin in A. |
+
+**Learned.** Everyone has the plain Ring and Triangle. Hub, Fork, Loop, and quirked Triangles and Rings are found: rare drops from depth 5 down (0.6% a kill there, +0.2% a depth, capped at 4%, three times that from a foe above the floor's level), rolled on their own random stream so they never change which parts drop. The first time a save reaches depth 5 without one, a shape (never a plain Ring or Triangle) waits next to where you arrive, and keeps waiting until it's picked up. Walk over a shape to learn it: it's kept for good, like the rest of progress, and a death never takes it. Up to 32.
+
+**Quirks.** Every found copy rolls one, on a slot or edge, so two Hubs differ:
+
+- **Twin** (slot): the part there fires twice and costs twice. A multiplier there applies twice; a target just picks once.
+- **Surge** (slot): every number of the part there is x1.5 (damage, push, duration, radius and count, or a multiplier's bonus).
+- **One-way** (edge): the edge only feeds clockwise. The slot after still reads the one before; the one before stops seeing the targets after it.
+- **Lean**: the whole hex runs on 75% of its Heat.
+
+**In the editor.** The SHAPE button above the hex steps through the shapes you have: Ring, Triangle, then each found copy not already on another hex. Parts stay in their slots where the new shape has that slot and it takes them, the trigger moves to where the shape wants it (a Fork's center), and leftovers go in the first free slot that takes them, then into the pack (refused if the pack can't hold them). The caption names the shape and its quirk; a TWIN or SURGE slot gets a gold outline and tag, a one-way edge a gold arrow, a Loop's back edge a pink one, and small arrows on every edge show which way it runs. Tapping a picked charge or Call again switches its bank or target, which works in shapes with a center slot where the plate used to be. A hex's tab says TRI, HUB, FORK or LOOP under its trigger.
+
+**Saves.** A hex saved before shapes has no shape field and six-slot arrays; it loads as a Ring with an empty center. Found shapes save in `Save.Shapes`.
+
+Under the hood: `Hex.Shape` and `Hex.Feeds(a, b)` replace the ring-only adjacency, `Hex.Flow` gives the run order, `Slots` is now 7 (`RingSlots` 6 plus `Center`). Programs carry `Shape` and `Loops`; the Loop's back edge is one `OpCall` to self after the body (after an Echo copy, so Echo doesn't double it). Still zero allocations per run.
 
 ## Defaults I picked
 
@@ -250,6 +286,10 @@ Intel Xeon 2.1 GHz, 4 cores, Go 1.24.7 (`go test ./skill ./dungeon ./game -run '
 | Evaluate a gated hex (3 crowd checks) | 1.9 µs | 0 |
 | Evaluate the charge nova hex (count, chill, spend) | 0.4 µs | 0 |
 | Counter machine 3x4 through Calls (69 calls) | 2.1 µs | 0 |
+| Evaluate a Triangle (chain 3, damage) | 1.5 µs | 0 |
+| Evaluate a Hub (3 targets pooled into the center) | 2.7 µs | 0 |
+| Evaluate a Fork (two chains, a crowd gate) | 1.8 µs | 0 |
+| Evaluate a Loop making 8 extra passes | 7.6 µs | 0 |
 | Game step (1/60 s), depth 1, 7 actors | 1.4 µs | 0 |
 | Game step, depth 10, 22 actors | 2.2 µs | 0 |
 | Game step, depth 30, 54 actors | 4.1 µs | 0 |

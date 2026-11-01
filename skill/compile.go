@@ -42,9 +42,24 @@ const NestCostPerDepth = 0.5
 //     branch it only counts when its half holds someone. Banks belong to
 //     the equipped hex and keep their counts between firings; nested
 //     hexes share them by letter. An echo hex counts twice.
+//
+// The hex's shape sets the order and who feeds whom (see Shape): the
+// "clockwise" and "beside it" above follow the shape's flow and its
+// Feeds, a Hub's center pools the whole ring, and a Loop runs again on
+// what its last slot carries.
 func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
+	shape := h.Shape
+	if !shape.Valid() {
+		return nil, fmt.Errorf("hex has a broken shape (%v)", shape)
+	}
 	trig := -1
 	for i, s := range h.Slots {
+		if s.Kind == SlotEmpty {
+			continue
+		}
+		if !shape.Kind.Has(i) {
+			return nil, fmt.Errorf("slot %d isn't part of a %s", i+1, shape.Kind)
+		}
 		if s.Kind == SlotPart && s.Part.Kind == KindTrigger {
 			if trig >= 0 {
 				return nil, errors.New("hex has more than one trigger")
@@ -54,6 +69,12 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	}
 	if trig < 0 {
 		return nil, errors.New("hex has no trigger")
+	}
+	switch {
+	case shape.Kind == ShapeFork && trig != Center:
+		return nil, errors.New("a fork's trigger sits in its center")
+	case shape.Kind != ShapeFork && trig == Center:
+		return nil, errors.New("only a fork has its trigger in the center")
 	}
 	depth := h.Depth()
 	if depth > maxDepth {
@@ -87,6 +108,21 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 		c.p.Power *= 1 + EchoCost
 		c.p.Heat *= 1 + EchoCost
 	}
+	if c.loop {
+		// The Loop's back edge: run the hex again on whoever the last
+		// slot carried, after this pass, through the same queue as a self
+		// Call (so it pays Heat and counts against MaxCalls).
+		c.emit(Step{Op: OpCall, Src: c.loopSrc, Count: CallSelf, Value: 1})
+		c.p.Calls |= 1 << CallSelf
+		c.p.Loops = true
+	}
+	if c.p.Heat > 0 {
+		c.p.Heat *= shape.Kind.HeatScale()
+		if shape.Quirk == ShapeLean {
+			c.p.Heat *= LeanHeat
+		}
+	}
+	c.p.Shape = shape.Kind
 	c.p.Regs = int(c.next)
 	return c.p, nil
 }
@@ -96,6 +132,10 @@ type compiler struct {
 	trig Part
 	p    *Program
 	next uint8
+	// loop is set when a Loop's last slot carries someone back to its
+	// first: loopSrc is the register holding them.
+	loop    bool
+	loopSrc uint8
 }
 
 func (c *compiler) alloc() (uint8, error) {
@@ -146,30 +186,44 @@ type span struct {
 	ok     bool
 }
 
-// level compiles one hex ring starting at slot start. Targets select
-// around the entity in origin; effects with no target beside them land on
-// the entities in landing. In a nested hex both are the entity it runs on.
+// level compiles one hex starting at slot start, in its shape's flow.
+// Targets select around the entity in origin; effects with no target
+// beside them land on the entities in landing. In a nested hex both are
+// the entity it runs on.
 func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen map[*Hex]bool) error {
-	var order [Slots]int
-	for k := range order {
-		order[k] = (start + k) % Slots
-	}
+	order, n := h.Flow(start)
+	shape := h.Shape
+	twin, surge := shape.Twin(), shape.Surge()
 	var tgt [Slots]int
 	for i := range tgt {
 		tgt[i] = -1
 	}
-	var fed [Slots]span // step range each slot produced, for multipliers
+	var fed [Slots]span  // step range each slot produced, for multipliers
+	var carry [Slots]int // register each slot carries on, for a Loop
+	for i := range carry {
+		carry[i] = -1
+	}
 	first := len(c.p.Steps)
 	routes := h.Routes(start)
 	var pass, fail [Slots]uint8 // each gate's two halves
+	// half is the register a slot in a gate's branch works on.
+	half := func(r Route) uint8 {
+		if r.Branch == BranchYes {
+			return pass[r.Gate]
+		}
+		return fail[r.Gate]
+	}
 	// land is where an effect or nested hex in slot s lands: its gate's
-	// half if it sits in a branch, else the targets beside it.
+	// half if it sits in a branch, everything the ring targeted for a
+	// Hub's center, else the targets beside it.
 	land := func(s int) (src, guard uint8, err error) {
 		if r := routes[s]; r.Gate >= 0 {
-			if r.Branch == BranchYes {
-				return pass[r.Gate], pass[r.Gate], nil
-			}
-			return fail[r.Gate], fail[r.Gate], nil
+			g := half(r)
+			return g, g, nil
+		}
+		if s == Center && shape.Kind == ShapeHub {
+			src, err = c.pool(h, tgt, landing)
+			return src, RegCaster, err
 		}
 		src, err = c.feed(h, s, tgt, landing)
 		return src, RegCaster, err
@@ -177,7 +231,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 
 	// Pass 1: targets. They depend on nothing but the origin, so they all
 	// select up front and any effect can read them.
-	for _, s := range order {
+	for _, s := range order[:n] {
 		sl := h.Slots[s]
 		if sl.Kind != SlotPart || sl.Part.Kind != KindTarget {
 			continue
@@ -194,13 +248,19 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		i := c.emit(Step{Op: OpSelect, Target: p.Target, Src: src, Dst: r,
 			Count: clampCount(int(p.Count)), Value: p.Value})
 		tgt[s] = int(r)
+		carry[s] = int(r)
 		fed[s] = span{i, i + 1, true}
 		c.cost(p, depth)
+		if s == surge {
+			c.scale(fed[s], VerbAll, SurgeScale)
+		}
 	}
 
-	// Pass 2: effects and nested hexes, clockwise.
-	for _, s := range order {
+	// Pass 2: effects, gates, charges, calls and nested hexes, in flow.
+	for _, s := range order[:n] {
 		sl := h.Slots[s]
+		at := len(c.p.Steps)
+		pw, ht := c.p.Power, c.p.Heat
 		switch {
 		case sl.Kind == SlotPart && sl.Part.Kind == KindTrigger:
 			if depth > 0 {
@@ -210,13 +270,10 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			p := sl.Part
 			var in uint8
 			if r := routes[s]; r.Gate >= 0 {
-				in = pass[r.Gate]
-				if r.Branch == BranchNo {
-					in = fail[r.Gate]
-				}
+				in = half(r)
 			} else {
 				in = landing
-				if ccw := (s + Slots - 1) % Slots; h.adjacent(ccw, s) && tgt[ccw] >= 0 {
+				if ccw, _ := ringSides(h, s); ccw >= 0 && h.Feeds(ccw, s) && tgt[ccw] >= 0 {
 					in = uint8(tgt[ccw])
 				}
 			}
@@ -232,6 +289,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			i := c.emit(Step{Op: OpGate, Gate: p.Gate, Src: in, Dst: yes, Dst2: no,
 				Type: p.Type, Count: p.Count, Value: p.Value, Bank: p.Bank % MaxBanks})
 			fed[s] = span{i, i + 1, true}
+			carry[s] = int(yes)
 			c.cost(p, depth)
 			if p.Gate.Charged() {
 				c.useBank(p)
@@ -242,10 +300,8 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			p := sl.Part
 			guard := uint8(RegCaster)
 			if r := routes[s]; r.Gate >= 0 {
-				guard = pass[r.Gate]
-				if r.Branch == BranchNo {
-					guard = fail[r.Gate]
-				}
+				guard = half(r)
+				carry[s] = int(guard)
 			}
 			v := p.Value
 			if v <= 0 {
@@ -266,6 +322,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			}
 			i := c.emit(Step{Op: OpCall, Src: src, Count: p.Call, Value: 1 / p.Rarity.Scale()})
 			fed[s] = span{i, i + 1, true}
+			carry[s] = int(src)
 			c.cost(p, depth)
 			if p.Call < 16 {
 				c.p.Calls |= 1 << p.Call
@@ -301,10 +358,11 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				}
 			}
 			fed[s] = span{i, len(c.p.Steps), true}
+			carry[s] = int(src)
 			c.cost(p, depth)
 		case sl.Kind == SlotNested:
-			n := sl.Nested
-			if seen[n] {
+			nh := sl.Nested
+			if seen[nh] {
 				return errors.New("hex nests itself")
 			}
 			src, _, err := land(s)
@@ -316,35 +374,65 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				return err
 			}
 			at := c.emit(Step{Op: OpForEach, Src: src, Dst: r})
-			seen[n] = true
-			if err := c.level(n, 0, depth+1, r, r, seen); err != nil {
+			seen[nh] = true
+			if err := c.level(nh, nh.entry(), depth+1, r, r, seen); err != nil {
 				return err
 			}
-			delete(seen, n)
+			delete(seen, nh)
 			body := len(c.p.Steps) - at - 1
 			if body > 0xffff {
 				return errors.New("nested hex too large")
 			}
 			c.p.Steps[at].Span = uint16(body)
 			fed[s] = span{at, len(c.p.Steps), true}
+			carry[s] = int(src)
+		}
+		if !fed[s].ok || fed[s].lo < at {
+			continue // targets (pass 1) and empty slots
+		}
+		if s == twin {
+			// Fires twice: the slot's steps again, right after, and its
+			// cost again. Spans inside are relative, so a copy works.
+			lo := fed[s].lo
+			c.p.Steps = append(c.p.Steps, c.p.Steps[lo:]...)
+			fed[s].hi = len(c.p.Steps)
+			c.p.Power += c.p.Power - pw
+			c.p.Heat += c.p.Heat - ht
+		}
+		if s == surge {
+			c.scale(fed[s], VerbAll, SurgeScale)
 		}
 	}
 
 	// Pass 3: multipliers patch the steps of the part before them.
 	var mult [Slots]span
-	for k, s := range order {
+	for k, s := range order[:n] {
 		sl := h.Slots[s]
 		if sl.Kind != SlotPart || sl.Part.Kind != KindMult {
 			continue
 		}
 		p := sl.Part
-		c.cost(p, depth)
-		if p.Quirk == QuirkRadiant {
-			// Bends the "part just before it" rule: the whole ring.
+		times := 1
+		if s == twin {
+			times = 2
+		}
+		bonus := (p.Value - 1) * p.Rarity.Scale()
+		if s == surge {
+			bonus *= SurgeScale
+		}
+		x := 1 + bonus
+		for range times {
+			c.cost(p, depth)
+		}
+		if p.Quirk == QuirkRadiant || (s == Center && shape.Kind == ShapeHub) {
+			// Bends the "part just before it" rule: the whole ring. A
+			// Hub's center is fed by every slot, so it does the same.
 			f := span{first, len(c.p.Steps), len(c.p.Steps) > first}
 			mult[s] = f
-			if f.ok {
-				c.scale(f, p.Verb, 1+(p.Value-1)*p.Rarity.Scale())
+			for range times {
+				if f.ok {
+					c.scale(f, p.Verb, x)
+				}
 			}
 			continue
 		}
@@ -352,7 +440,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			continue
 		}
 		pred := order[k-1]
-		if !h.adjacent(pred, s) {
+		if !h.Feeds(pred, s) {
 			continue
 		}
 		f := fed[pred]
@@ -363,9 +451,55 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			continue
 		}
 		mult[s] = f
-		c.scale(f, p.Verb, 1+(p.Value-1)*p.Rarity.Scale())
+		for range times {
+			c.scale(f, p.Verb, x)
+		}
+	}
+
+	// A Loop's last slot feeds back into its first: note what it carries
+	// so Compile can add the back edge. Only the top hex loops.
+	if depth == 0 && shape.Kind == ShapeLoop && n > 1 {
+		last := order[n-1]
+		if r := carry[last]; r >= 0 && r != RegCaster && h.Feeds(last, order[0]) {
+			c.loop, c.loopSrc = true, uint8(r)
+		}
 	}
 	return nil
+}
+
+// pool is everything a Hub's ring targeted, gathered into one register
+// with no one in it twice. With no targets on the ring it's the landing.
+func (c *compiler) pool(h *Hex, tgt [Slots]int, landing uint8) (uint8, error) {
+	acc := -1
+	for s := 0; s < RingSlots; s++ {
+		if tgt[s] < 0 || !h.Feeds(s, Center) {
+			continue
+		}
+		if acc < 0 {
+			acc = tgt[s]
+			continue
+		}
+		r, err := c.alloc()
+		if err != nil {
+			return 0, err
+		}
+		c.emit(Step{Op: OpUnion, Src: uint8(acc), Src2: uint8(tgt[s]), Dst: r})
+		acc = int(r)
+	}
+	if acc < 0 {
+		return landing, nil
+	}
+	return uint8(acc), nil
+}
+
+// ringSides is the ring slots either side of s (counter-clockwise, then
+// clockwise), or -1s for the center.
+func ringSides(h *Hex, s int) (ccw, cw int) {
+	if s == Center {
+		return -1, -1
+	}
+	n := h.Shape.Kind.RingLen()
+	return (s + n - 1) % n, (s + 1) % n
 }
 
 // relay follows an effect step with its arc: for each entity the effect
@@ -392,14 +526,15 @@ func (c *compiler) relay(st Step) error {
 	return nil
 }
 
-// feed returns the register an effect or nested hex in slot s lands on.
+// feed returns the register an effect or nested hex in slot s lands on:
+// the targets in the ring slots either side that feed it.
 func (c *compiler) feed(h *Hex, s int, tgt [Slots]int, landing uint8) (uint8, error) {
-	ccw, cw := (s+Slots-1)%Slots, (s+1)%Slots
+	ccw, cw := ringSides(h, s)
 	a, b := -1, -1
-	if h.adjacent(ccw, s) {
+	if ccw >= 0 && h.Feeds(ccw, s) {
 		a = tgt[ccw]
 	}
-	if h.adjacent(s, cw) {
+	if cw >= 0 && cw != ccw && h.Feeds(cw, s) {
 		b = tgt[cw]
 	}
 	switch {

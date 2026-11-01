@@ -95,6 +95,10 @@ type Program struct {
 	// Calls has bit 0 set when the hex calls itself and bit n when it
 	// calls equipped hex n.
 	Calls uint16
+	// Shape is the hex's shape. Loops is set when it's a Loop whose last
+	// slot carries someone back round: its last step is the back edge.
+	Shape ShapeKind
+	Loops bool
 }
 
 // CallsHex reports whether the program has a Call aimed at target

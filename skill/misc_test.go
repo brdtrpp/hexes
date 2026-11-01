@@ -19,9 +19,10 @@ func TestLearnVariesBySeed(t *testing.T) {
 	seen := map[[6]SocketKind]bool{}
 	for s := uint64(0); s < 50; s++ {
 		h := Learn(testTemplate, s)
-		seen[h.Sockets] = true
+		ring := [RingSlots]SocketKind(h.Sockets[:RingSlots])
+		seen[ring] = true
 		var count [4]int
-		for _, k := range h.Sockets {
+		for _, k := range ring {
 			count[k]++
 		}
 		if count != [4]int{1, 2, 2, 1} {

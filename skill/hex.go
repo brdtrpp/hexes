@@ -5,8 +5,14 @@ import (
 	"fmt"
 )
 
-// Slots is the number of slots on a hex ring.
-const Slots = 6
+// RingSlots is the number of slots around a hex ring. Slots is the most
+// any shape has: the ring plus its center (see Shape). Center is the
+// center slot's index; only Hubs and Forks use it.
+const (
+	RingSlots = 6
+	Slots     = RingSlots + 1
+	Center    = RingSlots
+)
 
 // SocketKind is what a slot will accept. A hex's sockets are fixed by its
 // template; where each socket sits on the ring is rolled when it's learned.
@@ -41,7 +47,7 @@ func (s SocketKind) Accepts(k PartKind) bool {
 // Template is a hex as the game defines it, before anyone learns it.
 type Template struct {
 	Name    string
-	Sockets [Slots]SocketKind
+	Sockets [RingSlots]SocketKind
 	// Broken is how many of the six ring edges are cut when learned. Parts
 	// across a cut edge don't feed each other.
 	Broken int
@@ -64,20 +70,29 @@ type Slot struct {
 }
 
 // Hex is a learned hex: sockets placed on the ring, edges linked or cut,
-// and whatever parts the player has slotted.
+// and whatever parts the player has slotted. Shape is how it runs; the
+// zero Shape is the plain six-slot Ring, so hexes saved before shapes
+// existed load as Rings.
 type Hex struct {
 	Name    string
 	Seed    uint64
 	Sockets [Slots]SocketKind
-	// Linked[i] is the edge between slot i and slot i+1 (clockwise).
+	// Linked[i] is the edge between ring slot i and the next one
+	// clockwise. A shape can also leave an edge out entirely (see
+	// ShapeKind.HasEdge).
 	Linked [Slots]bool
 	Slots  [Slots]Slot
+	Shape  Shape `json:",omitempty"`
 }
 
-// NewHex builds a hex with sockets exactly as given and every edge linked.
-// Learn is how the game makes hexes; this is for tests and tools.
-func NewHex(name string, sockets [Slots]SocketKind) *Hex {
-	h := &Hex{Name: name, Sockets: sockets}
+// NewHex builds a Ring hex with sockets exactly as given and every edge
+// linked. The center socket takes effects (it only matters once the hex
+// is reshaped into a Hub). Learn is how the game makes hexes; this is for
+// tests and tools.
+func NewHex(name string, sockets [RingSlots]SocketKind) *Hex {
+	h := &Hex{Name: name}
+	copy(h.Sockets[:], sockets[:])
+	h.Sockets[Center] = SocketEffect
 	for i := range h.Linked {
 		h.Linked[i] = true
 	}
@@ -91,16 +106,16 @@ func Learn(t Template, seed uint64) *Hex {
 	rng := splitmix{seed ^ fnv64(t.Name)}
 	h := NewHex(t.Name, t.Sockets)
 	h.Seed = seed
-	for i := Slots - 1; i > 0; i-- {
+	for i := RingSlots - 1; i > 0; i-- {
 		j := rng.intn(i + 1)
 		h.Sockets[i], h.Sockets[j] = h.Sockets[j], h.Sockets[i]
 	}
 	broken := t.Broken
-	if broken > Slots {
-		broken = Slots
+	if broken > RingSlots {
+		broken = RingSlots
 	}
 	for broken > 0 {
-		e := rng.intn(Slots)
+		e := rng.intn(RingSlots)
 		if h.Linked[e] {
 			h.Linked[e] = false
 			broken--
@@ -162,17 +177,6 @@ func (h *Hex) depth(level int) int {
 	return d
 }
 
-// adjacent reports whether slots i and j touch across a linked edge.
-func (h *Hex) adjacent(i, j int) bool {
-	switch {
-	case j == (i+1)%Slots:
-		return h.Linked[i]
-	case i == (j+1)%Slots:
-		return h.Linked[j]
-	}
-	return false
-}
-
 // splitmix is SplitMix64: tiny, fast and identical on every platform and Go
 // version, which math/rand does not promise.
 type splitmix struct{ s uint64 }
@@ -212,11 +216,12 @@ type Route struct {
 	Branch Branch
 }
 
-// Routes works out which slots hang off which gates, reading clockwise
-// from slot start (the trigger's slot, or 0 for a nested hex). The rules,
-// which Compile follows:
-//   - A gate's yes slot is the next slot clockwise, its no slot the one
-//     after that. Each must be linked to the slot before it, and neither
+// Routes works out which slots hang off which gates, reading the ring in
+// flow order from slot start (the trigger's slot, or the entry slot for a
+// nested hex). A center slot is never in a gate's branch. The rules, which
+// Compile follows:
+//   - A gate's yes slot is the next slot in flow order, its no slot the
+//     one after that. Each must be fed by the slot before it, and neither
 //     can wrap past the end of the ring back to the start.
 //   - A gate in a yes slot tests only the ones that passed (both must
 //     hold) and takes the next two slots as its own, so the outer gate
@@ -227,19 +232,17 @@ func (h *Hex) Routes(start int) [Slots]Route {
 	for i := range r {
 		r[i].Gate = -1
 	}
-	var order [Slots]int
-	for k := range order {
-		order[k] = (start + k) % Slots
-	}
+	order, n := h.ringFlow(start)
 	isGate := func(s int) bool {
 		return h.Slots[s].Kind == SlotPart && h.Slots[s].Part.Kind == KindGate
 	}
-	for k, s := range order {
+	for k := 0; k < n; k++ {
+		s := order[k]
 		if !isGate(s) {
 			continue
 		}
 		yes := k + 1
-		if yes >= Slots || r[order[yes]].Gate >= 0 || !h.adjacent(s, order[yes]) {
+		if yes >= n || r[order[yes]].Gate >= 0 || !h.Feeds(s, order[yes]) {
 			continue
 		}
 		r[order[yes]] = Route{int8(s), BranchYes}
@@ -247,7 +250,7 @@ func (h *Hex) Routes(start int) [Slots]Route {
 			continue
 		}
 		no := k + 2
-		if no >= Slots || r[order[no]].Gate >= 0 || !h.adjacent(order[yes], order[no]) {
+		if no >= n || r[order[no]].Gate >= 0 || !h.Feeds(order[yes], order[no]) {
 			continue
 		}
 		r[order[no]] = Route{int8(s), BranchNo}

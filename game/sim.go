@@ -146,6 +146,12 @@ type Sim struct {
 	Dirty bool
 	// CallGiven: the save has had its starter Call (see giveCall).
 	CallGiven bool
+	// Shapes are the found shapes learned so far, kept for good (see
+	// shape.go). ShapeGiven is set once the first one is found.
+	// LastShape is the latest one learned, for the HUD.
+	Shapes     []skill.Shape
+	ShapeGiven bool
+	LastShape  skill.Shape
 
 	// SlotFlash counts down after a slot tries to fire; SlotLast is how.
 	SlotFlash [MaxSlots]float32
@@ -183,6 +189,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.Cache, s.Deaths, s.LastDeathAt, s.LastDeath = Cache{}, 0, 0, Death{}
 	s.Load = Loadout{}
 	s.CallGiven = true // the preset Arc Lance carries it
+	s.Shapes, s.ShapeGiven, s.LastShape = nil, false, skill.Shape{}
 	s.resetStash()
 	s.load(1, 1)
 	s.Dirty = true

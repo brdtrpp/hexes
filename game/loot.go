@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"fmt"
 
 	"hexes/loot"
 	"hexes/skill"
@@ -35,6 +36,8 @@ type Drop struct {
 type Stash struct {
 	Inv   loot.Inventory
 	Drops []Drop
+	// Shapes are shapes lying on the floor (shape.go).
+	Shapes []ShapeDrop
 	// Picked counts parts ever picked up.
 	Picked int
 	// Fresh marks pack cells holding a part picked up since the last
@@ -51,7 +54,9 @@ func (s *Sim) resetStash() {
 	if s.Stash.table == nil {
 		s.Stash.table = loot.NewTable(s.Reg)
 		s.Stash.Drops = make([]Drop, 0, MaxDrops)
+		s.Stash.Shapes = make([]ShapeDrop, 0, MaxShapeDrops)
 	}
+	s.Stash.Shapes = s.Stash.Shapes[:0]
 	s.Stash.Inv.Clear()
 	s.Stash.Fresh = [loot.InventorySize]bool{}
 	s.Stash.Drops = s.Stash.Drops[:0]
@@ -64,7 +69,9 @@ func (s *Sim) resetStash() {
 // level.
 func (s *Sim) loadLoot(level int) {
 	s.Stash.Drops = s.Stash.Drops[:0]
+	s.Stash.Shapes = s.Stash.Shapes[:0]
 	s.Stash.fullShow = false
+	defer s.placeFirstShape()
 	if s.Load.Hexes[0] == nil {
 		s.Load = BuildLoadout(s.Reg, level, s.Rig.MaxDepth)
 		return
@@ -85,8 +92,12 @@ func (s *Sim) dropLoot(id skill.EntityID) {
 		return
 	}
 	chance := dropChance[a.Kind]
-	if a.U.Level > s.Depth {
+	elite := a.U.Level > s.Depth
+	if elite {
 		chance += DropElite
+	}
+	if at, ok := s.dropSpot(a.At); ok {
+		s.rollShapeDrop(id, at, elite)
 	}
 	r := loot.NewRNG(loot.Seed(s.Floor.Seed^hash(uint64(s.Visits)), int(id)))
 	p, ok := s.Stash.table.Drop(&r, s.Depth, chance)
@@ -148,6 +159,7 @@ func (s *Sim) pickup(dt float32) {
 	s.Stash.Drops = d
 	if p.U.Alive {
 		s.salvage(at)
+		s.pickupShapes(at, dt)
 	}
 }
 
@@ -163,7 +175,7 @@ var ErrNeedsTrigger = errors.New("a hex needs a trigger in its top slot")
 // may be empty: an empty cell takes the slot's part out, an empty slot
 // takes the cell's part in.
 func (s *Sim) SwapIn(hex, slot, cell int) error {
-	if hex < 0 || hex >= MaxSlots || slot < 0 || slot >= skill.Slots || cell < 0 || cell >= loot.InventorySize {
+	if hex < 0 || hex >= MaxSlots || cell < 0 || cell >= loot.InventorySize || !s.Load.Hexes[hex].Shape.Kind.Has(slot) {
 		return errors.New("no such slot")
 	}
 	h := s.Load.Hexes[hex]
@@ -207,7 +219,7 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 // SwapSlots trades two slots of one hex, which rewires it: order and
 // neighbors are the whole game.
 func (s *Sim) SwapSlots(hex, a, b int) error {
-	if hex < 0 || hex >= MaxSlots || a < 0 || a >= skill.Slots || b < 0 || b >= skill.Slots {
+	if hex < 0 || hex >= MaxSlots || !s.Load.Hexes[hex].Shape.Kind.Has(a) || !s.Load.Hexes[hex].Shape.Kind.Has(b) {
 		return errors.New("no such slot")
 	}
 	if a == b {
@@ -320,11 +332,17 @@ func fits(h *skill.Hex, slot int, p skill.Part) error {
 	if h.Sockets[slot].Accepts(p.Kind) {
 		return nil
 	}
+	where := "top"
+	if h.Shape.Kind.TriggerSlot() == skill.Center {
+		where = "center"
+	}
 	switch {
 	case p.Kind == skill.KindTrigger:
-		return errors.New("triggers only go in the top slot")
+		return fmt.Errorf("triggers only go in the %s slot", where)
 	case h.Sockets[slot] == skill.SocketTrigger:
-		return errors.New("the top slot only takes triggers")
+		return fmt.Errorf("the %s slot only takes triggers", where)
+	case slot == skill.Center && (p.Kind == skill.KindTarget || p.Kind == skill.KindGate):
+		return errors.New("the center pools the ring: no targets or gates there")
 	}
 	return errors.New("that part doesn't fit this slot")
 }
@@ -336,7 +354,7 @@ func (s *Sim) recompile(hex int) error {
 	s.Load.Edited[hex] = true
 	if err := s.Load.Compile(hex, s.Reg, s.Depth, s.Rig.MaxDepth); err != nil {
 		s.Load.Edited[hex] = was
-		if s.Load.Hexes[hex].Slots[0].Kind == skill.SlotEmpty {
+		if h := s.Load.Hexes[hex]; h.Slots[h.Shape.Kind.TriggerSlot()].Kind == skill.SlotEmpty {
 			return ErrNeedsTrigger
 		}
 		return err

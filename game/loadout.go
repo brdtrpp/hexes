@@ -30,7 +30,7 @@ const StarterCallTarget = 4
 
 // LoadoutSockets is the socket layout every slice hex uses: the trigger
 // in slot 0, wild sockets everywhere else.
-var LoadoutSockets = [skill.Slots]skill.SocketKind{skill.SocketTrigger,
+var LoadoutSockets = [skill.RingSlots]skill.SocketKind{skill.SocketTrigger,
 	skill.SocketWild, skill.SocketWild, skill.SocketWild, skill.SocketWild, skill.SocketWild}
 
 // BuildLoadout makes the preset hexes and compiles them for a level.
