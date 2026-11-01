@@ -7,17 +7,18 @@ import "hexes/skill"
 type FXKind uint8
 
 const (
-	FXNumber FXKind = iota // floating damage number at At
-	FXBolt                 // a hex's hit, From caster to At
-	FXRing                 // a hex fired from At
-	FXPush                 // a push slid something From to At
-	FXSlam                 // pushed into a wall at At (wall at From)
-	FXFall                 // fell into the pit at At
-	FXKill                 // something died at At
-	FXClaw                 // enemy melee From attacker to At
-	FXVent                 // the rig vented at At
-	FXLoot                 // picked up a part at At; Slot is its rarity
-	FXFull                 // walked over a part with a full inventory
+	FXNumber  FXKind = iota // floating damage number at At
+	FXBolt                  // a hex's hit, From caster to At
+	FXRing                  // a hex fired from At
+	FXPush                  // a push slid something From to At
+	FXSlam                  // pushed into a wall at At (wall at From)
+	FXFall                  // fell into the pit at At
+	FXKill                  // something died at At
+	FXClaw                  // enemy melee From attacker to At
+	FXVent                  // the rig vented at At
+	FXLoot                  // picked up a part at At; Slot is its rarity
+	FXFull                  // walked over a part with a full inventory
+	FXSalvage               // recovered a salvage cache at At; Value is how many parts
 )
 
 // FX is one effect.

@@ -403,6 +403,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 
 	for i, c := range l.cells {
 		g.partTile(screen, c.x+c.w/2, c.y+c.h/2, c.w*0.5, false, inv.Parts[i], inv.Has[i], e.pick == pickCell && e.at == i)
+		if inv.Has[i] && sim.Stash.Fresh[i] {
+			// Unsecured: a death would drop it in the salvage cache.
+			g.label(screen, g.small, "NEW", c.x+c.w-14*g.k, c.y+9*g.k, colSalvage, true)
+		}
 	}
 
 	// Info bar: the picked part, the last result, or how to use it.
@@ -411,6 +415,9 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	switch {
 	case e.pick == pickCell && inv.Has[e.at]:
 		info, ic = loot.Describe(inv.Parts[e.at], sim.Reg), rarityCol[inv.Parts[e.at].Rarity]
+		if sim.Stash.Fresh[e.at] {
+			info += fmt.Sprintf(" New: slot it or reach depth %d to keep it if you die.", sim.NextCheckpoint())
+		}
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
 		p := h.Slots[e.at].Part
 		info, ic = loot.Describe(p, sim.Reg), rarityCol[p.Rarity]

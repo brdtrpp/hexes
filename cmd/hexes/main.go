@@ -8,7 +8,7 @@
 //
 // Desktop: WASD or arrows (or hold the mouse) to move, Space or 1 to cast
 // every on-cast hex, R or Shift to vent heat, Tab or E to open the hex
-// editor, Enter to restart after dying.
+// editor, Enter to redeploy after dying, Esc or M for the menu.
 // Touch: hold anywhere to walk that way, or switch MOVE to STICK (top
 // right) for a thumb joystick on the left half; tap CAST, VENT and HEX.
 // The choice is remembered in the browser.
@@ -54,6 +54,7 @@ var (
 	colText    = color.RGBA{0xe8, 0xec, 0xf4, 0xff}
 	colDim     = color.RGBA{0x8c, 0x95, 0xab, 0xff}
 	colPanel   = color.RGBA{0x14, 0x18, 0x24, 0xe0}
+	colSalvage = color.RGBA{0xff, 0xc8, 0x3d, 0xff}
 
 	enemyCol = map[game.Kind]color.RGBA{
 		game.KindGrunt:   {0xe5, 0x48, 0x4d, 0xff},
@@ -109,6 +110,9 @@ type Game struct {
 	camX, camY float64
 	cast, vent button
 	modeBtn    pill
+	menuBtn    pill
+	menu       menuState
+	savedAt    int    // frame of the last save
 	hexBtn     button // opens the hex editor
 	ed         editor
 	touched    bool // a touch has happened: show touch hints, not keys
@@ -136,6 +140,7 @@ func newGame() *Game {
 	g.camX, g.camY = p.Pos()
 	g.stickMode = loadPref(stickPref) == "stick"
 	g.stick.Deadzone = 0.15
+	g.loadSave()
 	return g
 }
 
@@ -155,6 +160,7 @@ func (g *Game) Layout(ow, oh int) (int, int) {
 		g.cast = button{float64(w) - r - 24*k, float64(h) - r - 30*k, r, "CAST"}
 		g.vent = button{g.cast.x - r*1.9, float64(h) - r*0.65 - 24*k, r * 0.65, "VENT"}
 		g.modeBtn = pill{float64(w) - 128*k, 10 * k, 116 * k, 26 * k}
+		g.menuBtn = pill{g.modeBtn.x - 80*k, 10 * k, 70 * k, 26 * k}
 		g.stick.Radius = k * math.Max(44, math.Min(64, short/7))
 		g.hexBtn = button{g.cast.x, g.cast.y - r*1.85, r * 0.6, "HEX"}
 		g.face.Size, g.small.Size, g.big.Size = 15*k, 12*k, 30*k
@@ -167,6 +173,10 @@ func (g *Game) u(x float64) float32 { return float32(x * g.k) }
 
 func (g *Game) Update() error {
 	g.frame++
+	g.autosave()
+	if g.updateMenu() {
+		return nil // paused while the menu is open
+	}
 	if g.updateEditor() {
 		return nil // paused while the editor is open
 	}
@@ -209,12 +219,12 @@ func (g *Game) Update() error {
 		}
 	}
 	onButton := func(x, y float64) bool {
-		return g.cast.hit(x, y) || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.hexBtn.hit(x, y)
+		return g.cast.hit(x, y) || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.menuBtn.hit(x, y) || g.hexBtn.hit(x, y)
 	}
 	press := func(id int, x, y float64) {
-		in.Restart = true
 		switch {
 		case g.cast.hit(x, y):
+			in.Restart = true
 			g.castAll(&in)
 		case g.vent.hit(x, y):
 			in.Vent = true
@@ -226,9 +236,12 @@ func (g *Game) Update() error {
 				mode = "stick"
 			}
 			savePref(stickPref, mode)
+		case g.menuBtn.hit(x, y):
+			g.openMenu()
 		case g.hexBtn.hit(x, y):
 			g.openEditor()
 		default:
+			in.Restart = true
 			if g.stickMode && !g.stick.On && x < float64(g.w)/2 {
 				g.stick.Begin(id, x, y)
 			}
@@ -273,7 +286,7 @@ func (g *Game) Update() error {
 	}
 
 	g.sim.Input = in
-	if g.ed.on { // the HEX button opened it this frame
+	if g.ed.on || g.menu != menuClosed { // a button opened one this frame
 		return nil
 	}
 	g.sim.Step(1.0 / float32(ebiten.TPS()))
@@ -305,11 +318,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	g.drawFloor(screen)
 	g.drawDrops(screen)
+	g.drawSalvage(screen)
 	g.drawActors(screen)
 	g.drawFX(screen)
 	g.drawHUD(screen)
 	if g.ed.on {
 		g.drawEditor(screen)
+	}
+	if g.menu != menuClosed {
+		g.drawMenu(screen)
 	}
 }
 
@@ -546,6 +563,8 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 		case game.FXLoot:
 			c := rarityCol[f.Slot%skill.NumRarities]
 			g.label(screen, g.small, rarityName[f.Slot%skill.NumRarities], x, y-s*0.9-float64(k)*s*1.2, fade(c, a), true)
+		case game.FXSalvage:
+			g.label(screen, g.face, fmt.Sprintf("SALVAGED %.0f", f.Value), x, y-s*1.1-float64(k)*s*1.4, fade(colSalvage, a), true)
 		case game.FXFull:
 			g.label(screen, g.small, "PACK FULL", x, y-s*0.9-float64(k)*s, fade(colHot, a), true)
 		case game.FXVent:
@@ -626,7 +645,14 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 
 	// Top left: depth and kills.
 	g.label(screen, g.face, fmt.Sprintf("DEPTH %d", sim.Depth), float64(u(14)), float64(u(20)), colText, false)
-	g.label(screen, g.small, fmt.Sprintf("kills %d   best %d   lv %d   pack %d/%d", sim.Kills, sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize), float64(u(14)), float64(u(40)), colDim, false)
+	info := fmt.Sprintf("kills %d  best %d  lv %d  pack %d/%d", sim.Kills, sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)
+	if n := sim.Unsecured(); n > 0 {
+		info += fmt.Sprintf(" (%d new, safe at %d)", n, sim.NextCheckpoint())
+	}
+	if c := &sim.Cache; c.Active && c.Depth != sim.Depth {
+		info += fmt.Sprintf("  cache on %d", c.Depth)
+	}
+	g.label(screen, g.small, info, float64(u(14)), float64(u(40)), colDim, false)
 
 	// Bars: hull, power, heat. Centered on wide screens, under the depth
 	// line on narrow ones.
@@ -721,7 +747,13 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		g.label(screen, g.face, b.label, b.x, b.y, colText, true)
 	}
 
-	// Movement mode toggle, and the stick itself.
+	// Menu and movement mode toggles, and the stick itself.
+	{
+		m := g.menuBtn
+		vector.DrawFilledRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), colPanel, false)
+		vector.StrokeRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), u(1.5), colDim, false)
+		g.label(screen, g.small, "MENU", m.x+m.w/2, m.y+m.h/2, colDim, true)
+	}
 	{
 		m := g.modeBtn
 		label, c := "MOVE: FOLLOW", colDim
@@ -768,6 +800,13 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		}
 	}
 
+	if t := sim.CheckpointT; t > 0 && sim.State == game.Playing {
+		a := min(1, t)
+		y := float64(H) * 0.3
+		g.label(screen, g.big, "CHECKPOINT", float64(W/2), y, fade(colSalvage, a), true)
+		g.label(screen, g.face, "pack secured", float64(W/2), y+float64(u(28)), fade(colText, a), true)
+	}
+
 	switch sim.State {
 	case game.Descending:
 		a := min(1, sim.StateT/game.DescendTime)
@@ -776,8 +815,24 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	case game.Dead:
 		vector.DrawFilledRect(screen, 0, 0, W, H, color.RGBA{0, 0, 0, 0xb0}, false)
 		g.label(screen, g.big, "SIGNAL LOST", float64(W/2), float64(H/2)-float64(u(30)), colHot, true)
-		g.label(screen, g.face, fmt.Sprintf("depth %d · %d kills", sim.Depth, sim.Kills), float64(W/2), float64(H/2)+float64(u(8)), colText, true)
-		g.label(screen, g.small, "tap, Enter or Space to start a new run", float64(W/2), float64(H/2)+float64(u(34)), colDim, true)
+		d := sim.LastDeath
+		y := float64(H/2) + float64(u(8))
+		g.label(screen, g.face, fmt.Sprintf("falling back to depth %d", d.To), float64(W/2), y, colText, true)
+		y += float64(u(24))
+		if d.Mercy {
+			g.label(screen, g.small, "a shorter fall: you went down recently", float64(W/2), y, colDim, true)
+			y += float64(u(18))
+		}
+		if d.Lost > 0 {
+			g.label(screen, g.small, fmt.Sprintf("%d new parts left in a salvage cache on depth %d", d.Lost, d.From), float64(W/2), y, colSalvage, true)
+			y += float64(u(18))
+		}
+		if d.Gone > 0 {
+			g.label(screen, g.small, fmt.Sprintf("your old cache is gone for good (%d parts)", d.Gone), float64(W/2), y, colHot, true)
+			y += float64(u(18))
+		}
+		g.label(screen, g.small, "rig, hexes and the rest of your pack are safe", float64(W/2), y, colDim, true)
+		g.label(screen, g.small, "tap, Enter or Space to redeploy", float64(W/2), y+float64(u(24)), colDim, true)
 	}
 }
 

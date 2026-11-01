@@ -35,8 +35,12 @@ type Drop struct {
 type Stash struct {
 	Inv   loot.Inventory
 	Drops []Drop
-	// Picked counts parts picked up this run.
+	// Picked counts parts ever picked up.
 	Picked int
+	// Fresh marks pack cells holding a part picked up since the last
+	// checkpoint. A death drops those into the salvage cache. Parts
+	// slotted into a hex are always safe.
+	Fresh [loot.InventorySize]bool
 
 	table    *loot.Table
 	fullAt   skill.Coord // tile where the "full" warning last showed
@@ -49,6 +53,7 @@ func (s *Sim) resetStash() {
 		s.Stash.Drops = make([]Drop, 0, MaxDrops)
 	}
 	s.Stash.Inv.Clear()
+	s.Stash.Fresh = [loot.InventorySize]bool{}
 	s.Stash.Drops = s.Stash.Drops[:0]
 	s.Stash.Picked = 0
 	s.Stash.fullShow = false
@@ -71,8 +76,9 @@ func (s *Sim) loadLoot(level int) {
 	}
 }
 
-// dropLoot rolls a dying enemy's drop. The roll is seeded by the floor and
-// the enemy, so a run drops the same parts whatever order things die in.
+// dropLoot rolls a dying enemy's drop. The roll is seeded by the floor,
+// the visit and the enemy, so one visit drops the same parts whatever
+// order things die in, and coming back to a floor rolls new ones.
 func (s *Sim) dropLoot(id skill.EntityID) {
 	a := &s.Actors[id]
 	if int(a.Kind) >= len(dropChance) || len(s.Stash.Drops) == cap(s.Stash.Drops) {
@@ -82,7 +88,7 @@ func (s *Sim) dropLoot(id skill.EntityID) {
 	if a.U.Level > s.Depth {
 		chance += DropElite
 	}
-	r := loot.NewRNG(loot.Seed(s.Floor.Seed, int(id)))
+	r := loot.NewRNG(loot.Seed(s.Floor.Seed^hash(uint64(s.Visits)), int(id)))
 	p, ok := s.Stash.table.Drop(&r, s.Depth, chance)
 	if !ok {
 		return
@@ -123,7 +129,8 @@ func (s *Sim) pickup(dt float32) {
 			i++
 			continue
 		}
-		if s.Stash.Inv.Add(d[i].Part) < 0 {
+		cell := s.Stash.Inv.Add(d[i].Part)
+		if cell < 0 {
 			if !s.Stash.fullShow {
 				s.Stash.fullShow, s.Stash.fullAt = true, at
 				s.addFX(FX{Kind: FXFull, At: at, Life: 1.2})
@@ -132,11 +139,16 @@ func (s *Sim) pickup(dt float32) {
 			continue
 		}
 		s.Stash.Picked++
+		s.Stash.Fresh[cell] = true
+		s.Dirty = true
 		s.addFX(FX{Kind: FXLoot, At: at, Slot: int(d[i].Part.Rarity), Life: 1.0})
 		d[i] = d[len(d)-1]
 		d = d[:len(d)-1]
 	}
 	s.Stash.Drops = d
+	if p.U.Alive {
+		s.salvage(at)
+	}
 }
 
 // Edits. Each one checks the sockets, applies the change, recompiles the
@@ -160,7 +172,7 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 	if old.Kind == skill.SlotNested {
 		return errors.New("that slot holds a nested hex")
 	}
-	in, has := inv.Parts[cell], inv.Has[cell]
+	in, has, fresh := inv.Parts[cell], inv.Has[cell], s.Stash.Fresh[cell]
 	if !has && old.Kind == skill.SlotEmpty {
 		return nil
 	}
@@ -180,9 +192,13 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 	} else {
 		inv.Take(cell)
 	}
+	// Whatever comes out of a hex into the pack was already safe, and a
+	// part that goes into a hex is secured by slotting it.
+	s.Stash.Fresh[cell] = false
 	if err := s.recompile(hex); err != nil {
 		h.Slots[slot] = old
 		inv.Parts[cell], inv.Has[cell] = in, has
+		s.Stash.Fresh[cell] = fresh
 		return err
 	}
 	return nil
@@ -249,11 +265,18 @@ func (s *Sim) MoveCell(a, b int) {
 	v := &s.Stash.Inv
 	v.Parts[a], v.Parts[b] = v.Parts[b], v.Parts[a]
 	v.Has[a], v.Has[b] = v.Has[b], v.Has[a]
+	f := &s.Stash.Fresh
+	f[a], f[b] = f[b], f[a]
+	s.Dirty = true
 }
 
 // Scrap throws away the part in an inventory cell.
 func (s *Sim) Scrap(cell int) bool {
 	_, ok := s.Stash.Inv.Take(cell)
+	if ok {
+		s.Stash.Fresh[cell] = false
+		s.Dirty = true
+	}
 	return ok
 }
 
@@ -282,6 +305,7 @@ func (s *Sim) recompile(hex int) error {
 		}
 		return err
 	}
+	s.Dirty = true
 	p := s.Load.Progs[hex]
 	if l := s.Disp.Loadout(s.Player); l != nil {
 		l.Progs[hex] = p

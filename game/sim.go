@@ -126,9 +126,24 @@ type Sim struct {
 	State  State
 	StateT float32
 	Kills  int
-	Best   int // deepest floor reached this session
-	Time   float64
+	Best   int     // deepest floor ever reached
+	Time   float64 // seconds of play, ever
 	FX     FXBuf
+
+	// Progress that lasts (save.go). Points are the rig's attribute
+	// points. Cache is the salvage from the last death. Visits counts
+	// floor loads, so a floor seen again drops different loot.
+	Points      skill.Points
+	Cache       Cache
+	Deaths      int
+	LastDeathAt float64
+	LastDeath   Death
+	Visits      int
+	// CheckpointT counts down while the "pack secured" notice shows.
+	CheckpointT float32
+	// Dirty is set when something worth saving changed. The front end
+	// saves and Save clears it.
+	Dirty bool
 
 	// SlotFlash counts down after a slot tries to fire; SlotLast is how.
 	SlotFlash [MaxSlots]float32
@@ -154,13 +169,20 @@ func New(seed uint64) *Sim {
 	return s
 }
 
-// NewRun throws away the current run and starts again at depth 1.
+// DefaultPoints is the rig a new save starts with.
+var DefaultPoints = skill.Points{Capacity: RigPoints, Recharge: RigPoints, Cooling: 0, Processing: 5}
+
+// NewRun wipes all progress and starts again at depth 1 with the preset
+// hexes: a fresh start. Dying doesn't do this; see save.go.
 func (s *Sim) NewRun(seed uint64) {
 	s.RunSeed = seed
-	s.Kills = 0
+	s.Kills, s.Best, s.Time, s.Visits = 0, 0, 0, 0
+	s.Points = DefaultPoints
+	s.Cache, s.Deaths, s.LastDeathAt, s.LastDeath = Cache{}, 0, 0, Death{}
 	s.Load = Loadout{}
 	s.resetStash()
 	s.load(1, 1)
+	s.Dirty = true
 }
 
 func (s *Sim) floorSeed(depth int) uint64 {
@@ -174,6 +196,12 @@ func (s *Sim) floorSeed(depth int) uint64 {
 func (s *Sim) load(depth int, hpFrac float32) {
 	s.Depth = depth
 	s.Best = max(s.Best, depth)
+	s.Visits++
+	s.CheckpointT = 0
+	if IsCheckpoint(depth) {
+		s.secure()
+		s.CheckpointT = CheckpointShow
+	}
 	s.Floor = s.Gen.Generate(s.floorSeed(depth), depth)
 	f := s.Floor
 	n := f.W * f.H
@@ -201,7 +229,7 @@ func (s *Sim) load(depth int, hpFrac float32) {
 		s.Actors[id].Facing = uint8(hash(uint64(id)+f.Seed) % 6)
 	}
 
-	s.Rig = skill.NewRig(skill.Points{Capacity: RigPoints, Recharge: RigPoints, Cooling: 0, Processing: 5})
+	s.Rig = skill.NewRig(s.Points)
 	s.loadLoot(lvl)
 	s.Banks = [skill.MaxEquip]skill.Bank{} // every floor starts uncharged
 	s.Disp = skill.NewDispatcher(s.Eval, s)
@@ -211,6 +239,7 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	s.State, s.StateT = Playing, 0
 	s.strikeCD = 0
 	s.refreshField()
+	s.Dirty = true
 }
 
 func (s *Sim) spawn(k Kind, team uint8, at skill.Coord, level int, hp float32) skill.EntityID {
@@ -246,11 +275,12 @@ func (s *Sim) Step(dt float32) {
 		s.SlotFlash[i] = max(0, s.SlotFlash[i]-dt)
 	}
 	s.StateT += dt
+	s.CheckpointT = max(0, s.CheckpointT-dt)
 	switch s.State {
 	case Dead:
 		s.ageCorpses(dt)
 		if s.Input.Restart && s.StateT > 0.5 {
-			s.NewRun(hash(s.RunSeed + uint64(s.Time*1000)))
+			s.respawn()
 		}
 		return
 	case Descending:
@@ -272,6 +302,7 @@ func (s *Sim) Step(dt float32) {
 	p := s.P()
 	if !p.U.Alive {
 		s.State, s.StateT = Dead, 0
+		s.die()
 		return
 	}
 	if p.Arrived() && s.Floor.At(p.At) == dungeon.Stairs {

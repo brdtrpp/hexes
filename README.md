@@ -24,8 +24,8 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 
 ## Controls
 
-- Desktop: WASD or arrows to move (or hold the mouse button and point), Space casts every on-cast hex, R or Shift vents heat, Tab or E opens the hex editor (1 to 4 pick a hex, Esc closes), Enter restarts after dying.
-- Touch: hold anywhere to walk toward your finger, tap CAST, VENT and HEX. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
+- Desktop: WASD or arrows to move (or hold the mouse button and point), Space casts every on-cast hex, R or Shift vents heat, Tab or E opens the hex editor (1 to 4 pick a hex, Esc closes), Enter redeploys after dying, Esc or M opens the menu.
+- Touch: hold anywhere to walk toward your finger, tap CAST, VENT and HEX, and MENU (top right) for your record and the start-fresh button. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
 - Strikes on an adjacent foe are automatic. Walk over a dropped part to pick it up. Walk onto the stairs to go down a level.
 - Hex editor (game paused): tap a part, then tap where it goes. Pack to slot swaps loot in, slot to slot rewires the hex, slot to an empty pack cell takes a part out, SCRAP throws away the picked pack part. The hex recompiles on every tap; a refused edit says why.
 
@@ -194,9 +194,26 @@ Movement (`game/move.go`):
 - Hazards and stairs go off when the player's center is on the hex. Walking into a pit (center enters it) costs 25% of max hull, puts you back on the last tile you stood on and stuns you 0.5 s. Pushes into a pit still kill.
 - Facing is your last movement direction, as a true angle. Cones and from-behind use it; targeting otherwise works from your current hex.
 
-Enemies: grunts (average), skitters (fast, fragile, from depth 2), brutes (slow, tough, from depth 3), plus elites two levels up from depth 4 (white ring). They wake when you come within 10 steps on foot or when hit, chase along a distance field from the player (recomputed only when you change tile), and claw when adjacent. Stairs take you to the next depth with 30% hull back. Dying restarts at depth 1 on a new seed.
+Enemies: grunts (average), skitters (fast, fragile, from depth 2), brutes (slow, tough, from depth 3), plus elites two levels up from depth 4 (white ring). They wake when you come within 10 steps on foot or when hit, chase along a distance field from the player (recomputed only when you change tile), and claw when adjacent. Stairs take you to the next depth with 30% hull back. Dying drops you back a few floors (see Permanent progress).
 
 A headless bot (steer toward the next hex on the way to the stairs, cast at anything within 4, vent above 85 heat) plays 12 seeds to depth 4 in tests without dying, so every slot fires, pits and walls get kills, and the run is deterministic for a given seed and input stream.
+
+## Permanent progress (`game/save.go`, `cmd/hexes/menu.go`)
+
+Hexes is not a roguelike. The rig's points, the depth you've reached, your best depth, kills, the pack and every hex edit save on your device and come back when you reload: localStorage (key `hexes.save`) in the browser, a file in the user config folder (`hexes/hexes.save`) on desktop. Floors are the only temporary thing. Each depth always has the same layout for a save (the floor seed comes from the save's seed and the depth), but enemies respawn and loot rolls again on every visit, so reloading or walking a floor twice doesn't hand out the same parts twice. Charge banks still start empty on every floor.
+
+Saving: the sim sets `Dirty` when something worth keeping changes (a new floor, a pickup, an edit, a death, a recovered cache). The front end writes then, at most once a second while you play and at once while paused. Nothing saves per frame, and the game step stays allocation-free. A reload starts you at the top of the floor you were on with the hull share you had. A save taken on the death screen already counts the death.
+
+Start fresh: MENU (top right, or Esc / M) shows your record, and START FRESH wipes everything after a second tap on WIPE IT. It's the only way to lose progress.
+
+Death:
+- Fall: you come back at full hull `max(2, round(depth / 10))` floors up, never above depth 1. Depth 12 costs 2 floors, 30 costs 3, 50 costs 5, 100 costs 10. Level is depth, so it drops with you.
+- Mercy: a death within 300 s of play of the last one costs less, from half (right after) back up to the full fall at 300 s, and never less than a floor. A bad patch can't spiral.
+- Checkpoints: every 5th depth (5, 10, 15...) secures the pack. Parts picked up since the last checkpoint are unsecured; the pack line on the HUD counts them and the editor tags them NEW.
+- Slotting secures: a part you put in a hex is safe from then on, and so is anything that comes out of a hex. Death only takes unsecured parts still loose in the pack.
+- Salvage cache: the unsecured parts drop where you died, as a gold crate on that depth. Walk onto it and they go back in the pack (still unsecured until the next checkpoint); what doesn't fit lies on the floor. An arrow at the screen edge points to it on that floor, and the HUD says which depth it's on elsewhere. Die again before you reach it and it's gone for good; the new death leaves a new cache.
+
+Tunable (all constants at the top of `game/save.go`): `CheckpointEvery` 5, `FallMin` 2, `FallFrac` 0.1, `MercyWindow` 300 s, `MercyMin` 0.5.
 
 ## Benchmarks
 
@@ -280,4 +297,4 @@ Drop rolls and pickup run inside the sim step with no allocations. Recompiling o
 - More rule-bending parts (ignite neighbors, open a nested slot, bridge a broken edge).
 - Line of sight and fog of war. Enemies sense you through walls by walking distance.
 - Enemies carrying hexes of their own. Right now they only claw.
-- Saving a run, menus, art and audio. Everything on screen is flat shapes.
+- Spending attribute points (the rig's points save, but the slice still starts everyone on the same rig). Art and audio: everything on screen is flat shapes.
