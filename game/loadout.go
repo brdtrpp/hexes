@@ -59,11 +59,14 @@ func PresetHexes(reg *skill.Registry) (hexes [MaxSlots]*skill.Hex, names, blurbs
 		skill.NewTarget(skill.TargetChain, 4, 3),
 		skill.NewDamage(ty("plasma"), 30),
 		skill.NewMult(skill.VerbDamage, 2))
-	// Slot 2, on hit: every so often a strike shoves its target three hexes.
-	// Pits and walls do the killing.
-	mk(1, "Kinetic Ram", "shoves 3 hexes, into pits",
+	// Slot 2, on hit: every so often a strike shoves its target, pits and
+	// walls do the killing. Then a gate: a foe under 40% hull takes a heavy
+	// kinetic jab (the yes slot), a healthier one a light one (the no slot).
+	mk(1, "Kinetic Ram", "shove, then hits weak foes 3x",
 		skill.NewTrigger(skill.OnHit),
 		skill.NewPush(2),
+		skill.NewGate(skill.GateHull, 0.4),
+		skill.NewDamage(ty("kinetic"), 18),
 		skill.NewDamage(ty("kinetic"), 6))
 	// Slot 3, on kill: the corpse bursts cold, chilling and hurting what's
 	// around it. Cryo parts vent heat, so killing cools the rig.

@@ -44,6 +44,9 @@ type Ctx struct {
 	// OnKill. NoEntity for cast triggers, which then use the nearest foe.
 	Subject EntityID
 	Level   int // caster level, for the per-hit cap
+	// Rig is the caster's rig, for gates that test Heat or Power. Nil
+	// reads as an empty, cold rig.
+	Rig *Rig
 }
 
 // Result tallies one firing.
@@ -144,6 +147,8 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			}
 		case OpStatus:
 			e.status(w, ctx, s, res)
+		case OpGate:
+			e.gate(w, ctx, s)
 		case OpForEach:
 			body := steps[pc+1 : pc+1+int(s.Span)]
 			for i := 0; i < int(e.n[s.Src]); i++ {
@@ -255,6 +260,9 @@ func (e *Evaluator) status(w World, ctx *Ctx, s *Step, res *Result) {
 	dt := e.Reg.Get(s.Type)
 	dur := s.Value
 	if dt.Status == StatusCloak {
+		if e.n[s.Src2] == 0 {
+			return // in a gate branch nobody took
+		}
 		if c := w.Unit(ctx.Caster); c != nil && dur > c.Stealth {
 			c.Stealth = dur
 		}
@@ -294,4 +302,75 @@ func (e *Evaluator) status(w World, ctx *Ctx, s *Step, res *Result) {
 			u.MarkOwner = ctx.Caster
 		}
 	}
+}
+
+// gate splits register Src into Dst (passed) and Dst2 (failed).
+func (e *Evaluator) gate(w World, ctx *Ctx, s *Step) {
+	src := e.regs[s.Src][:e.n[s.Src]]
+	var np, nf uint8
+	if !s.Gate.PerFoe() || (s.Gate == GateStatus && e.Reg.Get(s.Type).Status == StatusCloak) {
+		// One test for the whole group: it all goes one way.
+		dst, n := &e.regs[s.Dst2], &nf
+		if e.casterTest(w, ctx, s) {
+			dst, n = &e.regs[s.Dst], &np
+		}
+		*n = uint8(copy(dst[:], src))
+		e.n[s.Dst], e.n[s.Dst2] = np, nf
+		return
+	}
+	for _, id := range src {
+		if e.foeTest(w, ctx, s, id) {
+			e.regs[s.Dst][np] = id
+			np++
+		} else {
+			e.regs[s.Dst2][nf] = id
+			nf++
+		}
+	}
+	e.n[s.Dst], e.n[s.Dst2] = np, nf
+}
+
+// casterTest is a gate condition that reads the caster, not the foe.
+func (e *Evaluator) casterTest(w World, ctx *Ctx, s *Step) bool {
+	r := ctx.Rig
+	switch s.Gate {
+	case GateHeat:
+		return r != nil && r.Heat > s.Value*r.MaxHeat
+	case GatePower:
+		return r != nil && r.Power > s.Value*r.MaxPower
+	case GateStatus: // a cloak type: the caster is stealthed right now
+		u := w.Unit(ctx.Caster)
+		return u != nil && u.Stealth > 0
+	}
+	return false
+}
+
+// foeTest is a gate condition on one foe. Dead or missing foes fail.
+func (e *Evaluator) foeTest(w World, ctx *Ctx, s *Step, id EntityID) bool {
+	u := w.Unit(id)
+	if u == nil || !u.Alive {
+		return false
+	}
+	switch s.Gate {
+	case GateHull:
+		return u.HP < s.Value*u.MaxHP
+	case GateCrowd:
+		return w.Select(TargetAdjacent, id, ctx.Caster, s.Value, e.scratch[:]) >= int(s.Count)
+	case GateStatus:
+		switch e.Reg.Get(s.Type).Status {
+		case StatusBurn, StatusToxin:
+			for _, d := range u.Dots {
+				if d.Left > 0 && d.Type == s.Type {
+					return true
+				}
+			}
+		case StatusChill:
+			return u.Frozen || u.SlowLeft > 0
+		case StatusStagger:
+			return u.StunLeft > 0
+		case StatusMark:
+			return u.MarkLeft > 0
+		}
+	}
+	return false
 }

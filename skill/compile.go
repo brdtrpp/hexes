@@ -28,6 +28,14 @@ const NestCostPerDepth = 0.5
 //     multipliers stacks onto the same part. A multiplier after a nested hex
 //     scales the matching numbers everywhere inside it. A multiplier with
 //     nothing linked before it is wasted.
+//   - A gate splits a group in two and routes each half one way (see
+//     Hex.Routes for which slots). The group is the targets in the slot
+//     counter-clockwise before it if linked, else the trigger's subject (or
+//     the entity a nested hex runs on); a gate in another gate's branch
+//     takes that branch's half instead. The yes slot runs on the ones that
+//     passed, the no slot on the rest. Effects and nested hexes in a
+//     branch land only on their half, never on the targets beside them.
+//     Targets and multipliers in a branch slot work as they would anywhere.
 func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	trig := -1
 	for i, s := range h.Slots {
@@ -104,13 +112,17 @@ func (c *compiler) cost(p Part, depth int) {
 	if p.Kind == KindEffect && p.Effect != EffectPush {
 		heat += c.reg.Get(p.Type).HeatOffset
 	}
+	power := p.Power
+	if p.Kind == KindGate {
+		power /= p.Rarity.Scale() // rarer gates run leaner
+	}
 	switch p.Quirk {
 	case QuirkRelay:
 		f *= 1 + RelayCost
 	case QuirkRadiant:
 		heat += RadiantHeatCost
 	}
-	c.p.Power += p.Power * f
+	c.p.Power += power * f
 	c.p.Heat += heat * f
 }
 
@@ -133,6 +145,20 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 	}
 	var fed [Slots]span // step range each slot produced, for multipliers
 	first := len(c.p.Steps)
+	routes := h.Routes(start)
+	var pass, fail [Slots]uint8 // each gate's two halves
+	// land is where an effect or nested hex in slot s lands: its gate's
+	// half if it sits in a branch, else the targets beside it.
+	land := func(s int) (src, guard uint8, err error) {
+		if r := routes[s]; r.Gate >= 0 {
+			if r.Branch == BranchYes {
+				return pass[r.Gate], pass[r.Gate], nil
+			}
+			return fail[r.Gate], fail[r.Gate], nil
+		}
+		src, err = c.feed(h, s, tgt, landing)
+		return src, RegCaster, err
+	}
 
 	// Pass 1: targets. They depend on nothing but the origin, so they all
 	// select up front and any effect can read them.
@@ -165,13 +191,43 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			if depth > 0 {
 				return errors.New("nested hex can't have its own trigger")
 			}
-		case sl.Kind == SlotPart && sl.Part.Kind == KindEffect:
+		case sl.Kind == SlotPart && sl.Part.Kind == KindGate:
 			p := sl.Part
-			src, err := c.feed(h, s, tgt, landing)
+			var in uint8
+			if r := routes[s]; r.Gate >= 0 {
+				in = pass[r.Gate]
+				if r.Branch == BranchNo {
+					in = fail[r.Gate]
+				}
+			} else {
+				in = landing
+				if ccw := (s + Slots - 1) % Slots; h.adjacent(ccw, s) && tgt[ccw] >= 0 {
+					in = uint8(tgt[ccw])
+				}
+			}
+			yes, err := c.alloc()
 			if err != nil {
 				return err
 			}
-			st := Step{Src: src, Type: p.Type, Value: p.Value * p.Rarity.Scale()}
+			no, err := c.alloc()
+			if err != nil {
+				return err
+			}
+			pass[s], fail[s] = yes, no
+			i := c.emit(Step{Op: OpGate, Gate: p.Gate, Src: in, Dst: yes, Dst2: no,
+				Type: p.Type, Count: p.Count, Value: p.Value})
+			fed[s] = span{i, i + 1, true}
+			c.cost(p, depth)
+		case sl.Kind == SlotPart && sl.Part.Kind == KindEffect:
+			p := sl.Part
+			src, guard, err := land(s)
+			if err != nil {
+				return err
+			}
+			// Src2 guards effects that ignore Src (a cloak): they only run
+			// while the guard register holds someone. Outside a branch the
+			// guard is the caster, who is always there.
+			st := Step{Src: src, Src2: guard, Type: p.Type, Value: p.Value * p.Rarity.Scale()}
 			switch p.Effect {
 			case EffectDamage:
 				st.Op = OpDamage
@@ -199,7 +255,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			if seen[n] {
 				return errors.New("hex nests itself")
 			}
-			src, err := c.feed(h, s, tgt, landing)
+			src, _, err := land(s)
 			if err != nil {
 				return err
 			}

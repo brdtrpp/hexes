@@ -221,7 +221,11 @@ func (d *Dispatcher) Strike(owner EntityID, p *Program, subject EntityID) Result
 			return res
 		}
 		d.chain = 0
-		res = d.Eval.Run(p, d.World, Ctx{Caster: owner, Subject: subject, Level: u.Level})
+		ctx := Ctx{Caster: owner, Subject: subject, Level: u.Level}
+		if l := d.Loadout(owner); l != nil {
+			ctx.Rig = l.Rig
+		}
+		res = d.Eval.Run(p, d.World, ctx)
 	}
 	d.drain()
 	return res
@@ -341,7 +345,7 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 		d.Stats.Fired++
 		l.Cool[slot] = d.ProcCooldown[p.Trigger]
 		d.chain = ev.Chain
-		res = d.Eval.Run(p, d.World, Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level})
+		res = d.Eval.Run(p, d.World, Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level, Rig: l.Rig})
 	}
 	if d.Listener != nil {
 		d.Listener.Fired(l.Owner, slot, p, o, res)

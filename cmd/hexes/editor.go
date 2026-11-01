@@ -262,6 +262,8 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 		tc = color.RGBA{0xff, 0xe0, 0x60, 0xff}
 	case skill.KindTarget:
 		tc = color.RGBA{0x7d, 0xf0, 0xe0, 0xff}
+	case skill.KindGate:
+		tc = colGate
 	case skill.KindEffect:
 		if p.Effect != skill.EffectPush {
 			tc = typeColor(p.Type)
@@ -359,6 +361,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	if l.slotR > 48*g.k {
 		g.label(screen, g.small, "clockwise", l.ringX, l.ringY+l.slotR*0.48, fade(colDim, 0.6), true)
 	}
+	routes := h.Routes(0)
 	for i, c := range l.slots {
 		s := h.Slots[i]
 		g.partTile(screen, c[0], c[1], l.slotR, true, s.Part, s.Kind == skill.SlotPart, e.pick == pickSlot && e.at == i)
@@ -368,6 +371,14 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 				sock = "trigger"
 			}
 			g.label(screen, g.small, sock, c[0], c[1], fade(colDim, 0.7), true)
+		}
+		// A gate's two ways: the yes slot gets the ones that pass, the no
+		// slot the rest. Tagged at the bottom of the tile.
+		switch routes[i].Branch {
+		case skill.BranchYes:
+			g.label(screen, g.small, "YES", c[0], c[1]+l.slotR*0.62, colYes, true)
+		case skill.BranchNo:
+			g.label(screen, g.small, "NO", c[0], c[1]+l.slotR*0.62, colHot, true)
 		}
 	}
 
@@ -498,5 +509,10 @@ func (g *Game) castAll(in *game.Input) {
 		}
 	}
 }
+
+var (
+	colGate = color.RGBA{0xff, 0xa8, 0x4a, 0xff}
+	colYes  = color.RGBA{0x5c, 0xe0, 0x7a, 0xff}
+)
 
 var rarityName = [skill.NumRarities]string{"+COMMON", "+UNCOMMON", "+RARE", "+EXOTIC"}

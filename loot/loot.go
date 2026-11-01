@@ -112,13 +112,18 @@ func NewTable(reg *skill.Registry) *Table {
 	return t
 }
 
-// Kind weights: effect, target, multiplier, trigger.
-var kindWeights = [...]float32{40, 22, 22, 16}
+// Kind weights: effect, target, multiplier, trigger, gate.
+var kindWeights = [...]float32{40, 22, 22, 16, 10}
 
-// Exotics always carry a quirk, so they skip targets, which have none.
-var exoticKindWeights = [...]float32{45, 0, 30, 25}
+// Exotics always carry a quirk, so they skip targets and gates, which
+// have none.
+var exoticKindWeights = [...]float32{45, 0, 30, 25, 0}
 
-var partKinds = [...]skill.PartKind{skill.KindEffect, skill.KindTarget, skill.KindMult, skill.KindTrigger}
+var partKinds = [...]skill.PartKind{skill.KindEffect, skill.KindTarget, skill.KindMult, skill.KindTrigger, skill.KindGate}
+
+var gateWeights = [...]float32{
+	skill.GateHull: 30, skill.GateHeat: 18, skill.GatePower: 14, skill.GateStatus: 22, skill.GateCrowd: 16,
+}
 
 var triggerWeights = [...]float32{
 	skill.OnCast: 26, skill.OnHit: 20, skill.OnKill: 20, skill.FromStealth: 4,
@@ -165,6 +170,8 @@ func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
 		p = t.target(r)
 	case skill.KindEffect:
 		p = t.effect(r, rar == skill.Exotic)
+	case skill.KindGate:
+		p = t.gate(r)
 	default:
 		p = t.mult(r)
 	}
@@ -224,6 +231,35 @@ func (t *Table) effect(r *RNG, noPush bool) skill.Part {
 		return skill.NewDamage(ty, max(1, amt))
 	}
 }
+
+// gate rolls a condition and its threshold. Status gates skip types whose
+// status is a cloak: casting breaks stealth, so it would rarely pass.
+func (t *Table) gate(r *RNG) skill.Part {
+	switch k := skill.GateKind(r.pick(gateWeights[:])); k {
+	case skill.GateHull:
+		return skill.NewGate(k, twentieth(r.Range(0.2, 0.5)))
+	case skill.GateHeat, skill.GatePower:
+		return skill.NewGate(k, twentieth(r.Range(0.35, 0.75)))
+	case skill.GateCrowd:
+		return skill.NewCrowdGate(float32(1+r.Intn(2)), uint8(2+r.Intn(3)))
+	default:
+		var ok [skill.MaxTypes]skill.TypeID
+		n := 0
+		for i := 0; i < t.Reg.Len(); i++ {
+			if st := t.Reg.Get(skill.TypeID(i)).Status; st != skill.StatusNone && st != skill.StatusCloak {
+				ok[n] = skill.TypeID(i)
+				n++
+			}
+		}
+		if n == 0 {
+			return skill.NewGate(skill.GateHull, 0)
+		}
+		return skill.NewStatusGate(ok[r.Intn(n)])
+	}
+}
+
+// twentieth rounds to the nearest 5%.
+func twentieth(x float32) float32 { return float32(int(x*20+0.5)) / 20 }
 
 func (t *Table) mult(r *RNG) skill.Part {
 	v := skill.Verb(r.pick(verbWeights[:]))

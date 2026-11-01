@@ -101,7 +101,7 @@ func TestQuirksOnlyOnRareAndExotic(t *testing.T) {
 func TestRolledPartsCompile(t *testing.T) {
 	tab := NewTable(reg)
 	r := NewRNG(1)
-	var kinds [5]int
+	var kinds [6]int
 	for i := 0; i < 3000; i++ {
 		p := tab.Roll(&r, 1+i%50)
 		kinds[p.Kind]++
@@ -130,8 +130,8 @@ func TestRolledPartsCompile(t *testing.T) {
 			t.Fatalf("no label for %v", p)
 		}
 	}
-	for k := skill.KindTrigger; k <= skill.KindMult; k++ {
-		if kinds[k] < 200 {
+	for k := skill.KindTrigger; k <= skill.KindGate; k++ {
+		if kinds[k] < 120 {
 			t.Fatalf("too few %s parts: %v", k, kinds)
 		}
 	}

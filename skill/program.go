@@ -25,9 +25,14 @@ const (
 	// entity alone in register Dst. This is how nested hexes run without a
 	// tree: the body is inlined right after this step.
 	OpForEach
+	// OpGate splits Src in two: entities that pass condition Gate go to
+	// Dst, the rest to Dst2. Branches are just effects on those two
+	// registers, so a branch nobody took runs on an empty set and does
+	// nothing: no jumps.
+	OpGate
 )
 
-var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach"}
+var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate"}
 
 func (o Op) String() string { return opNames[o] }
 
@@ -54,6 +59,8 @@ type Step struct {
 	Src2   uint8
 	Dst    uint8
 	Count  uint8
+	Dst2   uint8    // OpGate: where the failures go
+	Gate   GateKind // OpGate: the condition
 	Span   uint16
 	Value  float32
 }
@@ -104,6 +111,16 @@ func (p *Program) String() string {
 		case OpForEach:
 			fmt.Fprintf(&b, "foreach r%d in r%d (%d steps)", s.Dst, s.Src, s.Span)
 			ends = append(ends, i+1+int(s.Span))
+		case OpGate:
+			fmt.Fprintf(&b, "r%d, r%d = gate %s r%d", s.Dst, s.Dst2, s.Gate, s.Src)
+			switch s.Gate {
+			case GateStatus:
+				fmt.Fprintf(&b, " type=%d", s.Type)
+			case GateCrowd:
+				fmt.Fprintf(&b, " count=%d radius=%.2f", s.Count, s.Value)
+			default:
+				fmt.Fprintf(&b, " at=%.2f", s.Value)
+			}
 		}
 		b.WriteByte('\n')
 	}

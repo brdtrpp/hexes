@@ -62,6 +62,23 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 		}
 	case skill.KindMult:
 		return fmt.Sprintf("x%.2f", 1+(p.Value-1)*sc), p.Verb.String()
+	case skill.KindGate:
+		switch p.Gate {
+		case skill.GateHull:
+			return "IF HULL", fmt.Sprintf("< %.0f%%", p.Value*100)
+		case skill.GateHeat:
+			return "IF HEAT", fmt.Sprintf("> %.0f%%", p.Value*100)
+		case skill.GatePower:
+			return "IF POWER", fmt.Sprintf("> %.0f%%", p.Value*100)
+		case skill.GateStatus:
+			dt := reg.Get(p.Type)
+			if dt.Status == skill.StatusCloak {
+				return "IF HIDDEN", "stealthed"
+			}
+			return "IF " + strings.ToUpper(dt.Status.String()), dt.Name
+		case skill.GateCrowd:
+			return "IF CROWD", fmt.Sprintf("%d+ in %g", p.Count, p.Value)
+		}
 	}
 	return "EMPTY", ""
 }
@@ -84,6 +101,9 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 	fmt.Fprintf(&b, ", %.0f power", p.Power)
 	if p.Heat != 0 {
 		fmt.Fprintf(&b, " %+.0f heat", p.Heat)
+	}
+	if p.Kind == skill.KindGate {
+		b.WriteString(". Next slot clockwise hits the ones that pass, the slot after it the rest")
 	}
 	if q := QuirkText(p.Quirk); q != "" {
 		b.WriteString(". ")

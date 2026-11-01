@@ -43,6 +43,20 @@ func fullHex(tb testing.TB) *Hex {
 	return h
 }
 
+// gatedHex: chain three foes, gate them on having two others within a
+// hex, burn the crowded ones and chill the rest for longer. Every run
+// does a crowd check per foe, the costliest gate.
+func gatedHex(tb testing.TB) *Hex {
+	h := NewHex("gated", [6]SocketKind{T, G, W, W, W, W})
+	h.Slots[0] = Slot{Kind: SlotPart, Part: NewTrigger(OnCast)}
+	h.Slots[1] = Slot{Kind: SlotPart, Part: NewTarget(TargetChain, 3, 3)}
+	h.Slots[2] = Slot{Kind: SlotPart, Part: NewCrowdGate(1, 2)}
+	h.Slots[3] = Slot{Kind: SlotPart, Part: NewDamage(id("plasma"), 10)}
+	h.Slots[4] = Slot{Kind: SlotPart, Part: NewStatus(id("cryo"), 2)}
+	h.Slots[5] = Slot{Kind: SlotPart, Part: NewMult(VerbDuration, 1.5)}
+	return h
+}
+
 var benchHexes = []struct {
 	name  string
 	build func(testing.TB) *Hex
@@ -50,6 +64,7 @@ var benchHexes = []struct {
 	{"simple", simpleHex},
 	{"nested", nestedHex},
 	{"full", fullHex},
+	{"gated", gatedHex},
 }
 
 func BenchmarkCompile(b *testing.B) {

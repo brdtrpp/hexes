@@ -11,6 +11,9 @@ const (
 	KindTarget
 	KindEffect
 	KindMult
+	// KindGate tests a condition and splits the chain two ways. See the
+	// routing rules on Compile.
+	KindGate
 )
 
 func (k PartKind) String() string {
@@ -23,6 +26,8 @@ func (k PartKind) String() string {
 		return "effect"
 	case KindMult:
 		return "mult"
+	case KindGate:
+		return "gate"
 	}
 	return "none"
 }
@@ -94,6 +99,48 @@ const (
 var verbNames = [...]string{"damage", "push", "duration", "count", "radius", "all"}
 
 func (v Verb) String() string { return verbNames[v] }
+
+// GateKind is the condition a Gate part tests.
+type GateKind uint8
+
+const (
+	// GateHull passes foes whose hull is below Value of its max (0.3 is
+	// "under 30%").
+	GateHull GateKind = iota
+	// GateHeat passes everyone when the caster's Heat is above Value of
+	// max, and no one otherwise.
+	GateHeat
+	// GatePower passes everyone when the caster's Power is above Value of
+	// max, and no one otherwise.
+	GatePower
+	// GateStatus passes foes suffering Type's status: burning or eaten by
+	// toxin of that type, chilled or frozen, staggered, marked. A cloak
+	// type tests the caster instead: everyone passes while stealthed.
+	GateStatus
+	// GateCrowd passes foes with at least Count other foes within Value
+	// hexes of them.
+	GateCrowd
+)
+
+// NumGates is how many gate conditions exist.
+const NumGates = 5
+
+var gateNames = [...]string{"hull", "heat", "power", "status", "crowd"}
+
+func (g GateKind) String() string { return gateNames[g] }
+
+// PerFoe reports whether the gate tests each foe on its own. The others
+// test the caster's rig, so the whole group goes one way.
+func (g GateKind) PerFoe() bool { return g == GateHull || g == GateStatus || g == GateCrowd }
+
+// Gate defaults.
+const (
+	DefaultHullGate  = 0.3
+	DefaultHeatGate  = 0.5
+	DefaultPowerGate = 0.5
+	DefaultCrowd     = 3
+	GatePowerCost    = 1
+)
 
 // Rarity is a loot tier. It scales a part's numbers when compiled.
 type Rarity uint8
@@ -177,10 +224,13 @@ type Part struct {
 	Effect  EffectKind
 	Type    TypeID // damage and status effects
 	Verb    Verb   // multipliers
+	Gate    GateKind
 	// Value means: trigger damage multiplier, target radius, damage amount,
-	// push distance in hexes, status duration in seconds, or multiplier factor.
+	// push distance in hexes, status duration in seconds, multiplier factor,
+	// or a gate's threshold (a fraction of max, or the crowd radius).
 	Value float32
-	// Count is the max targets for Nearest and the hop count for Chain.
+	// Count is the max targets for Nearest, the hop count for Chain and the
+	// foes a crowd gate needs.
 	Count uint8
 	// Power is spent and Heat added each time the hex fires.
 	Power, Heat float32
@@ -204,6 +254,8 @@ func (p Part) String() string {
 		return p.Effect.String()
 	case KindMult:
 		return fmt.Sprintf("x%.2g %s", p.Value, p.Verb)
+	case KindGate:
+		return "gate " + p.Gate.String()
 	}
 	return "empty"
 }
@@ -292,6 +344,43 @@ func NewStatus(t TypeID, seconds float32) Part {
 // NewMult makes a multiplier. Bigger factors run hotter.
 func NewMult(v Verb, factor float32) Part {
 	return Part{Kind: KindMult, Verb: v, Value: factor, Power: 3, Heat: 1 + 4*(factor-1)}
+}
+
+// NewGate makes a gate. A zero value takes the default threshold: hull
+// under 30%, Heat or Power over half, three foes within one hex.
+func NewGate(k GateKind, value float32) Part {
+	p := Part{Kind: KindGate, Gate: k, Value: value, Power: GatePowerCost}
+	if k == GateCrowd {
+		p.Count = DefaultCrowd
+	}
+	if p.Value > 0 {
+		return p
+	}
+	switch k {
+	case GateHull:
+		p.Value = DefaultHullGate
+	case GateHeat:
+		p.Value = DefaultHeatGate
+	case GatePower:
+		p.Value = DefaultPowerGate
+	case GateCrowd:
+		p.Value = 1
+	}
+	return p
+}
+
+// NewStatusGate passes foes suffering a damage type's status.
+func NewStatusGate(t TypeID) Part {
+	return Part{Kind: KindGate, Gate: GateStatus, Type: t, Power: GatePowerCost}
+}
+
+// NewCrowdGate passes foes with at least count others within radius hexes.
+func NewCrowdGate(radius float32, count uint8) Part {
+	p := NewGate(GateCrowd, radius)
+	if count > 0 {
+		p.Count = count
+	}
+	return p
 }
 
 // WithRarity returns the part at a different tier.

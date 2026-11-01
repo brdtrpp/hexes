@@ -14,9 +14,9 @@ type SocketKind uint8
 
 const (
 	SocketTrigger SocketKind = iota // triggers only
-	SocketTarget                    // targets only
+	SocketTarget                    // targets or gates
 	SocketEffect                    // effects or multipliers
-	SocketWild                      // targets, effects, multipliers or a nested hex
+	SocketWild                      // targets, effects, multipliers, gates or a nested hex
 )
 
 func (s SocketKind) String() string {
@@ -29,11 +29,11 @@ func (s SocketKind) Accepts(k PartKind) bool {
 	case SocketTrigger:
 		return k == KindTrigger
 	case SocketTarget:
-		return k == KindTarget
+		return k == KindTarget || k == KindGate
 	case SocketEffect:
 		return k == KindEffect || k == KindMult
 	case SocketWild:
-		return k == KindTarget || k == KindEffect || k == KindMult
+		return k == KindTarget || k == KindEffect || k == KindMult || k == KindGate
 	}
 	return false
 }
@@ -194,4 +194,63 @@ func fnv64(s string) uint64 {
 		h *= 0x100000001b3
 	}
 	return h
+}
+
+// Branch says which way of a gate a slot sits on.
+type Branch uint8
+
+const (
+	BranchNone Branch = iota
+	BranchYes         // runs on whoever passed the gate
+	BranchNo          // runs on whoever failed it
+)
+
+// Route is a slot's place in a gate: which slot holds the gate it hangs
+// off and which way. Gate is -1 for slots no gate routes.
+type Route struct {
+	Gate   int8
+	Branch Branch
+}
+
+// Routes works out which slots hang off which gates, reading clockwise
+// from slot start (the trigger's slot, or 0 for a nested hex). The rules,
+// which Compile follows:
+//   - A gate's yes slot is the next slot clockwise, its no slot the one
+//     after that. Each must be linked to the slot before it, and neither
+//     can wrap past the end of the ring back to the start.
+//   - A gate in a yes slot tests only the ones that passed (both must
+//     hold) and takes the next two slots as its own, so the outer gate
+//     gets no no slot.
+//   - A gate in a no slot tests the ones that failed: an else-if.
+func (h *Hex) Routes(start int) [Slots]Route {
+	var r [Slots]Route
+	for i := range r {
+		r[i].Gate = -1
+	}
+	var order [Slots]int
+	for k := range order {
+		order[k] = (start + k) % Slots
+	}
+	isGate := func(s int) bool {
+		return h.Slots[s].Kind == SlotPart && h.Slots[s].Part.Kind == KindGate
+	}
+	for k, s := range order {
+		if !isGate(s) {
+			continue
+		}
+		yes := k + 1
+		if yes >= Slots || r[order[yes]].Gate >= 0 || !h.adjacent(s, order[yes]) {
+			continue
+		}
+		r[order[yes]] = Route{int8(s), BranchYes}
+		if isGate(order[yes]) {
+			continue
+		}
+		no := k + 2
+		if no >= Slots || r[order[no]].Gate >= 0 || !h.adjacent(order[yes], order[no]) {
+			continue
+		}
+		r[order[no]] = Route{int8(s), BranchNo}
+	}
+	return r
 }

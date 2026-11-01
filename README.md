@@ -61,7 +61,33 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 2. Parts only feed slots they touch across a linked edge. `Learn` shuffles the template's sockets around the ring and cuts `Broken` edges from the seed, so the same parts in the same hex can wire up differently for two players.
 3. Targets select first. An effect lands on the targets beside it: both if it sits between two (merged, no double hits), the trigger's subject if none.
 4. A multiplier scales the part just before it, if that edge is linked. A run of multipliers stacks. After a nested hex it scales the matching numbers everywhere inside. With nothing linked before it, it's wasted. Multipliers can scale damage, push, duration, count, radius, or all of them.
-5. Compile bakes all of that into flat steps. A nested hex becomes a `foreach` step followed by its inlined body, so combat never walks a tree.
+5. A gate splits a group in two and sends each half its own way (below).
+6. Compile bakes all of that into flat steps. A nested hex becomes a `foreach` step followed by its inlined body, so combat never walks a tree.
+
+## Gates (`skill/part.go`, `skill/hex.go`, `skill/compile.go`)
+
+A gate is a part that tests a condition and routes the chain two ways. It is the first of the three pieces planned for making hexes Turing complete (gate, charge, self-call).
+
+- **Which slots.** The slot right after the gate (clockwise) is its YES slot; the one after that is its NO slot. Each needs a linked edge to the slot before it, and neither wraps past the end of the ring back to the trigger. The editor tags them YES and NO.
+- **Who gets tested.** The targets in the slot just before the gate, if linked. Otherwise the trigger's subject (the foe hit, the corpse, the nearest foe on a cast), or, inside a nested hex, the one entity it runs on. So a gate in a nested hex is "for each target: if ... then ... else ...".
+- **What runs.** Effects and nested hexes in the YES slot land only on the ones that passed; in the NO slot only on the ones that failed. They ignore targets beside them. A branch nobody took runs on an empty group and does nothing.
+- **Chaining.** A gate in a NO slot tests the ones that failed, an else-if: `if A then X, else if B then Y, else Z` fills a hex exactly. A gate in a YES slot tests the ones that passed (both must hold) and takes the next two slots as its own, so the outer gate has no NO slot.
+- **Targets and multipliers in a branch slot** behave as they would anywhere: a target still selects and feeds its other neighbor; a multiplier still scales the slot before it. So a multiplier right after a NO slot boosts the NO branch, and one sitting in the NO slot boosts the YES branch.
+
+| Condition | Tests | Default | Loot rolls |
+| --- | --- | --- | --- |
+| Hull | each foe: hull below X of max | 30% | 20 to 50% |
+| Heat | your rig: Heat above X of max (the whole group goes one way) | 50% | 35 to 75% |
+| Power | your rig: Power above X of max (whole group) | 50% | 35 to 75% |
+| Status | each foe: burning (plasma), chilled or frozen (cryo), staggered (kinetic), eaten by toxin (nanite), marked (drone) | | any type with a status, not cloak |
+| Crowd | each foe: at least N other foes within R hexes of it | 3 within 1 | 2 to 4 within 1 or 2 |
+
+Defaults picked:
+- Gates fit target and wild sockets. They cost 1 Power and no Heat; rarity cuts the Power (an exotic gate costs 0.6). Gates roll no quirk, so exotics are never gates.
+- The cost of a gated hex counts both branches, even though each foe only takes one. Simpler to read on the HUD and it never under-charges.
+- Heat and Power gates read the rig after this firing has been paid for, so a hex's own Heat counts.
+- Status gates for cloak would test whether you are stealthed, but casting breaks stealth first, so loot never rolls them.
+- Under the hood a gate is one `OpGate` step that splits a register in two. No jumps, no allocations; branches are ordinary steps on the two halves.
 
 ## Defaults I picked
 
@@ -136,7 +162,7 @@ One generated floor at a time. The floor is hexes, but your rig moves freely in 
 | Slot | Hex | Trigger | What it does |
 | --- | --- | --- | --- |
 | 1 | Arc Lance | on cast | Plasma chains 3 foes, x2 damage. 14 Power, 10 Heat. |
-| 2 | Kinetic Ram | on hit | Shoves the foe 2 hexes plus 1 from kinetic, so 3 total. Walls slam, pits kill. |
+| 2 | Kinetic Ram | on hit | Shoves the foe 2 hexes, then a gate: under 40% hull it takes an 18 kinetic jab (YES), otherwise a 6 (NO). Kinetic adds a 1-hex shove either way. Walls slam, pits kill. |
 | 3 | Cryo Bloom | on kill | Corpse bursts cold: damage and chill to everything within 2. Cryo vents 3.6 Heat. |
 | 4 | Nanite Swarm | every 4 s | Toxin cloud on everything within 2. |
 
@@ -164,6 +190,7 @@ Intel Xeon 2.1 GHz, 4 cores, Go 1.24.7 (`go test ./skill ./dungeon ./game -run '
 | Distance field, depth 20 floor | 11 µs | 0 |
 | Dispatch: one cast that cascades into 35 firings | 5.5 µs | 0 |
 | Evaluate full depth-2 hex | 3.3 µs | 0 |
+| Evaluate a gated hex (3 crowd checks) | 1.9 µs | 0 |
 | Game step (1/60 s), depth 1, 7 actors | 1.4 µs | 0 |
 | Game step, depth 10, 22 actors | 2.2 µs | 0 |
 | Game step, depth 30, 54 actors | 4.1 µs | 0 |
@@ -217,7 +244,7 @@ Rare parts roll a quirk 35% of the time; exotics always do (so exotics are never
 Defaults picked (all constants):
 - Drop chance: grunt 30%, skitter 22%, brute 55%, elites +45%.
 - Rarity weights: common 72 falling 2.5 per depth to 20; uncommon 22 rising 1 per depth to 40; rare 5 rising 0.6 to 28; exotic 1 rising 0.3 to 14. Depth 1 is 73/21/5/1 percent, depth 10 is 52/33/11/4, depth 40 is 20/39/28/13.
-- Part kinds: effects 40%, targets 22%, multipliers 22%, triggers 16%. Damage per type: plasma 18, cryo 15, kinetic 10, nanite 28, drone 14, cloak 16, rolled x0.8 to 1.25. Multipliers x1.25 to 2 (all-verb x1.15 to 1.55). Periodic triggers every 2.5 to 5.5 s.
+- Part kinds: effects 40, targets 22, multipliers 22, triggers 16, gates 10 (relative weights). Damage per type: plasma 18, cryo 15, kinetic 10, nanite 28, drone 14, cloak 16, rolled x0.8 to 1.25. Multipliers x1.25 to 2 (all-verb x1.15 to 1.55). Periodic triggers every 2.5 to 5.5 s.
 - Part values don't grow with depth; the level scaling that already grows hex damage does that, so depth buys rarity, not bigger base numbers.
 - Pack: 12 cells. A full pack leaves parts on the floor and says PACK FULL. Parts left on a floor are gone when you go down. At most 96 parts lie on one floor.
 - The CAST button and Space fire every on-cast hex, so a trigger swapped into any slot has a button.
