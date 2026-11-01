@@ -317,11 +317,12 @@ func (g *Game) edCycle() bool {
 
 func (g *Game) edResult(err error) {
 	e := &g.ed
-	e.pick = pickNone
 	if err != nil {
+		// Keep holding the part so another slot can be tried.
 		e.msg, e.bad = err.Error()+".", true
 		return
 	}
+	e.pick = pickNone
 	pw, ht := g.sim.HexPower(e.hex)
 	e.msg, e.bad = fmt.Sprintf("%s rebuilt: %.0f power, %.0f heat per firing.", g.sim.Load.Names[e.hex], pw, ht), false
 }
@@ -598,6 +599,19 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		if i == h.Shape.Twin() || i == h.Shape.Surge() {
 			drawHex(screen, c[0], c[1], l.slotR*1.08, true, color.RGBA{}, colShape, g.u(2))
 		}
+		// Holding a part: slots where it would do something light up,
+		// the rest go dark. Otherwise a part that does nothing where it
+		// sits (its target was moved away) gets a red edge.
+		switch ok, held := g.edLit(i); {
+		case held && ok:
+			drawHex(screen, c[0], c[1], l.slotR*1.1, true, color.RGBA{}, colYes, g.u(2.5))
+		case held:
+			drawHex(screen, c[0], c[1], l.slotR, true, fade(color.RGBA{0, 0, 0, 0xff}, 0.62), color.RGBA{}, 0)
+		case s.Kind == skill.SlotPart:
+			if _, ok := h.Use(i); !ok {
+				drawHex(screen, c[0], c[1], l.slotR*1.04, true, color.RGBA{}, colHot, g.u(2))
+			}
+		}
 		// A gate's two ways: the yes slot gets the ones that pass, the no
 		// slot the rest. Tagged at the bottom of the tile.
 		switch routes[i].Branch {
@@ -621,8 +635,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	g.drawRect(screen, l.info, colPanel, color.RGBA{0x3a, 0x42, 0x58, 0xff})
 	info, ic := "Tap a part, then tap where it goes. Slot to slot rewires the hex.", colDim
 	switch {
+	case e.pick == pickCell && inv.Has[e.at] && e.msg != "" && e.bad:
+		info, ic = e.msg, colHot // why it can't go there
 	case e.pick == pickCell && inv.Has[e.at]:
-		info, ic = loot.Describe(inv.Parts[e.at], sim.Reg), rarityCol[inv.Parts[e.at].Rarity]
+		info, ic = "Green slots are where it does something. "+loot.Describe(inv.Parts[e.at], sim.Reg), rarityCol[inv.Parts[e.at].Rarity]
 		if sim.Stash.Fresh[e.at] {
 			info += fmt.Sprintf(" New: slot it or reach depth %d to keep it if you die.", sim.NextCheckpoint())
 		}
@@ -631,9 +647,19 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		if e.bad {
 			ic = colHot
 		}
+	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart && e.msg != "" && e.bad:
+		info, ic = e.msg, colHot // why it can't move there
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
 		p := h.Slots[e.at].Part
 		info, ic = loot.Describe(p, sim.Reg), rarityCol[p.Rarity]
+		if what, ok := h.Use(e.at); what != "" {
+			// What it does where it sits, first, so it's never cut off.
+			lead := "Here it " + what + "."
+			if !ok {
+				lead, ic = "Does nothing here: "+what+".", colHot
+			}
+			info = lead + " " + info
+		}
 		if (p.UsesBank() || p.Kind == skill.KindCall) && e.msg != "" && !e.bad {
 			info = e.msg + " " + info
 		}
@@ -651,6 +677,23 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	g.label(screen, g.face, "SCRAP", l.scrap.x+l.scrap.w/2, l.scrap.y+l.scrap.h/2, colHot, true)
 	g.drawRect(screen, l.close, fade(colStairs, 0.25), colStairs)
 	g.label(screen, g.face, "RESUME", l.close.x+l.close.w/2, l.close.y+l.close.h/2, colText, true)
+}
+
+// edLit reports, while a part is held (picked from the pack or a slot),
+// whether it would do something in slot i. held is false when nothing is
+// held, and for the held part's own slot.
+func (g *Game) edLit(i int) (ok, held bool) {
+	e := &g.ed
+	sim := g.sim
+	switch {
+	case e.pick == pickCell && sim.Stash.Inv.Has[e.at]:
+		_, ok = sim.PreviewIn(e.hex, i, e.at)
+		return ok, true
+	case e.pick == pickSlot && e.at != i && sim.Load.Hexes[e.hex].Slots[e.at].Kind == skill.SlotPart:
+		_, ok = sim.PreviewSwap(e.hex, e.at, i)
+		return ok, true
+	}
+	return false, false
 }
 
 // wrapLabel fits text into a box, breaking at spaces into as many lines

@@ -380,3 +380,42 @@ func TestTestSwitchUnlocksEveryShape(t *testing.T) {
 		t.Fatal("switching off lost parts or left shapes unlocked")
 	}
 }
+
+func TestPartsOnlyGoWhereTheyDoSomething(t *testing.T) {
+	s := New(5)
+	// Every preset part does something where it sits.
+	for i, h := range s.Load.Hexes {
+		for j := range h.Slots {
+			if h.Slots[j].Kind != skill.SlotPart {
+				continue
+			}
+			if what, ok := h.Use(j); !ok {
+				t.Errorf("%s slot %d: %s", s.Load.Names[i], j+1, what)
+			}
+		}
+	}
+	// Arc Lance: trigger, chain, damage, x2 damage, empty, call. A damage
+	// booster lights after the damage or the open slot 5, not after the
+	// trigger or the call.
+	s.Stash.Inv = loot.Inventory{}
+	cell := s.Stash.Inv.Add(skill.NewMult(skill.VerbDamage, 1.5))
+	lit := map[int]bool{}
+	for slot := 0; slot < skill.RingSlots; slot++ {
+		_, ok := s.PreviewIn(0, slot, cell)
+		lit[slot] = ok
+	}
+	if lit[0] || !lit[3] || !lit[4] {
+		t.Fatalf("damage booster lit %v", lit)
+	}
+	if err := s.SwapIn(0, 1, cell); err == nil || !strings.Contains(err.Error(), "do nothing") {
+		t.Fatalf("booster over the chain target: %v", err)
+	}
+	// Moving the x2 booster next to the trigger is refused; the new one
+	// goes in slot 5, stacking on the x2.
+	if err := s.SwapSlots(0, 3, 1); err == nil {
+		t.Fatal("booster moved onto the chain target's slot")
+	}
+	if err := s.SwapIn(0, 4, cell); err != nil {
+		t.Fatal(err)
+	}
+}

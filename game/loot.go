@@ -192,6 +192,9 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 		if err := fits(h, slot, in); err != nil {
 			return err
 		}
+		if what, ok := s.PreviewIn(hex, slot, cell); !ok {
+			return useless(slot, what)
+		}
 		h.Slots[slot] = skill.Slot{Kind: skill.SlotPart, Part: in}
 	} else {
 		if old.Part.Kind == skill.KindTrigger {
@@ -240,12 +243,79 @@ func (s *Sim) SwapSlots(hex, a, b int) error {
 			return err
 		}
 	}
+	if what, ok := s.PreviewSwap(hex, a, b); !ok {
+		to := b
+		if sa.Kind != skill.SlotPart {
+			to = a
+		}
+		return useless(to, what)
+	}
 	h.Slots[a], h.Slots[b] = sb, sa
 	if err := s.recompile(hex); err != nil {
 		h.Slots[a], h.Slots[b] = sa, sb
 		return err
 	}
 	return nil
+}
+
+// PreviewIn says what the part in pack cell would do in a hex slot, and
+// whether it would do anything there (see skill.Hex.Use). A part only goes
+// where it does something, so the editor lights those slots.
+func (s *Sim) PreviewIn(hex, slot, cell int) (what string, ok bool) {
+	if hex < 0 || hex >= MaxSlots || cell < 0 || cell >= loot.InventorySize || !s.Stash.Inv.Has[cell] {
+		return "", false
+	}
+	h := s.Load.Hexes[hex]
+	p := s.Stash.Inv.Parts[cell]
+	if !h.Shape.Kind.Has(slot) || h.Slots[slot].Kind == skill.SlotNested {
+		return "no slot there", false
+	}
+	if err := fits(h, slot, p); err != nil {
+		return err.Error(), false
+	}
+	cp := *h
+	cp.Slots[slot] = skill.Slot{Kind: skill.SlotPart, Part: p}
+	return cp.Use(slot)
+}
+
+// PreviewSwap says what the part in slot a would do moved to slot b (the
+// part in b going to a), or, with a empty, what b's part would do in a.
+func (s *Sim) PreviewSwap(hex, a, b int) (what string, ok bool) {
+	if hex < 0 || hex >= MaxSlots {
+		return "", false
+	}
+	h := s.Load.Hexes[hex]
+	k := h.Shape.Kind
+	if !k.Has(a) || !k.Has(b) || h.Slots[a].Kind == skill.SlotNested || h.Slots[b].Kind == skill.SlotNested {
+		return "no slot there", false
+	}
+	sa, sb := h.Slots[a], h.Slots[b]
+	if sa.Kind == skill.SlotPart {
+		if err := fits(h, b, sa.Part); err != nil {
+			return err.Error(), false
+		}
+	}
+	if sb.Kind == skill.SlotPart {
+		if err := fits(h, a, sb.Part); err != nil {
+			return err.Error(), false
+		}
+	}
+	cp := *h
+	cp.Slots[a], cp.Slots[b] = sb, sa
+	if sa.Kind == skill.SlotPart {
+		return cp.Use(b)
+	}
+	return cp.Use(a)
+}
+
+func useless(slot int, what string) error {
+	name := fmt.Sprint(slot + 1)
+	if slot == skill.Center {
+		name = "the center"
+	} else {
+		name = "slot " + name
+	}
+	return fmt.Errorf("it would do nothing in %s: %s", name, what)
 }
 
 // CycleBank moves a charge part or charge gate in a hex slot to the next
