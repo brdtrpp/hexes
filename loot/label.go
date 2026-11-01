@@ -88,6 +88,8 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			return "DRAIN " + skill.BankName(p.Bank), fmt.Sprintf("-%g", p.Value)
 		}
 		return "CHARGE " + skill.BankName(p.Bank), fmt.Sprintf("+%g", p.Value)
+	case skill.KindCall:
+		return "CALL", skill.CallName(p.Call)
 	}
 	return "EMPTY", ""
 }
@@ -121,9 +123,16 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 		b.WriteString(". Next slot clockwise hits the ones that pass, the slot after it the rest")
 	case p.Kind == skill.KindCharge:
 		fmt.Fprintf(&b, ". Bank %s keeps its count between firings", skill.BankName(p.Bank))
+	case p.Kind == skill.KindCall && p.Call == skill.CallSelf:
+		fmt.Fprintf(&b, ". When this hex finishes it runs again, on whoever reached the call. Each run adds its Heat (%.2gx). Put it behind a gate or it loops until you overheat", 1/p.Rarity.Scale())
+	case p.Kind == skill.KindCall:
+		fmt.Fprintf(&b, ". When this hex finishes, %s runs too, on whoever reached the call. Each run adds that hex's Heat (%.2gx)", skill.CallName(p.Call), 1/p.Rarity.Scale())
 	}
 	if p.UsesBank() {
 		b.WriteString(". In a hex, tap the center plate to switch its bank")
+	}
+	if p.Kind == skill.KindCall {
+		b.WriteString(". In a hex, tap the center plate to point it at another hex")
 	}
 	if q := QuirkText(p.Quirk); q != "" {
 		b.WriteString(". ")

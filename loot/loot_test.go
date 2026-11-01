@@ -92,7 +92,7 @@ func TestQuirksOnlyOnRareAndExotic(t *testing.T) {
 	if quirked[skill.Exotic] != total[skill.Exotic] {
 		t.Fatalf("every exotic should bend a rule: %d of %d", quirked[skill.Exotic], total[skill.Exotic])
 	}
-	if f := float32(quirked[skill.Rare]) / float32(total[skill.Rare]); f < 0.2 || f > 0.5 {
+	if f := float32(quirked[skill.Rare]) / float32(total[skill.Rare]); f < 0.15 || f > 0.5 { // targets, gates, charges and calls never quirk
 		t.Fatalf("rare quirk rate %.2f", f)
 	}
 }
@@ -101,7 +101,7 @@ func TestQuirksOnlyOnRareAndExotic(t *testing.T) {
 func TestRolledPartsCompile(t *testing.T) {
 	tab := NewTable(reg)
 	r := NewRNG(1)
-	var kinds [7]int
+	var kinds [8]int
 	for i := 0; i < 3000; i++ {
 		p := tab.Roll(&r, 1+i%50)
 		kinds[p.Kind]++
@@ -130,7 +130,7 @@ func TestRolledPartsCompile(t *testing.T) {
 			t.Fatalf("no label for %v", p)
 		}
 	}
-	for k := skill.KindTrigger; k <= skill.KindCharge; k++ {
+	for k := skill.KindTrigger; k <= skill.KindCall; k++ {
 		if kinds[k] < 120 {
 			t.Fatalf("too few %s parts: %v", k, kinds)
 		}

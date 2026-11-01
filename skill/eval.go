@@ -50,7 +50,11 @@ type Ctx struct {
 	// Bank is the firing hex's charge banks, which keep their counts
 	// between firings. Nil gives the run a scratch bank that starts empty
 	// and is thrown away after (a basic strike has nowhere to keep one).
+	// Hexes it calls use the same banks.
 	Bank *Bank
+	// Calls is the equipped hexes a Call part can run: Call n runs
+	// Calls[n-1]. Nil leaves only self-calls working.
+	Calls *[MaxEquip]*Program
 }
 
 // Bank is one equipped hex's charge banks, A to D. Each is a counter that
@@ -64,6 +68,30 @@ const MaxCharge = 1 << 30
 type Result struct {
 	Hits, Kills, Capped, Raised, Statuses, Dots int
 	Damage                                      float32
+	// Calls is how many called hexes ran. Called has bit n-1 set for each
+	// equipped hex n a call ran, for the HUD. Dropped counts calls lost to
+	// a full queue.
+	Calls, Dropped int
+	Called         uint8
+	// Halted says the chain was cut short: the rig overheated or was
+	// locked when a call came up, or the run hit MaxCalls.
+	Halted bool
+}
+
+// Call limits. MaxCalls caps how many hexes one firing can call in total
+// whatever the rig, so a frame can never stall; MaxPending is how many
+// calls can wait at once (more are dropped and counted).
+const (
+	MaxCalls   = 256
+	MaxPending = 32
+)
+
+// pending is a queued call.
+type pending struct {
+	prog    *Program
+	subject EntityID
+	heat    float32 // scale on the Heat it costs (rarer calls run cooler)
+	code    uint8   // which equipped hex it is (0 if unknown)
 }
 
 // Evaluator runs compiled programs. It keeps every working buffer in fixed
@@ -78,6 +106,15 @@ type Evaluator struct {
 	n       [MaxRegs]uint8
 	scratch [MaxTargets]EntityID
 	bank    Bank // stand-in when Ctx.Bank is nil
+
+	// The call queue and what's running now.
+	queue   [MaxPending]pending
+	qHead   int
+	qLen    int
+	cur     *Program
+	curCode uint8
+	curHeat float32
+	dropped int
 }
 
 // NewEvaluator makes an evaluator for a type registry and rule set.
@@ -85,16 +122,68 @@ func NewEvaluator(reg *Registry, rules Rules) *Evaluator {
 	return &Evaluator{Reg: reg, Rules: rules}
 }
 
-// Run fires a program once.
+// Run fires a program once, then runs every hex its calls queued, in the
+// order they queued, until the queue is empty or a limit stops it.
 func (e *Evaluator) Run(p *Program, w World, ctx Ctx) Result {
 	var res Result
+	if ctx.Bank == nil {
+		e.bank = Bank{}
+		ctx.Bank = &e.bank
+	}
+	e.qHead, e.qLen, e.dropped = 0, 0, 0
+	e.start(p, w, &ctx, ctx.Subject, 0, 1, &res)
+	for e.qLen > 0 {
+		c := e.queue[e.qHead]
+		e.qHead = (e.qHead + 1) % MaxPending
+		e.qLen--
+		if res.Calls >= MaxCalls || !e.payCall(ctx.Rig, c) {
+			res.Halted = true
+			break
+		}
+		res.Calls++
+		if c.code > 0 && c.code <= 8 {
+			res.Called |= 1 << (c.code - 1)
+		}
+		e.start(c.prog, w, &ctx, c.subject, c.code, c.heat, &res)
+		if r := ctx.Rig; r != nil && r.Locked() && e.qLen > 0 {
+			// That call tipped the rig over: like any overheat, it ran,
+			// and nothing more does.
+			res.Halted = true
+			break
+		}
+	}
+	e.qLen = 0
+	res.Dropped = e.dropped
+	return res
+}
+
+// payCall adds a call's Heat to the rig. It refuses while the rig is
+// locked. Reaching max heat still runs the call but locks the rig, the
+// same as TryFire.
+func (e *Evaluator) payCall(r *Rig, c pending) bool {
+	if r == nil {
+		return true
+	}
+	if r.Locked() {
+		return false
+	}
+	r.Heat = max(0, r.Heat+max(c.prog.Heat, CallMinHeat)*c.heat)
+	if r.Heat >= r.MaxHeat {
+		r.Heat = r.MaxHeat
+		r.ShutdownLeft = OverheatShutdown
+	}
+	return true
+}
+
+// start runs one hex's steps with subject as its subject.
+func (e *Evaluator) start(p *Program, w World, ctx *Ctx, subject EntityID, code uint8, heat float32, res *Result) {
 	for i := 0; i < p.Regs && i < MaxRegs; i++ {
 		e.n[i] = 0
 	}
 	e.regs[RegCaster][0] = ctx.Caster
 	e.n[RegCaster] = 1
-	if ctx.Subject != NoEntity {
-		e.regs[RegSubject][0] = ctx.Subject
+	if subject != NoEntity {
+		e.regs[RegSubject][0] = subject
 		e.n[RegSubject] = 1
 	} else {
 		e.n[RegSubject] = uint8(w.Select(TargetNearest, ctx.Caster, ctx.Caster, 0, e.regs[RegSubject][:1]))
@@ -102,16 +191,38 @@ func (e *Evaluator) Run(p *Program, w World, ctx Ctx) Result {
 	// On-hit and on-kill hexes reach out from the foe they fired on (a
 	// target's target for free); the rest reach out from the caster.
 	e.regs[RegOrigin][0] = ctx.Caster
-	if (p.Trigger == OnHit || p.Trigger == OnKill) && ctx.Subject != NoEntity {
-		e.regs[RegOrigin][0] = ctx.Subject
+	if (p.Trigger == OnHit || p.Trigger == OnKill) && subject != NoEntity {
+		e.regs[RegOrigin][0] = subject
 	}
 	e.n[RegOrigin] = 1
-	if ctx.Bank == nil {
-		e.bank = Bank{}
-		ctx.Bank = &e.bank
+	e.cur, e.curCode, e.curHeat = p, code, heat
+	e.exec(p.Steps, w, ctx, res)
+}
+
+// call queues a hex for every entity in a step's group.
+func (e *Evaluator) call(ctx *Ctx, s *Step) {
+	var p *Program
+	code := s.Count
+	heat := s.Value
+	if code == CallSelf {
+		p, code = e.cur, e.curCode
+	} else if ctx.Calls != nil && int(code) <= MaxEquip {
+		p = ctx.Calls[code-1]
 	}
-	e.exec(p.Steps, w, &ctx, &res)
-	return res
+	if p == nil {
+		return
+	}
+	if heat <= 0 {
+		heat = 1
+	}
+	for i := 0; i < int(e.n[s.Src]); i++ {
+		if e.qLen == MaxPending {
+			e.dropped++
+			continue
+		}
+		e.queue[(e.qHead+e.qLen)%MaxPending] = pending{prog: p, subject: e.regs[s.Src][i], heat: heat, code: code}
+		e.qLen++
+	}
 }
 
 func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
@@ -165,6 +276,8 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			e.status(w, ctx, s, res)
 		case OpGate:
 			e.gate(w, ctx, s)
+		case OpCall:
+			e.call(ctx, s)
 		case OpCharge:
 			if e.n[s.Src2] == 0 {
 				continue // in a gate branch nobody took

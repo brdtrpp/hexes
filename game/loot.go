@@ -257,6 +257,42 @@ func (s *Sim) CycleBank(hex, slot int) bool {
 	return true
 }
 
+// CycleCall points a Call part in a hex slot at the next hex: itself,
+// then each of the others in turn. It reports false when the slot holds
+// no Call.
+func (s *Sim) CycleCall(hex, slot int) bool {
+	if hex < 0 || hex >= MaxSlots || slot < 0 || slot >= skill.Slots {
+		return false
+	}
+	h := s.Load.Hexes[hex]
+	sl := &h.Slots[slot]
+	if sl.Kind != skill.SlotPart || sl.Part.Kind != skill.KindCall {
+		return false
+	}
+	old := sl.Part
+	next := (int(old.Call) + 1) % (MaxSlots + 1)
+	if next == hex+1 {
+		// Pointing at its own number is the same as self; skip it.
+		next = (next + 1) % (MaxSlots + 1)
+	}
+	sl.Part.Call = uint8(next)
+	if err := s.recompile(hex); err != nil {
+		sl.Part = old
+		return false
+	}
+	return true
+}
+
+// CallsTo is the hex a Call part points at: its own index for a self
+// call, or another slot. ok is false for a target past the loadout.
+func CallsTo(hex int, p skill.Part) (target int, ok bool) {
+	if p.Call == skill.CallSelf {
+		return hex, true
+	}
+	t := int(p.Call) - 1
+	return t, t < MaxSlots
+}
+
 // MoveCell trades two inventory cells.
 func (s *Sim) MoveCell(a, b int) {
 	if a < 0 || b < 0 || a >= loot.InventorySize || b >= loot.InventorySize {

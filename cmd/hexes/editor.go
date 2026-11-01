@@ -195,6 +195,12 @@ func (g *Game) edTap(x, y float64) {
 			e.msg, e.bad = "Now on bank "+skill.BankName(p.Bank)+".", false
 			return
 		}
+		// It also points a picked Call at the next hex.
+		if e.pick == pickSlot && sim.CycleCall(e.hex, e.at) {
+			p := sim.Load.Hexes[e.hex].Slots[e.at].Part
+			e.msg, e.bad = "Now calls "+g.callName(e.hex, p, false)+".", false
+			return
+		}
 		e.pick, e.msg = pickNone, ""
 		return
 	}
@@ -266,6 +272,9 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 		return
 	}
 	title, detail := loot.Label(p, g.sim.Reg)
+	if p.Kind == skill.KindCall {
+		detail = "to " + g.callName(g.ed.hex, p, true)
+	}
 	tc := colText
 	switch p.Kind {
 	case skill.KindTrigger:
@@ -276,6 +285,11 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 		tc = colGate
 	case skill.KindCharge:
 		tc = colCharge
+	case skill.KindCall:
+		tc = colCall
+		if to, ok := game.CallsTo(g.ed.hex, p); ok && p.Call != skill.CallSelf {
+			tc = slotCol[to]
+		}
 	case skill.KindEffect:
 		if p.Effect != skill.EffectPush {
 			tc = typeColor(p.Type)
@@ -391,6 +405,11 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 			g.label(screen, g.small, fmt.Sprintf("%s = %d", skill.BankName(b), sim.Banks[e.hex][b]),
 				c[0], c[1]-l.slotR*0.62, colCharge, true)
 		}
+		// A call loops back on its own hex or reaches across to another:
+		// say which at the top of the tile.
+		if s.Kind == skill.SlotPart && s.Part.Kind == skill.KindCall && s.Part.Call == skill.CallSelf {
+			g.label(screen, g.small, "LOOP", c[0], c[1]-l.slotR*0.62, colCall, true)
+		}
 		// A gate's two ways: the yes slot gets the ones that pass, the no
 		// slot the rest. Tagged at the bottom of the tile.
 		switch routes[i].Branch {
@@ -421,7 +440,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
 		p := h.Slots[e.at].Part
 		info, ic = loot.Describe(p, sim.Reg), rarityCol[p.Rarity]
-		if p.UsesBank() && e.msg != "" && !e.bad {
+		if (p.UsesBank() || p.Kind == skill.KindCall) && e.msg != "" && !e.bad {
 			info = e.msg + " " + info
 		}
 	case e.pick == pickSlot:
@@ -476,6 +495,21 @@ func (g *Game) wrapLabel(dst *ebiten.Image, s string, r rect, c color.RGBA) {
 	for i, ln := range lines {
 		g.label(dst, g.small, ln, r.x+10*g.k, r.y+lh*float64(i+1), c, false)
 	}
+}
+
+// callName is the hex a Call points at, seen from hex: "self" or its
+// name (short for a tile).
+func (g *Game) callName(hex int, p skill.Part, short bool) string {
+	to, ok := game.CallsTo(hex, p)
+	switch {
+	case !ok:
+		return skill.CallName(p.Call)
+	case p.Call == skill.CallSelf || to == hex:
+		return "self"
+	case short:
+		return shortName(g.sim.Load.Names[to])
+	}
+	return g.sim.Load.Names[to]
 }
 
 func triggerName(p *skill.Program) string {
@@ -542,6 +576,7 @@ func (g *Game) castAll(in *game.Input) {
 var (
 	colGate   = color.RGBA{0xff, 0xa8, 0x4a, 0xff}
 	colCharge = color.RGBA{0xb4, 0x9c, 0xff, 0xff}
+	colCall   = color.RGBA{0xff, 0x8a, 0xc8, 0xff}
 	colYes    = color.RGBA{0x5c, 0xe0, 0x7a, 0xff}
 )
 

@@ -112,14 +112,22 @@ func NewTable(reg *skill.Registry) *Table {
 	return t
 }
 
-// Kind weights: effect, target, multiplier, trigger, gate, charge.
-var kindWeights = [...]float32{40, 22, 22, 16, 10, 8}
+// Kind weights: effect, target, multiplier, trigger, gate, charge, call.
+var kindWeights = [...]float32{40, 22, 22, 16, 10, 8, 7}
 
-// Exotics always carry a quirk, so they skip targets, gates and charges,
-// which have none.
-var exoticKindWeights = [...]float32{45, 0, 30, 25, 0, 0}
+// Exotics always carry a quirk, so they skip targets, gates, charges and
+// calls, which have none.
+var exoticKindWeights = [...]float32{45, 0, 30, 25, 0, 0, 0}
 
-var partKinds = [...]skill.PartKind{skill.KindEffect, skill.KindTarget, skill.KindMult, skill.KindTrigger, skill.KindGate, skill.KindCharge}
+var partKinds = [...]skill.PartKind{skill.KindEffect, skill.KindTarget, skill.KindMult, skill.KindTrigger, skill.KindGate, skill.KindCharge, skill.KindCall}
+
+// CallTargets is how many equipped hexes a dropped Call can point at.
+// CallSelfChance is how often it rolls pointing at its own hex instead.
+// The editor can point it anywhere.
+const (
+	CallTargets            = 4
+	CallSelfChance float32 = 0.3
+)
 
 var gateWeights = [...]float32{
 	skill.GateHull: 30, skill.GateHeat: 18, skill.GatePower: 14, skill.GateStatus: 22, skill.GateCrowd: 16,
@@ -185,6 +193,8 @@ func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
 		p = t.gate(r)
 	case skill.KindCharge:
 		p = charge(r)
+	case skill.KindCall:
+		p = call(r)
 	default:
 		p = t.mult(r)
 	}
@@ -285,6 +295,14 @@ func charge(r *RNG) skill.Part {
 		return skill.NewDrain(b, 1)
 	}
 	return skill.NewCharge(b, 1)
+}
+
+// call rolls a Call at its own hex or one of the equipped ones.
+func call(r *RNG) skill.Part {
+	if r.Float() < CallSelfChance {
+		return skill.NewCall(skill.CallSelf)
+	}
+	return skill.NewCall(uint8(1 + r.Intn(CallTargets)))
 }
 
 // rollBank is mostly A, sometimes B. The editor can switch it.

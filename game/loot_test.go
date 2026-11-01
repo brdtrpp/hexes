@@ -193,7 +193,7 @@ func TestSwapRecompilesAndRewiresDispatch(t *testing.T) {
 	if s.Disp.Loadout(s.Player).Progs[0] != after {
 		t.Fatal("dispatcher still runs the old program")
 	}
-	if s.Stash.Inv.Has[cell] || !s.Load.Edited[0] || s.Load.Blurb[0] == "plasma chains 3 foes" {
+	if s.Stash.Inv.Has[cell] || !s.Load.Edited[0] || s.Load.Blurb[0] == "plasma chains 3, calls Swarm" {
 		t.Fatal("swap into an empty slot should empty the cell and mark the hex edited")
 	}
 	// Take it back out into an empty cell.

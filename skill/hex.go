@@ -15,7 +15,7 @@ type SocketKind uint8
 const (
 	SocketTrigger SocketKind = iota // triggers only
 	SocketTarget                    // targets or gates
-	SocketEffect                    // effects, multipliers or charges
+	SocketEffect                    // effects, multipliers, charges or calls
 	SocketWild                      // anything but a trigger, or a nested hex
 )
 
@@ -31,9 +31,9 @@ func (s SocketKind) Accepts(k PartKind) bool {
 	case SocketTarget:
 		return k == KindTarget || k == KindGate
 	case SocketEffect:
-		return k == KindEffect || k == KindMult || k == KindCharge
+		return k == KindEffect || k == KindMult || k == KindCharge || k == KindCall
 	case SocketWild:
-		return k == KindTarget || k == KindEffect || k == KindMult || k == KindGate || k == KindCharge
+		return k == KindTarget || k == KindEffect || k == KindMult || k == KindGate || k == KindCharge || k == KindCall
 	}
 	return false
 }

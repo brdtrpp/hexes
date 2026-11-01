@@ -66,7 +66,7 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 
 ## Gates (`skill/part.go`, `skill/hex.go`, `skill/compile.go`)
 
-A gate is a part that tests a condition and routes the chain two ways. It is the first of the three pieces planned for making hexes Turing complete (gate, charge, self-call). Charges are below.
+A gate is a part that tests a condition and routes the chain two ways. It is the first of the three pieces that make hexes Turing complete (gate, charge, call). Charges and Calls are below.
 
 - **Which slots.** The slot right after the gate (clockwise) is its YES slot; the one after that is its NO slot. Each needs a linked edge to the slot before it, and neither wraps past the end of the ring back to the trigger. The editor tags them YES and NO.
 - **Who gets tested.** The targets in the slot just before the gate, if linked. Otherwise the trigger's subject (the foe hit, the corpse, the nearest foe on a cast), or, inside a nested hex, the one entity it runs on. So a gate in a nested hex is "for each target: if ... then ... else ...".
@@ -91,13 +91,13 @@ Defaults picked:
 
 ## Charges (`skill/part.go`, `skill/eval.go`, `skill/compile.go`)
 
-A charge is a counter that keeps its value between firings. Each equipped hex has four banks, A to D. Charge parts write a bank; two gate conditions read one. Together they are a counter machine (a Minsky machine): increment, decrement, and "is it zero?". Self-call, the next piece, adds the loop, and with Heat paying for every step that set is Turing complete with overheating as the halting budget.
+A charge is a counter that keeps its value between firings. Each equipped hex has four banks, A to D. Charge parts write a bank; two gate conditions read one. Together they are a counter machine (a Minsky machine): increment, decrement, and "is it zero?". Calls add the loop, and with Heat paying for every call that set is Turing complete with overheating as the halting budget.
 
 - **Charge part (CHARGE A +1).** Adds its amount to its bank each time the ring passes its slot. It counts whatever fired the hex: on-kill counts kills, on-hit hits, on-cast casts. Inside a gate branch it only counts when its half holds someone, so a charge in a YES slot counts the times the gate passed.
 - **Drain part (DRAIN A -1).** Takes its amount off, never below zero.
 - **Spend gate (SPEND A at 5).** If bank A holds at least 5 and the gate's group isn't empty, it takes 5 off and the whole group goes to the YES slot; otherwise A is untouched and the group goes to NO. A full gate with nobody to hit holds its charge until it has somewhere to go. With "at 1" it is the counter machine's decrement-or-branch-on-zero.
 - **Empty gate (IF A EMPTY).** The whole group goes YES while A is zero, NO otherwise. It never changes A.
-- **Same letter, same counter.** Every part in a hex naming A shares one counter, nested hexes included, so a self-call loop will see the same banks. Different hexes never share.
+- **Same letter, same counter.** Every part in a hex naming A shares one counter, nested hexes included, and a hex run by a Call uses its caller's banks. Hexes firing on their own triggers never share.
 - **Order.** Charges run in clockwise order with everything else, so a charge before a spend gate counts before the gate reads it.
 
 Starter: **Cryo Bloom** now reads ON KILL, CHARGE A +1, CHILL, AROUND 2, SPEND A at 5, CRYO 45. Every kill chills what's around the corpse and charges A; the fifth sets off a cryo nova on everything within two hexes and empties A. The HUD card shows `A 3/5` with a strip filling toward the spend, and the editor shows `A = 3` on each charge tile.
@@ -109,6 +109,25 @@ Defaults picked:
 - **Cost:** a charge part costs 0.5 Power and no Heat, a charge gate 1 Power like any gate; rarity cuts both. Like gates, the hex pays for every slot on every firing, so the nova's Power is paid on every kill (Cryo Bloom is 19 Power, -0.5 Heat per kill).
 - **Limits:** a bank counts to 2^30 and stays there. An echo hex runs its charges twice. A basic strike has no bank: its charges count in a scratch bank that empties after each swing.
 - Under the hood: `OpCharge` adds to `Ctx.Bank`, guarded by a register the way cloak is; spend and empty are `OpGate` conditions. The dispatcher keeps each slot's banks in `Loadout.Banks`, which the game points at `Sim.Banks` and clears when a floor loads. Still zero allocations per run.
+
+## Calls (`skill/part.go`, `skill/eval.go`, `skill/compile.go`)
+
+A Call part runs another of your hexes, or its own hex again, once the hex holding it finishes. It is the last of the three pieces (gate, charge, call): gates branch, charges remember, calls loop. With all three, hexes are Turing complete, with Heat as the step budget.
+
+- **Which hex.** A Call points at itself (the tile says LOOP) or at one of your four hexes, shown by name on the tile ("to Swarm") in that hex's color. In the editor, pick the Call in a hex and tap the center plate to point it at the next hex: self, then each of the others. No typing.
+- **Who it runs on.** It lands like an effect: on the targets beside it, or on its gate half if it sits in a YES or NO slot, or on the trigger's subject if nothing's beside it. The called hex runs once per entity there, with that entity as its subject, as if its own trigger had fired on them (an on-hit hex reaches out from the foe, an on-cast one from you). Its trigger part is skipped.
+- **When.** Calls queue and run after the hex holding them finishes, in clockwise order. Nothing runs inside anything else, so a loop is a hex calling itself again and never builds a stack.
+- **Counters.** A called hex uses the caller's charge banks, so a loop across hexes counts in one place.
+- **Heat is the budget.** Every time a call runs a hex, that hex's Heat (at least 1, less for rarer Calls: x0.87 uncommon, x0.74 rare, x0.63 exotic) goes on the rig. Overheat and the chain stops right there, and the rig locks like any overheat. A loop with no way out ends in a shutdown, which is the point. Calls don't cost Power beyond the Call part itself (1 Power, 0.5 Heat per firing, like any slot).
+- **Hard caps.** One firing runs at most 256 calls whatever the rig, and at most 32 can wait at once (more are dropped), so a frame can never stall.
+- **Order matters.** Inside a hex the ring runs clockwise and a part only feeds its neighbors; across hexes, two Calls run their hexes in the order they sit on the ring. A test swaps two Calls and gets a different answer.
+
+Why it's Turing complete: a counter machine (Minsky machine) is a list of states, each "add 1 to counter r and go to the next state" or "if r is zero go to one state, else take 1 off and go to another". Two counters are enough to compute anything a Turing machine can. Each state is one hex: `CHARGE r +1 · CALL next`, or `SPEND r at 1 · CALL next (yes) · CALL other (no)`. `skill/call_test.go` builds a six-state machine that multiplies (C = A x B, with B restored through D) and runs it at 3x4, 0x5, 5x0 and 2x9. Real limits apply: the slice has four hexes, four counters, 2^30 per counter, 256 calls a firing and about 100 Heat. Turing complete in the way a real computer is: the rules can express any program, the hardware runs out.
+
+Starter: **Arc Lance** has a Call in its last slot pointing at Nanite Swarm. Cast it and the swarm goes off too; both slots flash and both hexes' Heat lands on the rig. A save from before Calls existed gets one Call in the pack instead (pointing at hex 4), once.
+
+- **Loot:** Calls weigh 7 against charges' 8. Three in ten roll pointing at themselves, the rest at hex 1 to 4. No quirks.
+- Under the hood: `OpCall` queues `{program, subject}` on a fixed 32-slot ring in the Evaluator; `Run` drains it after the first program, charging Heat through `Ctx.Rig` before each one. `Ctx.Calls` is the dispatcher's equipped programs. `Result` gains `Calls`, `Called` (which hexes ran, for the HUD flash), `Dropped` and `Halted`. Still zero allocations per run: the 3x4 multiply is 69 calls in about 2 µs.
 
 ## Defaults I picked
 
@@ -230,6 +249,7 @@ Intel Xeon 2.1 GHz, 4 cores, Go 1.24.7 (`go test ./skill ./dungeon ./game -run '
 | Evaluate full depth-2 hex | 3.3 µs | 0 |
 | Evaluate a gated hex (3 crowd checks) | 1.9 µs | 0 |
 | Evaluate the charge nova hex (count, chill, spend) | 0.4 µs | 0 |
+| Counter machine 3x4 through Calls (69 calls) | 2.1 µs | 0 |
 | Game step (1/60 s), depth 1, 7 actors | 1.4 µs | 0 |
 | Game step, depth 10, 22 actors | 2.2 µs | 0 |
 | Game step, depth 30, 54 actors | 4.1 µs | 0 |

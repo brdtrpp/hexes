@@ -144,6 +144,8 @@ type Sim struct {
 	// Dirty is set when something worth saving changed. The front end
 	// saves and Save clears it.
 	Dirty bool
+	// CallGiven: the save has had its starter Call (see giveCall).
+	CallGiven bool
 
 	// SlotFlash counts down after a slot tries to fire; SlotLast is how.
 	SlotFlash [MaxSlots]float32
@@ -180,6 +182,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.Points = DefaultPoints
 	s.Cache, s.Deaths, s.LastDeathAt, s.LastDeath = Cache{}, 0, 0, Death{}
 	s.Load = Loadout{}
+	s.CallGiven = true // the preset Arc Lance carries it
 	s.resetStash()
 	s.load(1, 1)
 	s.Dirty = true

@@ -25,6 +25,9 @@ type Loadout struct {
 	Edited [MaxSlots]bool
 }
 
+// StarterCallTarget is the hex the starting Call points at: Nanite Swarm.
+const StarterCallTarget = 4
+
 // LoadoutSockets is the socket layout every slice hex uses: the trigger
 // in slot 0, wild sockets everywhere else.
 var LoadoutSockets = [skill.Slots]skill.SocketKind{skill.SocketTrigger,
@@ -53,12 +56,18 @@ func PresetHexes(reg *skill.Registry) (hexes [MaxSlots]*skill.Hex, names, blurbs
 		}
 		hexes[i], names[i], blurbs[i] = h, name, blurb
 	}
-	// Slot 1, on cast: lightning that hops three foes, doubled.
-	mk(0, "Arc Lance", "plasma chains 3 foes",
+	// Slot 1, on cast: lightning that hops three foes, doubled. Slot 4 is
+	// left open, and slot 5 holds a Call: once the lance is done, Nanite
+	// Swarm (hex 4) goes off too, and its Heat lands on the rig on top of
+	// the lance's.
+	mk(0, "Arc Lance", "plasma chains 3, calls Swarm",
 		skill.NewTrigger(skill.OnCast),
 		skill.NewTarget(skill.TargetChain, 4, 3),
 		skill.NewDamage(ty("plasma"), 30),
 		skill.NewMult(skill.VerbDamage, 2))
+	if err := hexes[0].Set(5, skill.NewCall(StarterCallTarget)); err != nil {
+		panic(err)
+	}
 	// Slot 2, on hit: every so often a strike shoves its target, pits and
 	// walls do the killing. Then a gate: a foe under 40% hull takes a heavy
 	// kinetic jab (the yes slot), a healthier one a light one (the no slot).

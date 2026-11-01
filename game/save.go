@@ -182,6 +182,10 @@ type Save struct {
 	Deaths      int
 	LastDeathAt float64
 	PlayTime    float64
+	// CallGiven is set once the save has had its starter Call: in the
+	// preset Arc Lance for a new run, in the pack for a save from before
+	// Calls existed.
+	CallGiven bool
 }
 
 // Snapshot is the current progress. While dead it already counts the
@@ -193,6 +197,7 @@ func (s *Sim) Snapshot() Save {
 		Hexes: s.Load.Hexes, Names: s.Load.Names, Blurb: s.Load.Blurb, Edited: s.Load.Edited,
 		Inv: s.Stash.Inv, Fresh: s.Stash.Fresh,
 		Cache: s.Cache, Deaths: s.Deaths, LastDeathAt: s.LastDeathAt, PlayTime: s.Time,
+		CallGiven: s.CallGiven,
 	}
 	switch s.State {
 	case Dead:
@@ -252,7 +257,37 @@ func (s *Sim) Restore(sv Save) error {
 	s.Stash.Inv, s.Stash.Fresh, s.Stash.Picked = sv.Inv, sv.Fresh, sv.Picked
 	s.Cache, s.Deaths, s.LastDeathAt, s.Time = sv.Cache, sv.Deaths, sv.LastDeathAt, sv.PlayTime
 	s.LastDeath = Death{}
+	s.CallGiven = sv.CallGiven
+	dirty := s.giveCall()
 	s.load(sv.Depth, sv.HPFrac)
-	s.Dirty = false
+	s.Dirty = dirty
 	return nil
+}
+
+// giveCall puts a starter Call (at Nanite Swarm, hex 4) in the pack of a
+// save made before Calls existed, once, unless one is already slotted or
+// packed. It's safe from death like anything slotted. It reports whether
+// the save changed.
+func (s *Sim) giveCall() bool {
+	if s.CallGiven {
+		return false
+	}
+	have := false
+	for _, h := range s.Load.Hexes {
+		for _, sl := range h.Slots {
+			have = have || (sl.Kind == skill.SlotPart && sl.Part.Kind == skill.KindCall)
+		}
+	}
+	for i, p := range s.Stash.Inv.Parts {
+		have = have || (s.Stash.Inv.Has[i] && p.Kind == skill.KindCall)
+	}
+	if !have {
+		i := s.Stash.Inv.Add(skill.NewCall(StarterCallTarget))
+		if i < 0 {
+			return false // pack full: try again next load
+		}
+		s.Stash.Fresh[i] = false
+	}
+	s.CallGiven = true
+	return true
 }

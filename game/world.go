@@ -248,4 +248,11 @@ func (s *Sim) Fired(owner skill.EntityID, slot int, p *skill.Program, o skill.Ou
 	if o == skill.Fired {
 		s.addFX(FX{Kind: FXRing, At: s.Actors[owner].At, Slot: slot, Life: 0.4})
 	}
+	// Hexes it called flash as if they fired too.
+	for i := 0; i < MaxSlots; i++ {
+		if res.Called&(1<<i) != 0 && i != slot {
+			s.SlotFlash[i], s.SlotLast[i] = 0.4, skill.Fired
+			s.addFX(FX{Kind: FXRing, At: s.Actors[owner].At, Slot: i, Life: 0.4})
+		}
+	}
 }

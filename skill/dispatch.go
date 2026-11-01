@@ -358,7 +358,8 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 		d.Stats.Fired++
 		l.Cool[slot] = d.ProcCooldown[p.Trigger]
 		d.chain = ev.Chain
-		res = d.Eval.Run(p, d.World, Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level, Rig: l.Rig, Bank: l.Bank(slot)})
+		res = d.Eval.Run(p, d.World, Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level, Rig: l.Rig,
+			Bank: l.Bank(slot), Calls: &l.Progs})
 	}
 	if d.Listener != nil {
 		d.Listener.Fired(l.Owner, slot, p, o, res)

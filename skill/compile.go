@@ -258,6 +258,18 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			fed[s] = span{i, i + 1, true}
 			c.cost(p, depth)
 			c.useBank(p)
+		case sl.Kind == SlotPart && sl.Part.Kind == KindCall:
+			p := sl.Part
+			src, _, err := land(s)
+			if err != nil {
+				return err
+			}
+			i := c.emit(Step{Op: OpCall, Src: src, Count: p.Call, Value: 1 / p.Rarity.Scale()})
+			fed[s] = span{i, i + 1, true}
+			c.cost(p, depth)
+			if p.Call < 16 {
+				c.p.Calls |= 1 << p.Call
+			}
 		case sl.Kind == SlotPart && sl.Part.Kind == KindEffect:
 			p := sl.Part
 			src, guard, err := land(s)

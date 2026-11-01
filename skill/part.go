@@ -17,6 +17,9 @@ const (
 	// KindCharge adds to or drains one of the hex's charge banks: counters
 	// that keep their value between firings. See Bank.
 	KindCharge
+	// KindCall runs another equipped hex, or its own hex again, once this
+	// one finishes. See the call rules on Compile.
+	KindCall
 )
 
 func (k PartKind) String() string {
@@ -33,6 +36,8 @@ func (k PartKind) String() string {
 		return "gate"
 	case KindCharge:
 		return "charge"
+	case KindCall:
+		return "call"
 	}
 	return "none"
 }
@@ -183,6 +188,28 @@ const (
 	DefaultSpendEvery = 5
 )
 
+// CallSelf is the Call value that runs the calling hex again. Any other
+// value n runs equipped hex n (1 is the first).
+const CallSelf = 0
+
+// Call defaults. A Call costs CallPowerCost and CallHeatCost to carry,
+// paid with the rest of the hex. Each time it actually runs a hex, it adds
+// that hex's Heat on top (at least CallMinHeat): Heat is what stops a
+// loop.
+const (
+	CallPowerCost = 1
+	CallHeatCost  = 0.5
+	CallMinHeat   = 1
+)
+
+// CallName is how a Call's target reads: "self" or "hex 2".
+func CallName(c uint8) string {
+	if c == CallSelf {
+		return "self"
+	}
+	return fmt.Sprintf("hex %d", c)
+}
+
 // Gate defaults.
 const (
 	DefaultHullGate  = 0.3
@@ -278,6 +305,8 @@ type Part struct {
 	Charge  ChargeKind // charge parts
 	// Bank is the charge bank a Charge part or charge gate uses (0 is A).
 	Bank uint8
+	// Call is the hex a Call part runs: CallSelf, or n for equipped hex n.
+	Call uint8
 	// Value means: trigger damage multiplier, target radius, damage amount,
 	// push distance in hexes, status duration in seconds, multiplier factor,
 	// a gate's threshold (a fraction of max, or the crowd radius), or how
@@ -315,6 +344,8 @@ func (p Part) String() string {
 		return "gate " + p.Gate.String()
 	case KindCharge:
 		return fmt.Sprintf("%s %s %g", p.Charge, BankName(p.Bank), p.Value)
+	case KindCall:
+		return "call " + CallName(p.Call)
 	}
 	return "empty"
 }
@@ -471,6 +502,12 @@ func NewSpendGate(bank uint8, n uint8) Part {
 // NewEmptyGate passes its group when the bank is zero.
 func NewEmptyGate(bank uint8) Part {
 	return Part{Kind: KindGate, Gate: GateEmpty, Bank: bank % MaxBanks, Power: GatePowerCost}
+}
+
+// NewCall makes a Call part that runs hex target (CallSelf, or n for
+// equipped hex n) once the hex holding it finishes.
+func NewCall(target uint8) Part {
+	return Part{Kind: KindCall, Call: target, Power: CallPowerCost, Heat: CallHeatCost}
 }
 
 // WithBank returns the part reading a different bank. Only Charge parts

@@ -34,9 +34,15 @@ const (
 	// to 0..MaxCharge, but only while guard register Src2 holds someone:
 	// in a gate branch nobody took it does nothing.
 	OpCharge
+	// OpCall queues hex Count (CallSelf for the running one) to run once
+	// per entity in Src, each with that entity as its subject, after the
+	// running hex finishes. Value scales the Heat each run costs. Calls
+	// queue rather than nest, so a loop is a hex calling itself again and
+	// never grows a stack; Heat and MaxCalls end it.
+	OpCall
 )
 
-var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge"}
+var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge", "call"}
 
 func (o Op) String() string { return opNames[o] }
 
@@ -86,7 +92,14 @@ type Program struct {
 	// what the first spend gate on bank b takes (0 if none), for the HUD.
 	Banks uint8
 	Spend [MaxBanks]uint8
+	// Calls has bit 0 set when the hex calls itself and bit n when it
+	// calls equipped hex n.
+	Calls uint16
 }
+
+// CallsHex reports whether the program has a Call aimed at target
+// (CallSelf or an equipped hex number).
+func (p *Program) CallsHex(target uint8) bool { return target < 16 && p.Calls&(1<<target) != 0 }
 
 // UsesBank reports whether the program touches charge bank b.
 func (p *Program) UsesBank(b int) bool { return p.Banks&(1<<b) != 0 }
@@ -139,6 +152,8 @@ func (p *Program) String() string {
 			}
 		case OpCharge:
 			fmt.Fprintf(&b, "bank %s %+g if r%d", BankName(s.Bank), s.Value, s.Src2)
+		case OpCall:
+			fmt.Fprintf(&b, "call %s on r%d heat x%.2f", CallName(s.Count), s.Src, s.Value)
 		}
 		b.WriteByte('\n')
 	}
