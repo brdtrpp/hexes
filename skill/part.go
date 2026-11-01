@@ -102,8 +102,11 @@ const (
 	Common Rarity = iota
 	Uncommon
 	Rare
-	Epic
+	Exotic
 )
+
+// NumRarities is how many loot tiers exist.
+const NumRarities = 4
 
 var rarityScale = [...]float32{1, 1.15, 1.35, 1.6}
 
@@ -112,8 +115,56 @@ var rarityScale = [...]float32{1, 1.15, 1.35, 1.6}
 func (r Rarity) Scale() float32 { return rarityScale[r] }
 
 func (r Rarity) String() string {
-	return [...]string{"common", "uncommon", "rare", "epic"}[r]
+	return [...]string{"common", "uncommon", "rare", "exotic"}[r]
 }
+
+// Quirk is a rule a rare part bends. Quirks change how the compiler wires
+// the hex, not just how big the numbers are.
+type Quirk uint8
+
+const (
+	QuirkNone Quirk = iota
+	// QuirkRadiant (multipliers): scales every part in its ring, not just
+	// the one before it. Nested hexes in the ring are scaled too.
+	QuirkRadiant
+	// QuirkRelay (damage and status effects): after landing, arcs once to
+	// everything next to each target, damage at RelayFrac, statuses at full
+	// duration. A target's target without spending a nesting level.
+	QuirkRelay
+	// QuirkEcho (triggers): the whole hex runs twice per firing. The second
+	// run picks its targets again, so it finds whoever the first one missed.
+	QuirkEcho
+)
+
+// NumQuirks counts quirks, QuirkNone included.
+const NumQuirks = 4
+
+var quirkNames = [...]string{"", "radiant", "relay", "echo"}
+
+func (q Quirk) String() string { return quirkNames[q] }
+
+// Fits reports whether a part kind (and effect verb) can carry the quirk.
+func (q Quirk) Fits(p Part) bool {
+	switch q {
+	case QuirkNone:
+		return true
+	case QuirkRadiant:
+		return p.Kind == KindMult
+	case QuirkRelay:
+		return p.Kind == KindEffect && p.Effect != EffectPush
+	case QuirkEcho:
+		return p.Kind == KindTrigger
+	}
+	return false
+}
+
+// Quirk tuning.
+const (
+	RelayFrac       = 0.5  // relay arcs land at this share of the value
+	RelayCost       = 0.5  // a relay effect costs this much more Power and Heat
+	EchoCost        = 0.25 // an echo hex costs this much more in total
+	RadiantHeatCost = 2    // extra Heat for a radiant multiplier
+)
 
 // Part is one piece of loot that goes in a hex slot. Which fields matter
 // depends on Kind.
@@ -135,6 +186,9 @@ type Part struct {
 	Power, Heat float32
 	// Period is seconds between firings for a Periodic trigger.
 	Period float32
+	// Quirk is the rule this part bends, if any. Only rare and exotic loot
+	// rolls one.
+	Quirk Quirk
 }
 
 func (p Part) String() string {

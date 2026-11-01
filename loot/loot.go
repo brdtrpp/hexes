@@ -1,0 +1,238 @@
+// Package loot rolls the parts that drop from enemies, by rarity weighted
+// for depth, and holds the player's inventory of them. Rolls are pure
+// functions of a seed, so a run replays the same drops, and none of the
+// rolling or inventory code allocates: it runs in the middle of the
+// simulation when something dies.
+package loot
+
+import "hexes/skill"
+
+// RNG is SplitMix64, the same generator the floor and hex layouts use:
+// identical on every platform and Go version.
+type RNG struct{ s uint64 }
+
+// NewRNG seeds a generator.
+func NewRNG(seed uint64) RNG { return RNG{seed} }
+
+// Next returns 64 random bits.
+func (r *RNG) Next() uint64 {
+	r.s += 0x9e3779b97f4a7c15
+	z := r.s
+	z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9
+	z = (z ^ (z >> 27)) * 0x94d049bb133111eb
+	return z ^ (z >> 31)
+}
+
+// Float is uniform in [0, 1).
+func (r *RNG) Float() float32 { return float32(r.Next()>>40) / (1 << 24) }
+
+// Intn is uniform in [0, n).
+func (r *RNG) Intn(n int) int { return int(r.Next() % uint64(n)) }
+
+// Range is uniform in [lo, hi).
+func (r *RNG) Range(lo, hi float32) float32 { return lo + (hi-lo)*r.Float() }
+
+// pick returns an index with probability proportional to its weight.
+func (r *RNG) pick(w []float32) int {
+	var sum float32
+	for _, x := range w {
+		sum += x
+	}
+	x := r.Float() * sum
+	for i, v := range w {
+		if x < v {
+			return i
+		}
+		x -= v
+	}
+	return len(w) - 1
+}
+
+// Seed mixes a floor seed and an entity into the seed for that entity's
+// drop, so who drops what doesn't depend on kill order.
+func Seed(floorSeed uint64, entity int) uint64 {
+	r := RNG{floorSeed ^ (uint64(entity)+1)*0xd1b54a32d192ed03}
+	return r.Next()
+}
+
+// Rarity weights by depth. Common thins out with depth and the rest
+// thicken, each to a ceiling. Placeholder curve, all constants.
+const (
+	CommonBase, CommonPerDepth, CommonFloor             = 72, -2.5, 20
+	UncommonBase, UncommonPerDepth, UncommonCap         = 22, 1.0, 40
+	RareBase, RarePerDepth, RareCap                     = 5, 0.6, 28
+	ExoticBase, ExoticPerDepth, ExoticCap               = 1, 0.3, 14
+	RareQuirkChance                             float32 = 0.35 // exotics always bend a rule
+)
+
+// RarityWeights is the relative chance of each tier at a depth.
+func RarityWeights(depth int) [skill.NumRarities]float32 {
+	d := float32(max(0, depth-1))
+	return [skill.NumRarities]float32{
+		max(CommonFloor, CommonBase+CommonPerDepth*d),
+		min(UncommonCap, UncommonBase+UncommonPerDepth*d),
+		min(RareCap, RareBase+RarePerDepth*d),
+		min(ExoticCap, ExoticBase+ExoticPerDepth*d),
+	}
+}
+
+// RollRarity picks a tier for a drop at depth.
+func RollRarity(r *RNG, depth int) skill.Rarity {
+	w := RarityWeights(depth)
+	return skill.Rarity(r.pick(w[:]))
+}
+
+// Table rolls parts against a damage type registry.
+type Table struct {
+	Reg *skill.Registry
+	// Damage is the base damage amount per type, before the roll's spread
+	// and rarity.
+	Damage [skill.MaxTypes]float32
+}
+
+// Base damage per type for drops. Nanite is high because it arrives as
+// ticks; kinetic is low because every hit also shoves. Unlisted types use
+// DefaultDamage.
+var baseDamage = map[string]float32{
+	"plasma": 18, "cryo": 15, "kinetic": 10, "nanite": 28, "drone": 14, "cloak": 16,
+}
+
+// DefaultDamage is the base damage for a type with no entry above.
+const DefaultDamage = 16
+
+// NewTable builds a table for a registry.
+func NewTable(reg *skill.Registry) *Table {
+	t := &Table{Reg: reg}
+	for i := 0; i < reg.Len(); i++ {
+		t.Damage[i] = DefaultDamage
+		if v, ok := baseDamage[reg.Get(skill.TypeID(i)).Name]; ok {
+			t.Damage[i] = v
+		}
+	}
+	return t
+}
+
+// Kind weights: effect, target, multiplier, trigger.
+var kindWeights = [...]float32{40, 22, 22, 16}
+
+// Exotics always carry a quirk, so they skip targets, which have none.
+var exoticKindWeights = [...]float32{45, 0, 30, 25}
+
+var partKinds = [...]skill.PartKind{skill.KindEffect, skill.KindTarget, skill.KindMult, skill.KindTrigger}
+
+var triggerWeights = [...]float32{
+	skill.OnCast: 26, skill.OnHit: 20, skill.OnKill: 20, skill.FromStealth: 4,
+	skill.FromBehind: 4, skill.Periodic: 16, skill.OnHurt: 10,
+}
+
+var targetWeights = [...]float32{
+	skill.TargetSelf: 4, skill.TargetNearest: 26, skill.TargetCone: 20,
+	skill.TargetAdjacent: 26, skill.TargetChain: 24,
+}
+
+var effectWeights = [...]float32{skill.EffectDamage: 62, skill.EffectPush: 14, skill.EffectStatus: 24}
+
+var verbWeights = [...]float32{
+	skill.VerbDamage: 34, skill.VerbPush: 10, skill.VerbDuration: 12,
+	skill.VerbCount: 14, skill.VerbRadius: 14, skill.VerbAll: 16,
+}
+
+// Drop rolls whether something drops at all, then what.
+func (t *Table) Drop(r *RNG, depth int, chance float32) (skill.Part, bool) {
+	if r.Float() >= chance {
+		return skill.Part{}, false
+	}
+	return t.Roll(r, depth), true
+}
+
+// Roll makes one part for a drop at depth.
+func (t *Table) Roll(r *RNG, depth int) skill.Part {
+	rar := RollRarity(r, depth)
+	return t.RollAt(r, rar)
+}
+
+// RollAt makes one part of a given tier.
+func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
+	kw := kindWeights[:]
+	if rar == skill.Exotic {
+		kw = exoticKindWeights[:]
+	}
+	var p skill.Part
+	switch partKinds[r.pick(kw)] {
+	case skill.KindTrigger:
+		p = t.trigger(r)
+	case skill.KindTarget:
+		p = t.target(r)
+	case skill.KindEffect:
+		p = t.effect(r, rar == skill.Exotic)
+	default:
+		p = t.mult(r)
+	}
+	p = p.WithRarity(rar)
+	if rar == skill.Exotic || (rar == skill.Rare && r.Float() < RareQuirkChance) {
+		p.Quirk = quirkFor(p)
+	}
+	return p
+}
+
+// quirkFor is the one quirk that fits a part, or none.
+func quirkFor(p skill.Part) skill.Quirk {
+	for q := skill.Quirk(1); q < skill.NumQuirks; q++ {
+		if q.Fits(p) {
+			return q
+		}
+	}
+	return skill.QuirkNone
+}
+
+func (t *Table) trigger(r *RNG) skill.Part {
+	k := skill.TriggerKind(r.pick(triggerWeights[:]))
+	if k == skill.Periodic {
+		return skill.NewPeriodic(half(r.Range(2.5, 5.5)))
+	}
+	return skill.NewTrigger(k)
+}
+
+func (t *Table) target(r *RNG) skill.Part {
+	switch k := skill.TargetKind(r.pick(targetWeights[:])); k {
+	case skill.TargetNearest:
+		return skill.NewTarget(k, 0, uint8(1+r.Intn(3)))
+	case skill.TargetCone:
+		return skill.NewTarget(k, float32(2+r.Intn(3)), 0)
+	case skill.TargetAdjacent:
+		return skill.NewTarget(k, float32(1+r.Intn(3)), 0)
+	case skill.TargetChain:
+		return skill.NewTarget(k, float32(3+r.Intn(2)), uint8(2+r.Intn(3)))
+	default:
+		return skill.NewTarget(k, 0, 0)
+	}
+}
+
+func (t *Table) effect(r *RNG, noPush bool) skill.Part {
+	w := effectWeights
+	if noPush {
+		w[skill.EffectPush] = 0
+	}
+	ty := skill.TypeID(r.Intn(t.Reg.Len()))
+	switch skill.EffectKind(r.pick(w[:])) {
+	case skill.EffectPush:
+		return skill.NewPush(float32(1 + r.Intn(3)))
+	case skill.EffectStatus:
+		return skill.NewStatus(ty, half(r.Range(1.5, 4.5)))
+	default:
+		amt := float32(int(t.Damage[ty]*r.Range(0.8, 1.25) + 0.5))
+		return skill.NewDamage(ty, max(1, amt))
+	}
+}
+
+func (t *Table) mult(r *RNG) skill.Part {
+	v := skill.Verb(r.pick(verbWeights[:]))
+	lo, hi := float32(1.25), float32(2.05)
+	if v == skill.VerbAll {
+		lo, hi = 1.15, 1.55
+	}
+	return skill.NewMult(v, float32(int(r.Range(lo, hi)*20))/20)
+}
+
+// half rounds to the nearest half.
+func half(x float32) float32 { return float32(int(x*2+0.5)) / 2 }

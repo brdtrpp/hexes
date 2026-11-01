@@ -16,6 +16,8 @@ const (
 	FXKill                 // something died at At
 	FXClaw                 // enemy melee From attacker to At
 	FXVent                 // the rig vented at At
+	FXLoot                 // picked up a part at At; Slot is its rarity
+	FXFull                 // walked over a part with a full inventory
 )
 
 // FX is one effect.

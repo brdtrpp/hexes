@@ -141,7 +141,7 @@ func TestMultiplierScalesTargetCount(t *testing.T) {
 func TestRarityScalesValues(t *testing.T) {
 	h := baseHex(t)
 	set(t, h, 2, NewDamage(id("cryo"), 10).WithRarity(Rare))
-	set(t, h, 3, NewMult(VerbDamage, 2).WithRarity(Epic))
+	set(t, h, 3, NewMult(VerbDamage, 2).WithRarity(Exotic))
 	d := steps(compile(t, h, 0), OpDamage)
 	approx(t, "damage", d[0].Value, 10*1.35*(1+1*1.6))
 }

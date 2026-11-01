@@ -66,6 +66,13 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	if err := c.level(h, trig, 0, RegOrigin, RegSubject, map[*Hex]bool{h: true}); err != nil {
 		return nil, err
 	}
+	if t.Quirk == QuirkEcho {
+		// Run the whole body twice. Spans are relative, so a plain copy
+		// works; the second pass selects its targets afresh.
+		c.p.Steps = append(c.p.Steps, c.p.Steps...)
+		c.p.Power *= 1 + EchoCost
+		c.p.Heat *= 1 + EchoCost
+	}
 	c.p.Regs = int(c.next)
 	return c.p, nil
 }
@@ -97,6 +104,12 @@ func (c *compiler) cost(p Part, depth int) {
 	if p.Kind == KindEffect && p.Effect != EffectPush {
 		heat += c.reg.Get(p.Type).HeatOffset
 	}
+	switch p.Quirk {
+	case QuirkRelay:
+		f *= 1 + RelayCost
+	case QuirkRadiant:
+		heat += RadiantHeatCost
+	}
 	c.p.Power += p.Power * f
 	c.p.Heat += heat * f
 }
@@ -119,6 +132,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		tgt[i] = -1
 	}
 	var fed [Slots]span // step range each slot produced, for multipliers
+	first := len(c.p.Steps)
 
 	// Pass 1: targets. They depend on nothing but the origin, so they all
 	// select up front and any effect can read them.
@@ -173,7 +187,12 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				st.Op = OpStatus
 			}
 			i := c.emit(st)
-			fed[s] = span{i, i + 1, true}
+			if p.Quirk == QuirkRelay && p.Effect != EffectPush {
+				if err := c.relay(st); err != nil {
+					return err
+				}
+			}
+			fed[s] = span{i, len(c.p.Steps), true}
 			c.cost(p, depth)
 		case sl.Kind == SlotNested:
 			n := sl.Nested
@@ -212,6 +231,15 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		}
 		p := sl.Part
 		c.cost(p, depth)
+		if p.Quirk == QuirkRadiant {
+			// Bends the "part just before it" rule: the whole ring.
+			f := span{first, len(c.p.Steps), len(c.p.Steps) > first}
+			mult[s] = f
+			if f.ok {
+				c.scale(f, p.Verb, 1+(p.Value-1)*p.Rarity.Scale())
+			}
+			continue
+		}
 		if k == 0 {
 			continue
 		}
@@ -229,6 +257,30 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		mult[s] = f
 		c.scale(f, p.Verb, 1+(p.Value-1)*p.Rarity.Scale())
 	}
+	return nil
+}
+
+// relay follows an effect step with its arc: for each entity the effect
+// landed on, select what's next to it and apply the effect again at
+// RelayFrac. The arc is part of the slot's span, so a multiplier after it
+// scales the arc too.
+func (c *compiler) relay(st Step) error {
+	loop, err := c.alloc()
+	if err != nil {
+		return err
+	}
+	near, err := c.alloc()
+	if err != nil {
+		return err
+	}
+	c.emit(Step{Op: OpForEach, Src: st.Src, Dst: loop, Span: 2})
+	c.emit(Step{Op: OpSelect, Target: TargetAdjacent, Src: loop, Dst: near, Value: 1})
+	arc := st
+	arc.Src = near
+	if arc.Op == OpDamage {
+		arc.Value *= RelayFrac
+	}
+	c.emit(arc)
 	return nil
 }
 

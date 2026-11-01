@@ -131,6 +131,9 @@ type Sim struct {
 	SlotFlash [MaxSlots]float32
 	SlotLast  [MaxSlots]skill.Outcome
 
+	// Stash is loot: parts on the floor and in the inventory (loot.go).
+	Stash Stash
+
 	occ      []skill.EntityID
 	dist, q  []int32
 	distFrom skill.Coord
@@ -152,6 +155,8 @@ func New(seed uint64) *Sim {
 func (s *Sim) NewRun(seed uint64) {
 	s.RunSeed = seed
 	s.Kills = 0
+	s.Load = Loadout{}
+	s.resetStash()
 	s.load(1, 1)
 }
 
@@ -194,7 +199,7 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	}
 
 	s.Rig = skill.NewRig(skill.Points{Capacity: RigPoints, Recharge: RigPoints, Cooling: 0, Processing: 5})
-	s.Load = BuildLoadout(s.Reg, lvl, s.Rig.MaxDepth)
+	s.loadLoot(lvl)
 	s.Disp = skill.NewDispatcher(s.Eval, s)
 	s.Disp.Listener = s
 	s.Disp.ProcCooldown[skill.OnHit] = 1.2
@@ -258,6 +263,7 @@ func (s *Sim) Step(dt float32) {
 	s.enemies(dt)
 	s.advance(dt)
 	s.timers(dt)
+	s.pickup(dt)
 
 	p := s.P()
 	if !p.U.Alive {
@@ -506,6 +512,7 @@ func (s *Sim) died(id skill.EntityID) {
 	}
 	if id != s.Player {
 		s.Kills++
+		s.dropLoot(id)
 	}
 }
 
