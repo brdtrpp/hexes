@@ -46,7 +46,7 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 		case skill.TargetCone:
 			return "CONE", fmt.Sprintf("%g long", p.Value)
 		case skill.TargetAdjacent:
-			return "AROUND", fmt.Sprintf("within %g", p.Value)
+			return "AROUND", fmt.Sprintf("%g hex", p.Value)
 		case skill.TargetChain:
 			return "CHAIN", plural(int(p.Count), "hop")
 		}

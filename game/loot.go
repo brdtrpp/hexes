@@ -126,13 +126,13 @@ func (s *Sim) pickup(dt float32) {
 		if s.Stash.Inv.Add(d[i].Part) < 0 {
 			if !s.Stash.fullShow {
 				s.Stash.fullShow, s.Stash.fullAt = true, at
-				s.FX.Add(FX{Kind: FXFull, At: at, Life: 1.2})
+				s.addFX(FX{Kind: FXFull, At: at, Life: 1.2})
 			}
 			i++
 			continue
 		}
 		s.Stash.Picked++
-		s.FX.Add(FX{Kind: FXLoot, At: at, Slot: int(d[i].Part.Rarity), Life: 1.0})
+		s.addFX(FX{Kind: FXLoot, At: at, Slot: int(d[i].Part.Rarity), Life: 1.0})
 		d[i] = d[len(d)-1]
 		d = d[:len(d)-1]
 	}

@@ -7,11 +7,12 @@
 //	GOOS=js GOARCH=wasm go build -o web/hexes.wasm ./cmd/hexes   # browser
 //
 // Desktop: WASD or arrows (or hold the mouse) to move, Space or 1 to cast
-// Arc Lance, R or Shift to vent heat, Enter to restart after dying.
+// every on-cast hex, R or Shift to vent heat, Tab or E to open the hex
+// editor, Enter to restart after dying.
 // Touch: hold anywhere to walk that way, or switch MOVE to STICK (top
-// right) for a thumb joystick on the left half; tap CAST and VENT. The
-// choice is remembered in the browser.
-// Strikes on adjacent foes are automatic.
+// right) for a thumb joystick on the left half; tap CAST, VENT and HEX.
+// The choice is remembered in the browser.
+// Strikes on adjacent foes are automatic; walking over loot picks it up.
 package main
 
 import (
@@ -31,6 +32,7 @@ import (
 
 	"hexes/dungeon"
 	"hexes/game"
+	"hexes/loot"
 	"hexes/skill"
 )
 
@@ -69,7 +71,6 @@ var (
 	slotCol = [game.MaxSlots]color.RGBA{
 		{0xff, 0x7a, 0x2f, 0xff}, {0xf0, 0xf0, 0xf0, 0xff}, {0x8f, 0xdc, 0xff, 0xff}, {0x8c, 0xff, 0x5a, 0xff},
 	}
-	slotKey = [game.MaxSlots]string{"SPACE", "on hit", "on kill", "every 4 s"}
 )
 
 type button struct {
@@ -107,6 +108,8 @@ type Game struct {
 	camX, camY float64
 	cast, vent button
 	modeBtn    pill
+	hexBtn     button // opens the hex editor
+	ed         editor
 	touched    bool // a touch has happened: show touch hints, not keys
 	// stickMode moves with a thumb joystick on the left half of the
 	// screen instead of walking toward the finger.
@@ -152,6 +155,7 @@ func (g *Game) Layout(ow, oh int) (int, int) {
 		g.vent = button{g.cast.x - r*1.9, float64(h) - r*0.65 - 24*k, r * 0.65, "VENT"}
 		g.modeBtn = pill{float64(w) - 128*k, 10 * k, 116 * k, 26 * k}
 		g.stick.Radius = k * math.Max(44, math.Min(64, short/7))
+		g.hexBtn = button{g.cast.x, g.cast.y - r*1.85, r * 0.6, "HEX"}
 		g.face.Size, g.small.Size, g.big.Size = 15*k, 12*k, 30*k
 	}
 	return w, h
@@ -162,6 +166,9 @@ func (g *Game) u(x float64) float32 { return float32(x * g.k) }
 
 func (g *Game) Update() error {
 	g.frame++
+	if g.updateEditor() {
+		return nil // paused while the editor is open
+	}
 	var in game.Input
 	// Keyboard.
 	kx, ky := 0.0, 0.0
@@ -179,7 +186,7 @@ func (g *Game) Update() error {
 	}
 	in.MoveX, in.MoveY = kx, ky
 	if inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyDigit1) || inpututil.IsKeyJustPressed(ebiten.KeyJ) {
-		in.Cast[0] = true
+		g.castAll(&in)
 		in.Restart = true
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyR) || inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || inpututil.IsKeyJustPressed(ebiten.KeyK) {
@@ -201,13 +208,13 @@ func (g *Game) Update() error {
 		}
 	}
 	onButton := func(x, y float64) bool {
-		return g.cast.hit(x, y) || g.vent.hit(x, y) || g.modeBtn.hit(x, y)
+		return g.cast.hit(x, y) || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.hexBtn.hit(x, y)
 	}
 	press := func(id int, x, y float64) {
 		in.Restart = true
 		switch {
 		case g.cast.hit(x, y):
-			in.Cast[0] = true
+			g.castAll(&in)
 		case g.vent.hit(x, y):
 			in.Vent = true
 		case g.modeBtn.hit(x, y):
@@ -218,6 +225,8 @@ func (g *Game) Update() error {
 				mode = "stick"
 			}
 			savePref(stickPref, mode)
+		case g.hexBtn.hit(x, y):
+			g.openEditor()
 		default:
 			if g.stickMode && !g.stick.On && x < float64(g.w)/2 {
 				g.stick.Begin(id, x, y)
@@ -263,6 +272,9 @@ func (g *Game) Update() error {
 	}
 
 	g.sim.Input = in
+	if g.ed.on { // the HEX button opened it this frame
+		return nil
+	}
 	g.sim.Step(1.0 / float32(ebiten.TPS()))
 
 	// Camera eases toward the player.
@@ -291,9 +303,13 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.buildTiles()
 	}
 	g.drawFloor(screen)
+	g.drawDrops(screen)
 	g.drawActors(screen)
 	g.drawFX(screen)
 	g.drawHUD(screen)
+	if g.ed.on {
+		g.drawEditor(screen)
+	}
 }
 
 // buildTiles pre-renders one hex sprite per tile kind at the current size,
@@ -526,6 +542,11 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 		case game.FXClaw:
 			fx, fy := g.toScreen(f.FromX, f.FromY)
 			vector.StrokeLine(screen, float32(fx), float32(fy), float32(x), float32(y), g.u(4), fade(colHot, a), true)
+		case game.FXLoot:
+			c := rarityCol[f.Slot%skill.NumRarities]
+			g.label(screen, g.small, rarityName[f.Slot%skill.NumRarities], x, y-s*0.9-float64(k)*s*1.2, fade(c, a), true)
+		case game.FXFull:
+			g.label(screen, g.small, "PACK FULL", x, y-s*0.9-float64(k)*s, fade(colHot, a), true)
 		case game.FXVent:
 			vector.StrokeCircle(screen, float32(x), float32(y), float32(s*(1+4*float64(k))), g.u(5), fade(color.RGBA{0xd8, 0xf4, 0xff, 0xff}, a), true)
 		case game.FXNumber:
@@ -578,7 +599,7 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 
 	// Top left: depth and kills.
 	g.label(screen, g.face, fmt.Sprintf("DEPTH %d", sim.Depth), float64(u(14)), float64(u(20)), colText, false)
-	g.label(screen, g.small, fmt.Sprintf("kills %d   best %d   lv %d", sim.Kills, sim.Best, p.U.Level), float64(u(14)), float64(u(40)), colDim, false)
+	g.label(screen, g.small, fmt.Sprintf("kills %d   best %d   lv %d   pack %d/%d", sim.Kills, sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize), float64(u(14)), float64(u(40)), colDim, false)
 
 	// Bars: hull, power, heat. Centered on wide screens, under the depth
 	// line on narrow ones.
@@ -625,10 +646,7 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		x := cx0 + float32(i)*(cardW+gap)
 		vector.DrawFilledRect(screen, x, cy, cardW, cardH, colPanel, false)
 		edge := fade(slotCol[i], 0.45)
-		sub := slotKey[i]
-		if i == 0 && (g.touched || narrow) {
-			sub = "CAST"
-		}
+		sub := g.slotKey(i)
 		if fl := sim.SlotFlash[i]; fl > 0 {
 			if sim.SlotLast[i] == skill.Fired {
 				edge = slotCol[i]
@@ -648,8 +666,11 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	}
 
 	// Touch buttons (they work with the mouse too).
-	for _, b := range []button{g.cast, g.vent} {
+	for _, b := range []button{g.cast, g.vent, g.hexBtn} {
 		c := slotCol[0]
+		if b.label == "HEX" {
+			c = color.RGBA{0xe0, 0x5c, 0xff, 0xff}
+		}
 		if b.label == "VENT" {
 			c = color.RGBA{0xd8, 0xf4, 0xff, 0xff}
 			if rig.Heat > rig.MaxHeat*0.75 && g.frame/10%2 == 0 {
@@ -701,9 +722,9 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 				walk = "drag on the left half to steer"
 			}
 			g.label(screen, g.small, walk+" · strikes are automatic", float64(W/2), float64(cy+cardH+u(18)), colDim, true)
-			g.label(screen, g.small, "CAST the lance · VENT before you overheat · find ▼", float64(W/2), float64(cy+cardH+u(36)), colDim, true)
+			g.label(screen, g.small, "CAST the lance · VENT before you overheat · HEX to slot loot", float64(W/2), float64(cy+cardH+u(36)), colDim, true)
 		} else {
-			g.label(screen, g.small, "WASD / arrows / hold mouse: move    SPACE: Arc Lance    R: vent    strikes are automatic    find the ▼ stairs",
+			g.label(screen, g.small, "WASD / arrows / hold mouse: move    SPACE: cast    R: vent    TAB: edit hexes    walk over loot to grab it    find the ▼ stairs",
 				float64(W/2), float64(cy-u(18)), colDim, true)
 		}
 	}

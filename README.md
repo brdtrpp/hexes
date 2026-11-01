@@ -24,9 +24,10 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 
 ## Controls
 
-- Desktop: WASD or arrows to move (or hold the mouse button and point), Space casts Arc Lance, R or Shift vents heat, Enter restarts after dying.
-- Touch: hold anywhere to walk toward your finger, tap CAST and VENT. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
-- Strikes on an adjacent foe are automatic. Walk onto the stairs to go down a level.
+- Desktop: WASD or arrows to move (or hold the mouse button and point), Space casts every on-cast hex, R or Shift vents heat, Tab or E opens the hex editor (1 to 4 pick a hex, Esc closes), Enter restarts after dying.
+- Touch: hold anywhere to walk toward your finger, tap CAST, VENT and HEX. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
+- Strikes on an adjacent foe are automatic. Walk over a dropped part to pick it up. Walk onto the stairs to go down a level.
+- Hex editor (game paused): tap a part, then tap where it goes. Pack to slot swaps loot in, slot to slot rewires the hex, slot to an empty pack cell takes a part out, SCRAP throws away the picked pack part. The hex recompiles on every tap; a refused edit says why.
 
 ## What's here
 
@@ -35,7 +36,8 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 | `skill/` | Hex compiler and evaluator (below), plus `dispatch.go`: trigger dispatch. |
 | `dungeon/` | Floor generator: rooms, corridors, walls, pits, hazard vents, spawns, stairs, from a seed and a depth. |
 | `game/` | Real-time simulation: free movement over the hex floor with wall sliding, enemy AI, the player's rig and loadout, terrain kills, effects. No rendering, so it runs in tests. |
-| `cmd/hexes/` | The Ebitengine front end: drawing, HUD, keyboard, mouse and touch. |
+| `loot/` | Drop rolls (rarity by depth, part kinds, values, quirks), the inventory grid, and part labels for the screen. |
+| `cmd/hexes/` | The Ebitengine front end: drawing, HUD, keyboard, mouse and touch. `editor.go` is the hex editor. |
 | `cmd/hexmap/` | Prints a floor as text. |
 | `web/` | Browser page and wasm build. |
 
@@ -165,6 +167,8 @@ Intel Xeon 2.1 GHz, 4 cores, Go 1.24.7 (`go test ./skill ./dungeon ./game -run '
 | Game step (1/60 s), depth 1, 7 actors | 1.4 µs | 0 |
 | Game step, depth 10, 22 actors | 2.2 µs | 0 |
 | Game step, depth 30, 54 actors | 4.1 µs | 0 |
+| Roll one drop | 0.1 µs | 0 |
+| Swap a part into a hex and recompile it | 1.9 µs | 19 |
 
 Game step numbers are from the free-movement pass, rerun on a busier machine (the tile-step version measured 1.0, 1.7 and 3.5 µs in the same run). The rest are from the first pass. A whole frame of simulation at depth 30 is about 0.025% of a 60 fps frame budget. Rendering is the real cost on phones, and the floor draws as pre-rendered hex sprites with off-screen culling for that reason.
 
@@ -196,11 +200,35 @@ Slice tuning
 - Grunt 60 hp, 18 dmg, 2.4 tiles/s; skitter 32 hp, 11 dmg, 3.9 tiles/s; brute 150 hp, 34 dmg, 1.5 tiles/s. Enemy claws are capped by level gap but don't build the player's resistance.
 - Hazard vents burn 5% max health every 0.5 s, ignoring the cap. Anything standing on one burns, enemies included.
 
+## Loot (`loot`, `game/loot.go`, `cmd/hexes/editor.go`)
+
+Enemies drop parts when they die. The drop is seeded by the floor and the enemy, so a run drops the same parts whatever order things die in. Parts lie on the floor as diamonds in their rarity color and go into the pack when you walk over them. The four hexes start as the preset below and keep your edits for the whole run; the pack carries over between floors. Both reset on a new run.
+
+Rarity (common, uncommon, rare, exotic) is weighted by depth. Rarity scales a part's numbers (x1, 1.15, 1.35, 1.6), and rare and exotic parts can bend a hex rule:
+
+| Quirk | On | What it bends |
+| --- | --- | --- |
+| Radiant | multipliers | Scales every part in its ring, not just the one before it. +2 Heat. |
+| Relay | damage and status effects | Arcs on to everything next to each target (damage at half, statuses at full duration). A target's target without spending a nesting level. Costs 1.5x. |
+| Echo | triggers | The whole hex runs twice per firing; the second run picks targets again. Costs 1.25x. |
+
+Rare parts roll a quirk 35% of the time; exotics always do (so exotics are never targets, which have no quirk yet).
+
+Defaults picked (all constants):
+- Drop chance: grunt 30%, skitter 22%, brute 55%, elites +45%.
+- Rarity weights: common 72 falling 2.5 per depth to 20; uncommon 22 rising 1 per depth to 40; rare 5 rising 0.6 to 28; exotic 1 rising 0.3 to 14. Depth 1 is 73/21/5/1 percent, depth 10 is 52/33/11/4, depth 40 is 20/39/28/13.
+- Part kinds: effects 40%, targets 22%, multipliers 22%, triggers 16%. Damage per type: plasma 18, cryo 15, kinetic 10, nanite 28, drone 14, cloak 16, rolled x0.8 to 1.25. Multipliers x1.25 to 2 (all-verb x1.15 to 1.55). Periodic triggers every 2.5 to 5.5 s.
+- Part values don't grow with depth; the level scaling that already grows hex damage does that, so depth buys rarity, not bigger base numbers.
+- Pack: 12 cells. A full pack leaves parts on the floor and says PACK FULL. Parts left on a floor are gone when you go down. At most 96 parts lie on one floor.
+- The CAST button and Space fire every on-cast hex, so a trigger swapped into any slot has a button.
+- The trigger stays in the top slot: triggers only fit there and it can't be emptied.
+
+Drop rolls and pickup run inside the sim step with no allocations. Recompiling on a swap allocates (the compiler builds a fresh program) but only runs from the paused editor.
+
 ## Not built yet
-- Loot, learning hexes, and swapping the loadout. Minions (drone raises are off in the slice).
+- Learning hexes (rolled layouts and broken edges are in `skill`, but the slice's four hexes are fixed). Minions (drone raises are off in the slice).
 - Element combos beyond freeze-then-shatter, gated enemies, overkill reflect.
-- Rule-bending rare parts (ignite neighbors, open a nested slot).
-- Procedural loot rolls. Parts are made with constructors for now.
+- More rule-bending parts (ignite neighbors, open a nested slot, bridge a broken edge).
 - Line of sight and fog of war. Enemies sense you through walls by walking distance.
 - Enemies carrying hexes of their own. Right now they only claw.
 - Saving a run, menus, art and audio. Everything on screen is flat shapes.
