@@ -1,0 +1,169 @@
+package skill
+
+import "math"
+
+// EntityID names a unit in the world.
+type EntityID int32
+
+// NoEntity is the empty ID.
+const NoEntity EntityID = -1
+
+// MaxDots is how many damage-over-time effects a unit carries at once.
+const MaxDots = 4
+
+// Dot is one damage-over-time effect.
+type Dot struct {
+	PerTick       float32
+	Left          uint8 // ticks remaining
+	Type          TypeID
+	AttackerLevel int16
+	Owner         EntityID
+}
+
+// Unit is everything combat needs to know about a creature.
+type Unit struct {
+	ID     EntityID
+	Team   uint8
+	Alive  bool
+	HP     float32
+	MaxHP  float32
+	Level  int
+	Resist [MaxTypes]float32 // adaptive, 0 to Rules.MaxResist
+
+	Chill     uint8
+	Frozen    bool
+	FrozenBy  TypeID
+	SlowFrac  float32
+	SlowLeft  float32
+	StunLeft  float32
+	MarkLeft  float32
+	MarkOwner EntityID
+	Stealth   float32 // seconds of stealth left
+	Dots      [MaxDots]Dot
+}
+
+// AddDot queues damage over time, replacing the weakest slot when full.
+func (u *Unit) AddDot(d Dot) {
+	best := 0
+	for i := range u.Dots {
+		if u.Dots[i].Left == 0 {
+			u.Dots[i] = d
+			return
+		}
+		if float32(u.Dots[i].Left)*u.Dots[i].PerTick < float32(u.Dots[best].Left)*u.Dots[best].PerTick {
+			best = i
+		}
+	}
+	u.Dots[best] = d
+}
+
+// Rules holds the tunable combat numbers. Defaults are a starting point;
+// the design doc lists the exact curve as an open question.
+type Rules struct {
+	// Per-hit cap is CapAtEven of the foe's max health at even level and
+	// doubles every CapDoubling levels the attacker is above the foe (halves
+	// every CapDoubling below), clamped to [CapMin, 1].
+	CapAtEven   float32
+	CapDoubling float32
+	CapMin      float32
+	// Adaptive resistance: each hit of a type moves that type's resistance
+	// AdaptGain of the way toward MaxResist; every other type decays by
+	// AdaptDecay (multiplicative) per hit and by DecayPerSec over time.
+	AdaptGain   float32
+	AdaptDecay  float32
+	DecayPerSec float32
+	MaxResist   float32
+	// WallImpact is terrain damage (fraction of max health) when any push
+	// slams a foe into a wall; a type's WallImpactFrac adds to it.
+	WallImpact float32
+	// DotInterval is seconds between damage-over-time ticks.
+	DotInterval float32
+	// DotAdapt scales how much one damage-over-time tick builds resistance
+	// compared with a direct hit, so ticks stay the anti-boss tool.
+	DotAdapt float32
+	// RaiseHP is the share of max health a raised minion comes back with.
+	RaiseHP float32
+}
+
+// DefaultRules returns the prototype's tuning.
+func DefaultRules() Rules {
+	return Rules{
+		CapAtEven:   0.25,
+		CapDoubling: 5,
+		CapMin:      0.01,
+		AdaptGain:   0.15,
+		AdaptDecay:  0.02,
+		DecayPerSec: 0.05,
+		MaxResist:   0.6,
+		WallImpact:  0.10,
+		DotInterval: 0.5,
+		DotAdapt:    0.25,
+		RaiseHP:     0.5,
+	}
+}
+
+// HitCap is the most one hit can deal to a foe.
+func (r *Rules) HitCap(attacker, defender int, maxHP float32) float32 {
+	gap := float64(attacker - defender)
+	frac := float64(r.CapAtEven) * math.Exp2(gap/float64(r.CapDoubling))
+	if frac < float64(r.CapMin) {
+		frac = float64(r.CapMin)
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	return float32(frac) * maxHP
+}
+
+// Resolve applies one hit of raw damage of type t to u and returns what was
+// dealt and whether the cap cut it. Terrain hits skip resistance, the cap
+// and adaptation: pits and walls are the real one-shot.
+func (r *Rules) Resolve(u *Unit, raw float32, t TypeID, attacker int, terrain bool) (dealt float32, capped bool) {
+	return r.resolve(u, raw, t, attacker, terrain, 1)
+}
+
+// ResolveTick is Resolve for one damage-over-time tick.
+func (r *Rules) ResolveTick(u *Unit, raw float32, t TypeID, attacker int) (float32, bool) {
+	return r.resolve(u, raw, t, attacker, false, r.DotAdapt)
+}
+
+func (r *Rules) resolve(u *Unit, raw float32, t TypeID, attacker int, terrain bool, adaptW float32) (dealt float32, capped bool) {
+	if !u.Alive || raw <= 0 {
+		return 0, false
+	}
+	dealt = raw
+	if !terrain {
+		dealt *= 1 - u.Resist[t]
+		if lim := r.HitCap(attacker, u.Level, u.MaxHP); dealt > lim {
+			dealt, capped = lim, true
+		}
+		r.adapt(u, t, adaptW)
+	}
+	if dealt > u.HP {
+		dealt = u.HP
+	}
+	u.HP -= dealt
+	if u.HP <= 0 {
+		u.HP = 0
+		u.Alive = false
+	}
+	return dealt, capped
+}
+
+func (r *Rules) adapt(u *Unit, t TypeID, w float32) {
+	for i := range u.Resist {
+		if TypeID(i) == t {
+			u.Resist[i] += w * r.AdaptGain * (r.MaxResist - u.Resist[i])
+		} else {
+			u.Resist[i] *= 1 - w*r.AdaptDecay
+		}
+	}
+}
+
+// Decay lets resistances fade with time.
+func (r *Rules) Decay(u *Unit, dt float32) {
+	k := float32(math.Exp(-float64(r.DecayPerSec * dt)))
+	for i := range u.Resist {
+		u.Resist[i] *= k
+	}
+}

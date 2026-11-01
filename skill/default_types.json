@@ -1,0 +1,8 @@
+[
+  {"name": "plasma",  "status": "burn",    "status_power": 4, "spread_frac": 0.35, "heat_offset": 2},
+  {"name": "cryo",    "status": "chill",   "slow": 0.3, "freeze_stacks": 3, "shatter_mult": 2.5, "heat_offset": -3},
+  {"name": "kinetic", "status": "stagger", "push_per_hit": 1, "wall_impact_frac": 0.15},
+  {"name": "nanite",  "status": "toxin",   "status_power": 2, "ticks": 8},
+  {"name": "drone",   "status": "mark",    "raise_on_kill": true},
+  {"name": "cloak",   "status": "cloak",   "stealth_mult": 2.0}
+]

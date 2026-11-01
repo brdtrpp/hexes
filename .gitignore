@@ -1,0 +1,21 @@
+# Build outputs
+/hexdemo
+/hexes
+/hexmap
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+*.prof
+
+# Web build artifacts (rebuild with the commands in README.md)
+web/*.wasm
+web/*.wasm.gz
+web/*.wasm.gz.b64.txt
+
+# Editor and OS clutter
+.idea/
+.vscode/
+*.swp
+.DS_Store
