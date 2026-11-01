@@ -22,14 +22,18 @@ const (
 type FX struct {
 	Kind     FXKind
 	At, From skill.Coord
-	Value    float32
-	Type     skill.TypeID
-	Slot     int
-	Terrain  bool
-	Hurt     bool // damage to the player
-	Small    bool // damage-over-time and hazard ticks
-	Age      float32
-	Life     float32
+	// X, Y and FromX, FromY are where to draw At and From in hex units.
+	// They follow the player's true position when the tile is the
+	// player's, so rings and numbers sit on the player, not its hex.
+	X, Y, FromX, FromY float64
+	Value              float32
+	Type               skill.TypeID
+	Slot               int
+	Terrain            bool
+	Hurt               bool // damage to the player
+	Small              bool // damage-over-time and hazard ticks
+	Age                float32
+	Life               float32
 }
 
 // MaxFX is how many effects can be alive at once; the oldest drop first.

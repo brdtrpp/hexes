@@ -34,7 +34,7 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 | --- | --- |
 | `skill/` | Hex compiler and evaluator (below), plus `dispatch.go`: trigger dispatch. |
 | `dungeon/` | Floor generator: rooms, corridors, walls, pits, hazard vents, spawns, stairs, from a seed and a depth. |
-| `game/` | Real-time simulation: movement on the hex grid, enemy AI, the player's rig and loadout, terrain kills, effects. No rendering, so it runs in tests. |
+| `game/` | Real-time simulation: free movement over the hex floor with wall sliding, enemy AI, the player's rig and loadout, terrain kills, effects. No rendering, so it runs in tests. |
 | `cmd/hexes/` | The Ebitengine front end: drawing, HUD, keyboard, mouse and touch. |
 | `cmd/hexmap/` | Prints a floor as text. |
 | `web/` | Browser page and wasm build. |
@@ -129,7 +129,7 @@ Events go into a fixed ring buffer and run in order. A program's hits and kills 
 
 ## The playable slice (`game`, `cmd/hexes`)
 
-One generated floor at a time. Your rig moves tile to tile in real time (positions lerp between hexes), strikes whatever is next to it, and carries a fixed loadout with one hex per trigger kind:
+One generated floor at a time. The floor is hexes, but your rig moves freely in any direction (360 degrees, not snapped to the six hex directions), strikes whatever is in a neighboring hex, and carries a fixed loadout with one hex per trigger kind:
 
 | Slot | Hex | Trigger | What it does |
 | --- | --- | --- | --- |
@@ -138,9 +138,16 @@ One generated floor at a time. Your rig moves tile to tile in real time (positio
 | 3 | Cryo Bloom | on kill | Corpse bursts cold: damage and chill to everything within 2. Cryo vents 3.6 Heat. |
 | 4 | Nanite Swarm | every 4 s | Toxin cloud on everything within 2. |
 
+Movement (`game/move.go`):
+- The player has a float position; its hex is whichever hex that point falls in (`skill.FromPixel`). Diagonal keys are normalized, so they're no faster. Touch and mouse walk toward the finger at full speed; analog input under full deflection walks slower.
+- The body is a circle (radius 0.38, hex center to corner is 1). It slides along wall hexes by pushing out of each hex polygon. Hex walls are jagged, so when that push-out alone would catch the body in a notch, the step is redone along the wall's averaged line. Pushing almost straight into a wall is a stop.
+- Enemies still step tile to tile. Each one blocks the player with a circle on its tile, sized so the player's center can never share a hex with an enemy.
+- Hazards and stairs go off when the player's center is on the hex. Walking into a pit (center enters it) costs 25% of max hull, puts you back on the last tile you stood on and stuns you 0.5 s. Pushes into a pit still kill.
+- Facing is your last movement direction, as a true angle. Cones and from-behind use it; targeting otherwise works from your current hex.
+
 Enemies: grunts (average), skitters (fast, fragile, from depth 2), brutes (slow, tough, from depth 3), plus elites two levels up from depth 4 (white ring). They wake when you come within 10 steps on foot or when hit, chase along a distance field from the player (recomputed only when you change tile), and claw when adjacent. Stairs take you to the next depth with 30% hull back. Dying restarts at depth 1 on a new seed.
 
-A headless bot (walk to the stairs, cast at anything within 4, vent above 85 heat) plays 12 seeds to depth 4 in tests without dying, so every slot fires, pits and walls get kills, and the run is deterministic for a given seed and input stream.
+A headless bot (steer toward the next hex on the way to the stairs, cast at anything within 4, vent above 85 heat) plays 12 seeds to depth 4 in tests without dying, so every slot fires, pits and walls get kills, and the run is deterministic for a given seed and input stream.
 
 ## Benchmarks
 
@@ -155,11 +162,11 @@ Intel Xeon 2.1 GHz, 4 cores, Go 1.24.7 (`go test ./skill ./dungeon ./game -run '
 | Distance field, depth 20 floor | 11 µs | 0 |
 | Dispatch: one cast that cascades into 35 firings | 5.5 µs | 0 |
 | Evaluate full depth-2 hex | 3.3 µs | 0 |
-| Game step (1/60 s), depth 1, 7 actors | 0.67 µs | 0 |
-| Game step, depth 10, 22 actors | 1.3 µs | 0 |
-| Game step, depth 30, 54 actors | 2.7 µs | 0 |
+| Game step (1/60 s), depth 1, 7 actors | 1.4 µs | 0 |
+| Game step, depth 10, 22 actors | 2.2 µs | 0 |
+| Game step, depth 30, 54 actors | 4.1 µs | 0 |
 
-A whole frame of simulation at depth 30 is under 0.02% of a 60 fps frame budget. Rendering is the real cost on phones, and the floor draws as pre-rendered hex sprites with off-screen culling for that reason.
+Game step numbers are from the free-movement pass, rerun on a busier machine (the tile-step version measured 1.0, 1.7 and 3.5 µs in the same run). The rest are from the first pass. A whole frame of simulation at depth 30 is about 0.025% of a 60 fps frame budget. Rendering is the real cost on phones, and the floor draws as pre-rendered hex sprites with off-screen culling for that reason.
 
 ## Defaults picked in this pass
 
@@ -185,7 +192,7 @@ Open design questions, answered for now
 
 Slice tuning
 - Rig: 8 points in Capacity and Recharge, 0 in Cooling, 5 in Processing (164 Power, 20/s recharge, 6/s cooling). Heat, not Power, is what stops lance spam.
-- Player: 220 hull at level 1, 4.5 tiles/s, strike every 0.45 s (16 plasma, splashes).
+- Player: 220 hull at level 1, 4.5 tiles/s (about 7.8 hex units/s), body radius 0.38, strike every 0.45 s (16 plasma, splashes). Walking into a pit: 25% hull and a 0.5 s stun.
 - Grunt 60 hp, 18 dmg, 2.4 tiles/s; skitter 32 hp, 11 dmg, 3.9 tiles/s; brute 150 hp, 34 dmg, 1.5 tiles/s. Enemy claws are capped by level gap but don't build the player's resistance.
 - Hazard vents burn 5% max health every 0.5 s, ignoring the cap. Anything standing on one burns, enemies included.
 

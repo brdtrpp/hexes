@@ -320,3 +320,21 @@ func BehindOf(at, dir, from Coord) bool {
 // Pixel converts a hex to pointy-top pixel space for a hex of size 1
 // (center to corner).
 func (c Coord) Pixel() (float64, float64) { return c.pixel() }
+
+// FromPixel is the hex containing the pointy-top pixel-space point (x, y),
+// the inverse of Pixel for a hex of size 1. It rounds in cube coordinates,
+// so points on an edge go to one side consistently.
+func FromPixel(x, y float64) Coord {
+	fr := y * (2.0 / 3)
+	fq := x/math.Sqrt(3) - fr/2
+	fs := -fq - fr
+	q, r, s := math.Round(fq), math.Round(fr), math.Round(fs)
+	dq, dr, ds := math.Abs(q-fq), math.Abs(r-fr), math.Abs(s-fs)
+	switch {
+	case dq > dr && dq > ds:
+		q = -r - s
+	case dr > ds:
+		r = -q - s
+	}
+	return Coord{int(q), int(r)}
+}

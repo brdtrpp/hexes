@@ -1,5 +1,5 @@
 // Command hexes is the first playable slice: one generated floor at a
-// time, the player's rig moving in real time on the hex grid, enemies that
+// time, the player's rig moving freely in any direction over the hex floor, enemies that
 // chase, four hexes firing from triggers, Power and Heat bars, pushes and
 // pits. Simple shapes, no art.
 //
@@ -229,11 +229,6 @@ func (g *Game) toScreen(x, y float64) (float64, float64) {
 	return (x-g.camX)*g.size + float64(g.w)/2, (y-g.camY)*g.size + float64(g.h)/2
 }
 
-func (g *Game) coordScreen(c skill.Coord) (float64, float64) {
-	x, y := c.Pixel()
-	return g.toScreen(x, y)
-}
-
 func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(colBG)
 	if g.tiles == nil || g.tileSize != g.size {
@@ -402,9 +397,8 @@ func (g *Game) drawActors(screen *ebiten.Image) {
 		g.drawDisc(screen, sx, sy, rad, cs[0], cs[1], cs[2], alpha)
 		// Facing nub.
 		if a.U.Alive {
-			dx, dy := skill.HexDirs[a.Facing].Pixel()
-			l := math.Hypot(dx, dy)
-			g.drawDisc(screen, sx+dx/l*rad*0.8, sy+dy/l*rad*0.8, rad*0.28, 0.05, 0.06, 0.1, alpha)
+			dx, dy := a.FaceVec()
+			g.drawDisc(screen, sx+dx*rad*0.8, sy+dy*rad*0.8, rad*0.28, 0.05, 0.06, 0.1, alpha)
 		}
 		// Health bar for hurt enemies.
 		if a.U.Alive && a.Kind != game.KindPlayer && a.U.HP < a.U.MaxHP {
@@ -443,10 +437,10 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 	g.sim.FX.Each(func(f *game.FX) {
 		k := f.Age / f.Life // 0 to 1
 		a := 1 - k
-		x, y := g.coordScreen(f.At)
+		x, y := g.toScreen(f.X, f.Y)
 		switch f.Kind {
 		case game.FXBolt:
-			fx, fy := g.coordScreen(f.From)
+			fx, fy := g.toScreen(f.FromX, f.FromY)
 			c := fade(typeColor(f.Type), a)
 			// Jagged three-segment bolt.
 			mx, my := (fx+x)/2, (fy+y)/2
@@ -461,10 +455,10 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 			c := fade(slotCol[f.Slot%game.MaxSlots], a)
 			vector.StrokeCircle(screen, float32(x), float32(y), float32(s*(0.7+2.2*float64(k))), g.u(2.5), c, true)
 		case game.FXPush:
-			fx, fy := g.coordScreen(f.From)
+			fx, fy := g.toScreen(f.FromX, f.FromY)
 			vector.StrokeLine(screen, float32(fx), float32(fy), float32(x), float32(y), float32(s*0.5), fade(color.RGBA{0xf0, 0xf0, 0xf0, 0xff}, a*0.35), true)
 		case game.FXSlam:
-			wx, wy := g.coordScreen(f.From)
+			wx, wy := g.toScreen(f.FromX, f.FromY)
 			mx, my := (x+wx)/2, (y+wy)/2
 			vector.StrokeCircle(screen, float32(mx), float32(my), float32(s*(0.3+0.8*float64(k))), g.u(3), fade(color.RGBA{0xff, 0xe0, 0x60, 0xff}, a), true)
 			g.label(screen, g.small, "SLAM", mx, my-s*0.6-float64(k)*s, fade(color.RGBA{0xff, 0xe0, 0x60, 0xff}, a), true)
@@ -474,7 +468,7 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 		case game.FXKill:
 			vector.StrokeCircle(screen, float32(x), float32(y), float32(s*(0.4+1.2*float64(k))), g.u(2), fade(colText, a*0.7), true)
 		case game.FXClaw:
-			fx, fy := g.coordScreen(f.From)
+			fx, fy := g.toScreen(f.FromX, f.FromY)
 			vector.StrokeLine(screen, float32(fx), float32(fy), float32(x), float32(y), g.u(4), fade(colHot, a), true)
 		case game.FXVent:
 			vector.StrokeCircle(screen, float32(x), float32(y), float32(s*(1+4*float64(k))), g.u(5), fade(color.RGBA{0xd8, 0xf4, 0xff, 0xff}, a), true)

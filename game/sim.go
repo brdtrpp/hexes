@@ -36,6 +36,13 @@ type Actor struct {
 	DeadFor  float32 // seconds since death, for the fade-out
 	Fell     bool    // died in a pit
 	Flash    float32 // hurt flash, seconds left
+
+	// Free actors (the player) move continuously instead of tile to tile:
+	// X, Y is the true position in hex units and At is the hex under it.
+	// FaceX, FaceY is the unit facing, from the last movement.
+	Free         bool
+	X, Y         float64
+	FaceX, FaceY float64
 }
 
 // Arrived reports whether the actor has finished its current step.
@@ -43,6 +50,9 @@ func (a *Actor) Arrived() bool { return a.MoveT >= 1 }
 
 // Pos is where to draw the actor, in hex units (lerped between tiles).
 func (a *Actor) Pos() (float64, float64) {
+	if a.Free {
+		return a.X, a.Y
+	}
 	fx, fy := a.From.Pixel()
 	tx, ty := a.At.Pixel()
 	t := float64(min(1, a.MoveT))
@@ -127,7 +137,7 @@ type Sim struct {
 	strikeCD float32
 	dotClock float32
 	hazClock float32
-	lastStep int // alternates ties for straight-up/down movement
+	safe     skill.Coord // last tile the player stood on that wasn't a pit
 }
 
 // New starts a run at depth 1.
@@ -173,6 +183,10 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	s.Player = s.spawn(KindPlayer, 0, f.Start, lvl, maxHP)
 	s.Actors[s.Player].U.HP = maxHP * min(1, max(0.05, hpFrac))
 	s.Actors[s.Player].Awake = true
+	s.Actors[s.Player].Free = true
+	s.Actors[s.Player].placeFree(f.Start)
+	s.Actors[s.Player].FaceX = 1
+	s.safe = f.Start
 	for _, sp := range f.Spawns {
 		st := enemyTable[KindGrunt+Kind(sp.Kind)]
 		id := s.spawn(KindGrunt+Kind(sp.Kind), 1, sp.At, sp.Level, st.hp*scale(sp.Level))
@@ -260,7 +274,7 @@ func (s *Sim) playerInput(dt float32) {
 	in := &s.Input
 	if in.Vent {
 		if s.Rig.Vent() {
-			s.FX.Add(FX{Kind: FXVent, At: p.At, Life: 0.6})
+			s.addFX(FX{Kind: FXVent, At: p.At, Life: 0.6})
 		}
 	}
 	for slot, pressed := range in.Cast {
@@ -276,52 +290,25 @@ func (s *Sim) playerInput(dt float32) {
 		return
 	}
 	stunned := p.U.StunLeft > 0
-	if p.Arrived() && !stunned && (in.MoveX != 0 || in.MoveY != 0) {
-		s.tryMove(s.Player, in.MoveX, in.MoveY)
+	s.movePlayer(dt)
+	if !p.U.Alive {
+		return
 	}
 	s.strikeCD -= dt
 	if s.strikeCD <= 0 && !stunned {
 		if foe := s.adjacentFoe(s.Player); foe != skill.NoEntity {
 			p.Facing = dirTo(p.At, s.Actors[foe].At)
+			if s.Input.MoveX == 0 && s.Input.MoveY == 0 {
+				// Standing still: turn to face what we hit.
+				fx, fy := s.Actors[foe].Pos()
+				fx, fy = fx-p.X, fy-p.Y
+				if l := math.Hypot(fx, fy); l > 0 {
+					p.FaceX, p.FaceY = fx/l, fy/l
+				}
+			}
 			s.Disp.Strike(s.Player, s.Load.Strike, foe)
 			s.strikeCD = StrikeEvery
 		}
-	}
-}
-
-// tryMove steps the player toward a screen-space direction, sliding to
-// the next-best direction when the best one is blocked.
-func (s *Sim) tryMove(id skill.EntityID, mx, my float64) {
-	l := math.Hypot(mx, my)
-	mx, my = mx/l, my/l
-	var score [6]float64
-	for i, d := range skill.HexDirs {
-		dx, dy := d.Pixel()
-		dl := math.Hypot(dx, dy)
-		score[i] = (dx*mx + dy*my) / dl
-	}
-	// Straight up or down sits exactly between two directions; alternate
-	// so the player zig-zags straight instead of drifting.
-	s.lastStep ^= 1
-	for _, d := range []int{2, 1, 4, 5} {
-		score[d] += float64(s.lastStep) * 1e-6 * float64(d%2*2-1)
-	}
-	tried := 0
-	for tried < 3 {
-		best := -1
-		for i := range score {
-			if score[i] > -1.5 && (best < 0 || score[i] > score[best]) {
-				best = i
-			}
-		}
-		if best < 0 || score[best] < 0.2 {
-			return
-		}
-		if s.startMove(id, uint8(best), PlayerSpeed, false) {
-			return
-		}
-		score[best] = -2
-		tried++
 	}
 }
 
@@ -432,8 +419,8 @@ func (s *Sim) claw(attacker skill.EntityID, raw float32) {
 	if p.U.HP <= 0 {
 		p.U.HP, p.U.Alive = 0, false
 	}
-	s.FX.Add(FX{Kind: FXNumber, At: p.At, Value: dealt, Hurt: true, Life: 0.8})
-	s.FX.Add(FX{Kind: FXClaw, At: p.At, From: a.At, Life: 0.25})
+	s.addFX(FX{Kind: FXNumber, At: p.At, Value: dealt, Hurt: true, Life: 0.8})
+	s.addFX(FX{Kind: FXClaw, At: p.At, From: a.At, Life: 0.25})
 	if p.U.Alive {
 		s.Disp.Hurt(s.Player, attacker)
 	}
@@ -472,7 +459,7 @@ func (s *Sim) timers(dt float32) {
 				dealt, _ := s.Rules.ResolveTick(&a.U, d.PerTick, d.Type, int(d.AttackerLevel))
 				d.Left--
 				if dealt > 0 {
-					s.FX.Add(FX{Kind: FXNumber, At: a.At, Value: dealt, Type: d.Type, Small: true, Life: 0.6})
+					s.addFX(FX{Kind: FXNumber, At: a.At, Value: dealt, Type: d.Type, Small: true, Life: 0.6})
 				}
 				if !a.U.Alive {
 					s.died(skill.EntityID(i))
@@ -491,7 +478,7 @@ func (s *Sim) timers(dt float32) {
 			}
 			dealt, _ := s.Rules.Resolve(&a.U, HazardFrac*a.U.MaxHP, 0, 0, true)
 			a.Flash = 0.15
-			s.FX.Add(FX{Kind: FXNumber, At: a.At, Value: dealt, Hurt: skill.EntityID(i) == s.Player, Small: true, Life: 0.6})
+			s.addFX(FX{Kind: FXNumber, At: a.At, Value: dealt, Hurt: skill.EntityID(i) == s.Player, Small: true, Life: 0.6})
 			if !a.U.Alive {
 				s.died(skill.EntityID(i))
 			}

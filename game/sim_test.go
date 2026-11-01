@@ -10,13 +10,14 @@ import (
 // bot drives the player like a simple human: walk toward the stairs, cast
 // the lance at anything close, vent when hot.
 type bot struct {
-	exit       []int32
-	q          []int32
-	floorSeed  uint64
-	fired      [MaxSlots]int
-	pitKills   int
-	wallSlams  int
-	overheated int
+	exit        []int32
+	q           []int32
+	floorSeed   uint64
+	fired       [MaxSlots]int
+	pitKills    int
+	playerFalls int
+	wallSlams   int
+	overheated  int
 }
 
 func (b *bot) input(s *Sim) Input {
@@ -29,15 +30,15 @@ func (b *bot) input(s *Sim) Input {
 	}
 	var in Input
 	p := s.P()
-	if p.Arrived() {
-		cur := b.exit[f.Index(p.At)]
-		for _, d := range skill.HexDirs {
-			n := p.At.Add(d)
-			if f.In(n) && b.exit[f.Index(n)] >= 0 && b.exit[f.Index(n)] < cur && !s.occupied(n) {
-				dx, dy := d.Pixel()
-				in.MoveX, in.MoveY = dx, dy
-				break
-			}
+	// Head for the center of the next tile toward the stairs; free
+	// movement and wall sliding do the rest.
+	cur := b.exit[f.Index(p.At)]
+	for _, d := range skill.HexDirs {
+		n := p.At.Add(d)
+		if f.In(n) && b.exit[f.Index(n)] >= 0 && b.exit[f.Index(n)] < cur && !s.occupied(n) {
+			nx, ny := n.Pixel()
+			in.MoveX, in.MoveY = nx-p.X, ny-p.Y
+			break
 		}
 	}
 	if foe := s.nearestFoe(p.At, 4); foe != skill.NoEntity && s.Rig.Power > 40 {
@@ -77,7 +78,11 @@ func TestBotPlays(t *testing.T) {
 				if f.Age == 0 {
 					switch f.Kind {
 					case FXFall:
-						b.pitKills++
+						if f.Hurt {
+							b.playerFalls++
+						} else {
+							b.pitKills++
+						}
 					case FXSlam:
 						b.wallSlams++
 					}
@@ -96,6 +101,7 @@ func TestBotPlays(t *testing.T) {
 		}
 		total.pitKills += b.pitKills
 		total.wallSlams += b.wallSlams
+		total.playerFalls += b.playerFalls
 		total.overheated += b.overheated
 		t.Logf("seed %2d: depth %d kills %3d state %d fired %v pits %d slams %d",
 			seed, s.Depth, s.Kills, s.State, b.fired, b.pitKills, b.wallSlams)
@@ -111,7 +117,7 @@ func TestBotPlays(t *testing.T) {
 	if total.pitKills+total.wallSlams == 0 {
 		t.Fatal("no terrain kills or slams in 12 runs")
 	}
-	t.Logf("descended %d/12, died %d, pit falls %d, wall slams %d", descended, died, total.pitKills, total.wallSlams)
+	t.Logf("descended %d/12, died %d, pit falls %d, wall slams %d, player falls %d", descended, died, total.pitKills, total.wallSlams, total.playerFalls)
 }
 
 func TestDeterministicRun(t *testing.T) {

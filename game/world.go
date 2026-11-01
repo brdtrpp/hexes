@@ -54,7 +54,7 @@ func (s *Sim) Select(kind skill.TargetKind, origin, caster skill.EntityID, radiu
 	case skill.TargetCone:
 		var dx, dy float64
 		if origin == caster {
-			dx, dy = skill.HexDirs[s.Actors[caster].Facing].Pixel()
+			dx, dy = s.Actors[caster].FaceVec()
 		} else {
 			ox, oy := o.Pixel()
 			cx, cy := s.Actors[caster].At.Pixel()
@@ -169,16 +169,19 @@ func (s *Sim) Push(id, from skill.EntityID, hexes int) skill.Terrain {
 	if a.At != start {
 		// Snap the slide: start from the old tile and move fast.
 		a.From, a.MoveT, a.MoveDur = start, 0, 0.12*float32(skill.Dist(start, a.At))
-		s.FX.Add(FX{Kind: FXPush, From: start, At: a.At, Life: 0.35})
+		if a.Free {
+			a.X, a.Y = a.At.Pixel()
+		}
+		s.addFX(FX{Kind: FXPush, From: start, At: a.At, Life: 0.35})
 		if id == s.Player {
 			s.refreshField()
 		}
 	}
 	switch result {
 	case skill.TerrainWall:
-		s.FX.Add(FX{Kind: FXSlam, At: a.At, From: a.At.Add(skill.HexDirs[dir]), Life: 0.4})
+		s.addFX(FX{Kind: FXSlam, At: a.At, From: a.At.Add(skill.HexDirs[dir]), Life: 0.4})
 	case skill.TerrainPit:
-		s.FX.Add(FX{Kind: FXFall, At: a.At, Life: 0.7})
+		s.addFX(FX{Kind: FXFall, At: a.At, Life: 0.7})
 	}
 	return result
 }
@@ -191,8 +194,23 @@ func (s *Sim) Behind(attacker, target skill.EntityID) bool {
 	if attacker < 0 || target < 0 || int(attacker) >= len(s.Actors) || int(target) >= len(s.Actors) {
 		return false
 	}
-	t := &s.Actors[target]
-	return skill.BehindOf(t.At, skill.HexDirs[t.Facing], s.Actors[attacker].At)
+	t, a := &s.Actors[target], &s.Actors[attacker]
+	if !t.Free && !a.Free {
+		return skill.BehindOf(t.At, skill.HexDirs[t.Facing], a.At)
+	}
+	// The player has a true position and facing: use them.
+	tx, ty := t.At.Pixel()
+	if t.Free {
+		tx, ty = t.X, t.Y
+	}
+	ax, ay := a.At.Pixel()
+	if a.Free {
+		ax, ay = a.X, a.Y
+	}
+	fx, fy := t.FaceVec()
+	vx, vy := ax-tx, ay-ty
+	l := math.Hypot(vx, vy)
+	return l > 1e-9 && (vx*fx+vy*fy)/l < -0.5
 }
 
 // Hit implements skill.Listener: damage numbers and bolts.
@@ -201,18 +219,18 @@ func (s *Sim) Hit(caster, target skill.EntityID, dealt float32, t skill.TypeID, 
 	a.Flash = 0.15
 	a.Awake = true
 	if dealt > 0 || terrain {
-		s.FX.Add(FX{Kind: FXNumber, At: a.At, Value: dealt, Type: t, Terrain: terrain,
+		s.addFX(FX{Kind: FXNumber, At: a.At, Value: dealt, Type: t, Terrain: terrain,
 			Hurt: target == s.Player, Life: 0.8})
 	}
 	if !terrain && caster != target {
-		s.FX.Add(FX{Kind: FXBolt, From: s.Actors[caster].At, At: a.At, Type: t, Life: 0.25})
+		s.addFX(FX{Kind: FXBolt, From: s.Actors[caster].At, At: a.At, Type: t, Life: 0.25})
 	}
 }
 
 // Killed implements skill.Listener.
 func (s *Sim) Killed(caster, target skill.EntityID) {
 	s.died(target)
-	s.FX.Add(FX{Kind: FXKill, At: s.Actors[target].At, Life: 0.5})
+	s.addFX(FX{Kind: FXKill, At: s.Actors[target].At, Life: 0.5})
 }
 
 // Fired implements skill.Listener: flash the slot on the HUD and ring the
@@ -228,6 +246,6 @@ func (s *Sim) Fired(owner skill.EntityID, slot int, p *skill.Program, o skill.Ou
 	}
 	s.SlotFlash[slot], s.SlotLast[slot] = 0.4, o
 	if o == skill.Fired {
-		s.FX.Add(FX{Kind: FXRing, At: s.Actors[owner].At, Slot: slot, Life: 0.4})
+		s.addFX(FX{Kind: FXRing, At: s.Actors[owner].At, Slot: slot, Life: 0.4})
 	}
 }
