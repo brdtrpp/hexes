@@ -123,7 +123,11 @@ func (s *Sim) pickupShapes(at skill.Coord, dt float32) {
 // copy that isn't on another hex.
 func (s *Sim) ShapeChoices(hex int) []skill.Shape {
 	out := []skill.Shape{{Kind: skill.ShapeRing}, {Kind: skill.ShapeTriangle}}
-	for _, sh := range s.Shapes {
+	have := s.Shapes
+	if s.TestShapes {
+		have = append(append([]skill.Shape(nil), have...), TestShapeSet[:]...)
+	}
+	for _, sh := range have {
 		used := false
 		for j, h := range s.Load.Hexes {
 			used = used || (j != hex && h != nil && h.Shape.ID == sh.ID)
@@ -240,12 +244,58 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 }
 
 func (s *Sim) hasShape(sh skill.Shape) bool {
+	if s.TestShapes && IsTestShape(sh) {
+		for _, t := range TestShapeSet {
+			if t == sh {
+				return true
+			}
+		}
+	}
 	for _, have := range s.Shapes {
 		if have == sh {
 			return true
 		}
 	}
 	return false
+}
+
+// The test switch. With it on, every shape is unlocked without finding
+// it: one test copy of each found shape, each with a different quirk so all
+// four show. Test copies are never added to the shapes you've found, and
+// turning the switch off puts any hex wearing one back to a Ring.
+const testShapeBit = 1 << 63
+
+// TestShapeSet is the copies the test switch unlocks.
+var TestShapeSet = [...]skill.Shape{
+	{Kind: skill.ShapeHub, Quirk: skill.ShapeTwin, At: 2, ID: testShapeBit | 1},
+	{Kind: skill.ShapeFork, Quirk: skill.ShapeSurge, At: 1, ID: testShapeBit | 2},
+	{Kind: skill.ShapeLoop, Quirk: skill.ShapeOneWay, At: 2, ID: testShapeBit | 3},
+	{Kind: skill.ShapeTriangle, Quirk: skill.ShapeLean, ID: testShapeBit | 4},
+}
+
+// IsTestShape reports whether sh is one of the test switch's copies.
+func IsTestShape(sh skill.Shape) bool { return sh.ID&testShapeBit != 0 }
+
+// SetTestShapes turns the test switch on or off. Turning it off puts every
+// hex wearing a test shape back to a Ring; if a hex's leftover parts don't
+// fit in the pack the switch stays on and says why.
+func (s *Sim) SetTestShapes(on bool) error {
+	if on == s.TestShapes {
+		return nil
+	}
+	if !on {
+		for i, h := range s.Load.Hexes {
+			if h == nil || !IsTestShape(h.Shape) {
+				continue
+			}
+			if err := s.SetShape(i, skill.Shape{Kind: skill.ShapeRing}); err != nil {
+				return fmt.Errorf("hex %d: %w", i+1, err)
+			}
+		}
+	}
+	s.TestShapes = on
+	s.Dirty = true
+	return nil
 }
 
 // ShapeText says what a shape does, in a sentence or two, for the editor.

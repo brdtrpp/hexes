@@ -152,6 +152,9 @@ type Sim struct {
 	Shapes     []skill.Shape
 	ShapeGiven bool
 	LastShape  skill.Shape
+	// TestShapes is the test switch: every shape unlocked for trying out
+	// (see shape.go). A setting, so a new run keeps it.
+	TestShapes bool
 
 	// SlotFlash counts down after a slot tries to fire; SlotLast is how.
 	SlotFlash [MaxSlots]float32

@@ -34,6 +34,12 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 				t.Errorf("%s %s: tiles %.0f css px across, too small to tap", sc.name, k, 2*l.slotR/sc.k)
 			}
 			top := l.shape.y + l.shape.h
+			if l.test.x < l.shape.x+l.shape.w || l.test.x+l.test.w > W || l.test.y != l.shape.y {
+				t.Errorf("%s %s: TEST button misplaced", sc.name, k)
+			}
+			if l.test.w/sc.k < 60 || l.capW/sc.k < 60 {
+				t.Errorf("%s %s: TEST %.0f and caption %.0f css px wide", sc.name, k, l.test.w/sc.k, l.capW/sc.k)
+			}
 			for i, c := range l.slots {
 				if !k.Has(i) {
 					continue

@@ -191,6 +191,8 @@ type Save struct {
 	// load with every hex a Ring.
 	Shapes     []skill.Shape `json:",omitempty"`
 	ShapeGiven bool          `json:",omitempty"`
+	// TestShapes is the test switch that unlocks every shape.
+	TestShapes bool `json:",omitempty"`
 }
 
 // Snapshot is the current progress. While dead it already counts the
@@ -204,6 +206,7 @@ func (s *Sim) Snapshot() Save {
 		Cache: s.Cache, Deaths: s.Deaths, LastDeathAt: s.LastDeathAt, PlayTime: s.Time,
 		CallGiven: s.CallGiven,
 		Shapes:    append([]skill.Shape(nil), s.Shapes...), ShapeGiven: s.ShapeGiven,
+		TestShapes: s.TestShapes,
 	}
 	switch s.State {
 	case Dead:
@@ -271,6 +274,7 @@ func (s *Sim) Restore(sv Save) error {
 	s.LastDeath = Death{}
 	s.CallGiven = sv.CallGiven
 	s.Shapes, s.ShapeGiven = shapes, sv.ShapeGiven || len(shapes) > 0
+	s.TestShapes = sv.TestShapes
 	dirty := s.giveCall()
 	s.load(sv.Depth, sv.HPFrac)
 	s.Dirty = dirty

@@ -16,6 +16,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"hexes/game"
@@ -58,6 +59,8 @@ type edLayout struct {
 	slotR        float64
 	slots        [skill.Slots][2]float64
 	shape        rect    // the SHAPE button
+	test         rect    // the test switch that unlocks every shape
+	capW         float64 // room for the shape caption
 	capX, capY   float64 // where the shape caption starts
 	cells        [loot.InventorySize]rect
 	close, scrap rect
@@ -112,7 +115,10 @@ func (g *Game) edLayout() edLayout {
 	// caption saying what the shape is.
 	capH := 32 * k
 	l.shape = rect{ring.x, ring.y, math.Min(104*k, ring.w*0.36), capH}
+	tw2 := math.Min(92*k, ring.w*0.26)
+	l.test = rect{ring.x + ring.w - tw2, ring.y, tw2, capH}
 	l.capX, l.capY = l.shape.x+l.shape.w+10*k, l.shape.y+capH/2
+	l.capW = l.test.x - 8*k - l.capX
 	ring.y += capH + 6*k
 	ring.h -= capH + 6*k
 	l.ringX, l.ringY = ring.x+ring.w/2, ring.y+ring.h/2
@@ -214,6 +220,21 @@ func (g *Game) edTap(x, y float64) {
 		} else {
 			e.msg, e.bad = "Pick a part in your pack to scrap it.", true
 		}
+		return
+	}
+	if l.test.hit(x, y) {
+		on := !sim.TestShapes
+		e.pick, e.shape = pickNone, true
+		if err := sim.SetTestShapes(on); err != nil {
+			e.msg, e.bad = err.Error()+".", true
+			return
+		}
+		if on {
+			e.msg = "Test switch on: every shape is unlocked, each with a different quirk. Tap SHAPE to step through them."
+		} else {
+			e.msg = "Test switch off: only shapes you've found. Hexes on a test shape went back to a Ring."
+		}
+		e.bad = false
 		return
 	}
 	if l.shape.hit(x, y) {
@@ -517,7 +538,22 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	// The SHAPE button and what the shape is.
 	g.drawRect(screen, l.shape, fade(colShape, 0.18), colShape)
 	g.label(screen, g.small, "SHAPE", l.shape.x+l.shape.w/2, l.shape.y+l.shape.h/2, colShape, true)
-	g.label(screen, g.small, fmt.Sprintf("%s  ·  %.0f pw %.0f ht", h.Shape, pw, ht), l.capX, l.capY, colShape, false)
+	caption := fmt.Sprintf("%s  ·  %.0f pw %.0f ht", h.Shape, pw, ht)
+	for _, alt := range []string{h.Shape.String(), h.Shape.Kind.String()} {
+		if text.Advance(caption, g.small) <= l.capW {
+			break
+		}
+		caption = alt
+	}
+	g.label(screen, g.small, caption, l.capX, l.capY, colShape, false)
+	// The test switch: lit while every shape is unlocked.
+	if sim.TestShapes {
+		g.drawRect(screen, l.test, fade(colShape, 0.55), colShape)
+		g.label(screen, g.small, "TEST ON", l.test.x+l.test.w/2, l.test.y+l.test.h/2, colText, true)
+	} else {
+		g.drawRect(screen, l.test, colPanel, fade(colDim, 0.6))
+		g.label(screen, g.small, "TEST", l.test.x+l.test.w/2, l.test.y+l.test.h/2, colDim, true)
+	}
 
 	routes := h.Routes(h.TriggerSlot())
 	for i, c := range l.slots {

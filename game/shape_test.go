@@ -293,3 +293,90 @@ func TestLoopHexFiresInTheGame(t *testing.T) {
 		t.Fatalf("heat %.1f: loop passes should add to one lance and swarm (%.1f)", s.Rig.Heat, once)
 	}
 }
+
+func TestTestSwitchUnlocksEveryShape(t *testing.T) {
+	s := New(5)
+	if len(s.ShapeChoices(0)) != 2 {
+		t.Fatal("a new save should only have Ring and Triangle")
+	}
+	for _, sh := range TestShapeSet {
+		if !sh.Valid() || !IsTestShape(sh) {
+			t.Fatalf("test shape %v broken", sh)
+		}
+		if err := s.SetShape(1, sh); err == nil {
+			t.Fatalf("%v usable with the switch off", sh)
+		}
+	}
+	if err := s.SetTestShapes(true); err != nil || !s.Dirty {
+		t.Fatal(err)
+	}
+	ch := s.ShapeChoices(0)
+	kinds := map[skill.ShapeKind]bool{}
+	quirks := map[skill.ShapeQuirk]bool{}
+	for _, sh := range ch {
+		kinds[sh.Kind], quirks[sh.Quirk] = true, true
+	}
+	if len(kinds) != int(skill.NumShapes) || len(quirks) != int(skill.NumShapeQuirks) {
+		t.Fatalf("switch on: %d kinds, %d quirks", len(kinds), len(quirks))
+	}
+	// Cycling reaches every shape, and a copy on one hex isn't offered to
+	// another.
+	seen := map[skill.ShapeKind]bool{}
+	for i := 0; i < len(ch); i++ {
+		sh, err := s.CycleShape(2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[sh.Kind] = true
+		if sh.Kind == skill.ShapeLoop {
+			break
+		}
+	}
+	if !seen[skill.ShapeHub] || !seen[skill.ShapeFork] || !seen[skill.ShapeLoop] {
+		t.Fatalf("cycling reached %v", seen)
+	}
+	if err := s.SetShape(0, TestShapeSet[0]); err != nil {
+		t.Fatal(err)
+	}
+	for _, sh := range s.ShapeChoices(1) {
+		if sh == TestShapeSet[0] {
+			t.Fatal("hub on hex 1 offered to hex 2")
+		}
+	}
+	// The switch survives a save and the copies never count as found.
+	b, err := s.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := New(9)
+	if err := r.LoadSave(b); err != nil {
+		t.Fatal(err)
+	}
+	if !r.TestShapes || len(r.Shapes) != 0 || r.Load.Hexes[0].Shape != TestShapeSet[0] {
+		t.Fatalf("after load: switch %v, found %d, hex 1 %v", r.TestShapes, len(r.Shapes), r.Load.Hexes[0].Shape)
+	}
+	// Off puts test-shaped hexes back to Rings and keeps their parts.
+	parts := func(s *Sim) int {
+		n := s.Stash.Inv.Count()
+		for _, h := range s.Load.Hexes {
+			for _, sl := range h.Slots {
+				if sl.Kind == skill.SlotPart {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	before := parts(r)
+	if err := r.SetTestShapes(false); err != nil {
+		t.Fatal(err)
+	}
+	for i, h := range r.Load.Hexes {
+		if IsTestShape(h.Shape) {
+			t.Fatalf("hex %d kept a test shape", i+1)
+		}
+	}
+	if parts(r) != before || len(r.ShapeChoices(0)) != 2 {
+		t.Fatal("switching off lost parts or left shapes unlocked")
+	}
+}
