@@ -25,7 +25,7 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 ## Controls
 
 - Desktop: WASD or arrows to move (or hold the mouse button and point), Space casts Arc Lance, R or Shift vents heat, Enter restarts after dying.
-- Touch: hold anywhere to walk toward your finger, tap CAST and VENT.
+- Touch: hold anywhere to walk toward your finger, tap CAST and VENT. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
 - Strikes on an adjacent foe are automatic. Walk onto the stairs to go down a level.
 
 ## What's here

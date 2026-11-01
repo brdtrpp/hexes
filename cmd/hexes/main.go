@@ -8,7 +8,9 @@
 //
 // Desktop: WASD or arrows (or hold the mouse) to move, Space or 1 to cast
 // Arc Lance, R or Shift to vent heat, Enter to restart after dying.
-// Touch: hold anywhere to walk that way, tap CAST and VENT.
+// Touch: hold anywhere to walk that way, or switch MOVE to STICK (top
+// right) for a thumb joystick on the left half; tap CAST and VENT. The
+// choice is remembered in the browser.
 // Strikes on adjacent foes are automatic.
 package main
 
@@ -77,6 +79,20 @@ type button struct {
 
 func (b button) hit(x, y float64) bool { return math.Hypot(x-b.x, y-b.y) <= b.r*1.15 }
 
+// pill is a small rectangular toggle.
+type pill struct{ x, y, w, h float64 }
+
+func (p pill) hit(x, y float64) bool {
+	m := p.h * 0.3 // a little slop for thumbs
+	return x >= p.x-m && x <= p.x+p.w+m && y >= p.y-m && y <= p.y+p.h+m
+}
+
+// stickPref is the localStorage key for the movement mode.
+const stickPref = "hexes.move"
+
+// mouseID is the Stick ID the mouse uses; touch IDs are never negative.
+const mouseID = -1
+
 type Game struct {
 	sim        *game.Sim
 	w, h       int
@@ -90,8 +106,13 @@ type Game struct {
 	big        *text.GoTextFace
 	camX, camY float64
 	cast, vent button
+	modeBtn    pill
 	touched    bool // a touch has happened: show touch hints, not keys
-	frame      int
+	// stickMode moves with a thumb joystick on the left half of the
+	// screen instead of walking toward the finger.
+	stickMode bool
+	stick     game.Stick
+	frame     int
 }
 
 func newGame() *Game {
@@ -109,6 +130,8 @@ func newGame() *Game {
 	vector.DrawFilledCircle(g.disc, 32, 32, 31, color.White, true)
 	p := g.sim.P()
 	g.camX, g.camY = p.Pos()
+	g.stickMode = loadPref(stickPref) == "stick"
+	g.stick.Deadzone = 0.15
 	return g
 }
 
@@ -127,6 +150,8 @@ func (g *Game) Layout(ow, oh int) (int, int) {
 		r := k * math.Max(34, math.Min(56, short/9))
 		g.cast = button{float64(w) - r - 24*k, float64(h) - r - 30*k, r, "CAST"}
 		g.vent = button{g.cast.x - r*1.9, float64(h) - r*0.65 - 24*k, r * 0.65, "VENT"}
+		g.modeBtn = pill{float64(w) - 128*k, 10 * k, 116 * k, 26 * k}
+		g.stick.Radius = k * math.Max(44, math.Min(64, short/7))
 		g.face.Size, g.small.Size, g.big.Size = 15*k, 12*k, 30*k
 	}
 	return w, h
@@ -165,7 +190,9 @@ func (g *Game) Update() error {
 	}
 
 	// Pointer: touches and the mouse share one path. A press on a button
-	// fires it; holding anywhere else walks toward the finger.
+	// fires it. Otherwise, in follow mode, holding anywhere walks toward
+	// the finger; in stick mode a press on the left half of the screen
+	// plants a thumb joystick there.
 	px, py := g.playerScreen()
 	steer := func(x, y float64) {
 		dx, dy := x-px, y-py
@@ -173,37 +200,66 @@ func (g *Game) Update() error {
 			in.MoveX, in.MoveY = dx, dy
 		}
 	}
-	press := func(x, y float64) bool {
+	onButton := func(x, y float64) bool {
+		return g.cast.hit(x, y) || g.vent.hit(x, y) || g.modeBtn.hit(x, y)
+	}
+	press := func(id int, x, y float64) {
 		in.Restart = true
 		switch {
 		case g.cast.hit(x, y):
 			in.Cast[0] = true
 		case g.vent.hit(x, y):
 			in.Vent = true
+		case g.modeBtn.hit(x, y):
+			g.stickMode = !g.stickMode
+			g.stick.End()
+			mode := "follow"
+			if g.stickMode {
+				mode = "stick"
+			}
+			savePref(stickPref, mode)
 		default:
-			return false
+			if g.stickMode && !g.stick.On && x < float64(g.w)/2 {
+				g.stick.Begin(id, x, y)
+			}
 		}
-		return true
 	}
 	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
 		g.touched = true
 		x, y := ebiten.TouchPosition(id)
-		press(float64(x), float64(y))
+		press(int(id), float64(x), float64(y))
 	}
+	held := false
 	for _, id := range ebiten.AppendTouchIDs(nil) {
 		x, y := ebiten.TouchPosition(id)
 		fx, fy := float64(x), float64(y)
-		if !g.cast.hit(fx, fy) && !g.vent.hit(fx, fy) {
+		switch {
+		case g.stick.On && int(id) == g.stick.ID:
+			g.stick.Move(fx, fy)
+			held = true
+		case !g.stickMode && !onButton(fx, fy):
 			steer(fx, fy)
 		}
 	}
 	mx, my := ebiten.CursorPosition()
 	fmx, fmy := float64(mx), float64(my)
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		press(fmx, fmy)
+		press(mouseID, fmx, fmy)
 	}
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) && !g.cast.hit(fmx, fmy) && !g.vent.hit(fmx, fmy) {
-		steer(fmx, fmy)
+	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		switch {
+		case g.stick.On && g.stick.ID == mouseID:
+			g.stick.Move(fmx, fmy)
+			held = true
+		case !g.stickMode && !onButton(fmx, fmy):
+			steer(fmx, fmy)
+		}
+	}
+	if g.stick.On && !held {
+		g.stick.End()
+	}
+	if sx, sy := g.stick.Vector(); sx != 0 || sy != 0 {
+		in.MoveX, in.MoveY = sx, sy
 	}
 
 	g.sim.Input = in
@@ -605,10 +661,46 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		g.label(screen, g.face, b.label, b.x, b.y, colText, true)
 	}
 
+	// Movement mode toggle, and the stick itself.
+	{
+		m := g.modeBtn
+		label, c := "MOVE: FOLLOW", colDim
+		if g.stickMode {
+			label, c = "MOVE: STICK", colPlayer
+		}
+		vector.DrawFilledRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), colPanel, false)
+		vector.StrokeRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), u(1.5), c, false)
+		g.label(screen, g.small, label, m.x+m.w/2, m.y+m.h/2, c, true)
+	}
+	if g.stickMode {
+		st := &g.stick
+		bx, by := st.BaseX, st.BaseY
+		a := float32(0.9)
+		if !st.On {
+			// Resting ghost where a left thumb usually lands.
+			bx, by = st.Radius+float64(u(28)), float64(H)-st.Radius-float64(u(40))
+			if !narrow { // the hex cards sit along the bottom
+				by = float64(cy) - st.Radius - float64(u(16))
+			}
+			a = 0.35
+		}
+		vector.DrawFilledCircle(screen, float32(bx), float32(by), float32(st.Radius), fade(colPanel, a*0.6), true)
+		vector.StrokeCircle(screen, float32(bx), float32(by), float32(st.Radius), u(2), fade(colPlayer, a*0.6), true)
+		kx, ky := bx, by
+		if st.On {
+			kx, ky = st.Knob()
+		}
+		vector.DrawFilledCircle(screen, float32(kx), float32(ky), float32(st.Radius*0.42), fade(colPlayer, a*0.55), true)
+	}
+
 	// First-seconds hint.
 	if sim.Depth == 1 && sim.Time < 14 && sim.State == game.Playing {
 		if narrow || g.touched {
-			g.label(screen, g.small, "hold anywhere to walk · strikes are automatic", float64(W/2), float64(cy+cardH+u(18)), colDim, true)
+			walk := "hold anywhere to walk"
+			if g.stickMode {
+				walk = "drag on the left half to steer"
+			}
+			g.label(screen, g.small, walk+" · strikes are automatic", float64(W/2), float64(cy+cardH+u(18)), colDim, true)
 			g.label(screen, g.small, "CAST the lance · VENT before you overheat · find ▼", float64(W/2), float64(cy+cardH+u(36)), colDim, true)
 		} else {
 			g.label(screen, g.small, "WASD / arrows / hold mouse: move    SPACE: Arc Lance    R: vent    strikes are automatic    find the ▼ stairs",
