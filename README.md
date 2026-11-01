@@ -103,12 +103,12 @@ A charge is a counter that keeps its value between firings. Each equipped hex ha
 Starter: **Cryo Bloom** now reads ON KILL, CHARGE A +1, CHILL, AROUND 2, SPEND A at 5, CRYO 45. Every kill chills what's around the corpse and charges A; the fifth sets off a cryo nova on everything within two hexes and empties A. The HUD card shows `A 3/5` with a strip filling toward the spend, and the editor shows `A = 3` on each charge tile.
 
 Defaults picked:
-- **When banks reset:** they carry from floor to floor and through edits, and empty on a new run (death or restart). Switching a part's letter doesn't move any counts.
+- **When banks reset:** every new floor starts with all banks empty (Brad's call), and so does a new run. Edits on a floor keep the counts, and switching a part's letter doesn't move any.
 - **Editor:** charges go in effect and wild sockets, charge gates where gates go. Pick a charge part or charge gate in a hex, then tap the center plate to switch it A to B to C to D. No typing.
 - **Loot:** charge parts weigh 8 against gates' 10; a quarter roll as drains. Spend and empty gates join the gate table (weights 18 and 6). Parts roll bank A, or B three times in ten. Spend gates roll needing 3 to 8, one less per rarity tier above common, never under 2. Charges and charge gates roll no quirk.
 - **Cost:** a charge part costs 0.5 Power and no Heat, a charge gate 1 Power like any gate; rarity cuts both. Like gates, the hex pays for every slot on every firing, so the nova's Power is paid on every kill (Cryo Bloom is 19 Power, -0.5 Heat per kill).
 - **Limits:** a bank counts to 2^30 and stays there. An echo hex runs its charges twice. A basic strike has no bank: its charges count in a scratch bank that empties after each swing.
-- Under the hood: `OpCharge` adds to `Ctx.Bank`, guarded by a register the way cloak is; spend and empty are `OpGate` conditions. The dispatcher keeps each slot's banks in `Loadout.Banks`, which the game points at `Sim.Banks` so a new floor's dispatcher keeps them. Still zero allocations per run.
+- Under the hood: `OpCharge` adds to `Ctx.Bank`, guarded by a register the way cloak is; spend and empty are `OpGate` conditions. The dispatcher keeps each slot's banks in `Loadout.Banks`, which the game points at `Sim.Banks` and clears when a floor loads. Still zero allocations per run.
 
 ## Defaults I picked
 

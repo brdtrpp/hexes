@@ -58,8 +58,8 @@ func TestKineticRamGatesOnHull(t *testing.T) {
 }
 
 // The preset Cryo Bloom counts kills in bank A and sets off its nova on
-// every fifth, through the dispatcher's on-kill path. The bank carries to
-// the next floor, survives a bank switch, and a new run empties it.
+// every fifth, through the dispatcher's on-kill path. The bank survives a
+// bank switch and empties on the next floor.
 func TestCryoBloomNovaEveryFifthKill(t *testing.T) {
 	s := New(5)
 	clearFloor(s)
@@ -85,18 +85,17 @@ func TestCryoBloomNovaEveryFifthKill(t *testing.T) {
 	if len(novas) != 2 || novas[0] != 5 || novas[1] != 10 || s.Banks[2][0] != 1 {
 		t.Fatalf("novas on kills %v, bank A %d", novas, s.Banks[2][0])
 	}
-	s.load(2, 1)
-	if s.Banks[2][0] != 1 {
-		t.Fatal("next floor lost the charge")
-	}
 	if !s.CycleBank(2, 1) || s.Load.Hexes[2].Slots[1].Part.Bank != 1 || s.Banks[2][0] != 1 {
 		t.Fatal("switching the charge part's bank")
 	}
 	if s.CycleBank(2, 2) {
 		t.Fatal("a status part has no bank to switch")
 	}
-	s.NewRun(6)
+	s.load(2, 1)
 	if s.Banks != [skill.MaxEquip]skill.Bank{} {
-		t.Fatal("a new run should start with empty banks")
+		t.Fatal("a new floor should start with empty banks")
+	}
+	if s.Disp.Loadout(s.Player).Banks != &s.Banks {
+		t.Fatal("the new floor's dispatcher should use the sim's banks")
 	}
 }
