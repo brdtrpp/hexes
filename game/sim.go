@@ -119,6 +119,9 @@ type Sim struct {
 	Rig     skill.Rig
 	Load    Loadout
 	Input   Input
+	// Banks are each hex's charge banks. They carry over from floor to
+	// floor and through edits, and start empty on a new run.
+	Banks [skill.MaxEquip]skill.Bank
 
 	State  State
 	StateT float32
@@ -156,6 +159,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.RunSeed = seed
 	s.Kills = 0
 	s.Load = Loadout{}
+	s.Banks = [skill.MaxEquip]skill.Bank{}
 	s.resetStash()
 	s.load(1, 1)
 }
@@ -203,7 +207,7 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	s.Disp = skill.NewDispatcher(s.Eval, s)
 	s.Disp.Listener = s
 	s.Disp.ProcCooldown[skill.OnHit] = 1.2
-	s.Disp.Equip(s.Player, &s.Rig, s.Load.Progs[:]...)
+	s.Disp.Equip(s.Player, &s.Rig, s.Load.Progs[:]...).Banks = &s.Banks
 	s.State, s.StateT = Playing, 0
 	s.strikeCD = 0
 	s.refreshField()

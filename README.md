@@ -66,7 +66,7 @@ cd web && python3 -m http.server 8000      # then open http://localhost:8000
 
 ## Gates (`skill/part.go`, `skill/hex.go`, `skill/compile.go`)
 
-A gate is a part that tests a condition and routes the chain two ways. It is the first of the three pieces planned for making hexes Turing complete (gate, charge, self-call).
+A gate is a part that tests a condition and routes the chain two ways. It is the first of the three pieces planned for making hexes Turing complete (gate, charge, self-call). Charges are below.
 
 - **Which slots.** The slot right after the gate (clockwise) is its YES slot; the one after that is its NO slot. Each needs a linked edge to the slot before it, and neither wraps past the end of the ring back to the trigger. The editor tags them YES and NO.
 - **Who gets tested.** The targets in the slot just before the gate, if linked. Otherwise the trigger's subject (the foe hit, the corpse, the nearest foe on a cast), or, inside a nested hex, the one entity it runs on. So a gate in a nested hex is "for each target: if ... then ... else ...".
@@ -88,6 +88,27 @@ Defaults picked:
 - Heat and Power gates read the rig after this firing has been paid for, so a hex's own Heat counts.
 - Status gates for cloak would test whether you are stealthed, but casting breaks stealth first, so loot never rolls them.
 - Under the hood a gate is one `OpGate` step that splits a register in two. No jumps, no allocations; branches are ordinary steps on the two halves.
+
+## Charges (`skill/part.go`, `skill/eval.go`, `skill/compile.go`)
+
+A charge is a counter that keeps its value between firings. Each equipped hex has four banks, A to D. Charge parts write a bank; two gate conditions read one. Together they are a counter machine (a Minsky machine): increment, decrement, and "is it zero?". Self-call, the next piece, adds the loop, and with Heat paying for every step that set is Turing complete with overheating as the halting budget.
+
+- **Charge part (CHARGE A +1).** Adds its amount to its bank each time the ring passes its slot. It counts whatever fired the hex: on-kill counts kills, on-hit hits, on-cast casts. Inside a gate branch it only counts when its half holds someone, so a charge in a YES slot counts the times the gate passed.
+- **Drain part (DRAIN A -1).** Takes its amount off, never below zero.
+- **Spend gate (SPEND A at 5).** If bank A holds at least 5 and the gate's group isn't empty, it takes 5 off and the whole group goes to the YES slot; otherwise A is untouched and the group goes to NO. A full gate with nobody to hit holds its charge until it has somewhere to go. With "at 1" it is the counter machine's decrement-or-branch-on-zero.
+- **Empty gate (IF A EMPTY).** The whole group goes YES while A is zero, NO otherwise. It never changes A.
+- **Same letter, same counter.** Every part in a hex naming A shares one counter, nested hexes included, so a self-call loop will see the same banks. Different hexes never share.
+- **Order.** Charges run in clockwise order with everything else, so a charge before a spend gate counts before the gate reads it.
+
+Starter: **Cryo Bloom** now reads ON KILL, CHARGE A +1, CHILL, AROUND 2, SPEND A at 5, CRYO 45. Every kill chills what's around the corpse and charges A; the fifth sets off a cryo nova on everything within two hexes and empties A. The HUD card shows `A 3/5` with a strip filling toward the spend, and the editor shows `A = 3` on each charge tile.
+
+Defaults picked:
+- **When banks reset:** they carry from floor to floor and through edits, and empty on a new run (death or restart). Switching a part's letter doesn't move any counts.
+- **Editor:** charges go in effect and wild sockets, charge gates where gates go. Pick a charge part or charge gate in a hex, then tap the center plate to switch it A to B to C to D. No typing.
+- **Loot:** charge parts weigh 8 against gates' 10; a quarter roll as drains. Spend and empty gates join the gate table (weights 18 and 6). Parts roll bank A, or B three times in ten. Spend gates roll needing 3 to 8, one less per rarity tier above common, never under 2. Charges and charge gates roll no quirk.
+- **Cost:** a charge part costs 0.5 Power and no Heat, a charge gate 1 Power like any gate; rarity cuts both. Like gates, the hex pays for every slot on every firing, so the nova's Power is paid on every kill (Cryo Bloom is 19 Power, -0.5 Heat per kill).
+- **Limits:** a bank counts to 2^30 and stays there. An echo hex runs its charges twice. A basic strike has no bank: its charges count in a scratch bank that empties after each swing.
+- Under the hood: `OpCharge` adds to `Ctx.Bank`, guarded by a register the way cloak is; spend and empty are `OpGate` conditions. The dispatcher keeps each slot's banks in `Loadout.Banks`, which the game points at `Sim.Banks` so a new floor's dispatcher keeps them. Still zero allocations per run.
 
 ## Defaults I picked
 
@@ -163,7 +184,7 @@ One generated floor at a time. The floor is hexes, but your rig moves freely in 
 | --- | --- | --- | --- |
 | 1 | Arc Lance | on cast | Plasma chains 3 foes, x2 damage. 14 Power, 10 Heat. |
 | 2 | Kinetic Ram | on hit | Shoves the foe 2 hexes, then a gate: under 40% hull it takes an 18 kinetic jab (YES), otherwise a 6 (NO). Kinetic adds a 1-hex shove either way. Walls slam, pits kill. |
-| 3 | Cryo Bloom | on kill | Corpse bursts cold: damage and chill to everything within 2. Cryo vents 3.6 Heat. |
+| 3 | Cryo Bloom | on kill | Chills everything within 2 of the corpse and charges bank A; every fifth kill a 45 cryo nova hits them all. Cryo vents Heat. |
 | 4 | Nanite Swarm | every 4 s | Toxin cloud on everything within 2. |
 
 Movement (`game/move.go`):
@@ -191,6 +212,7 @@ Intel Xeon 2.1 GHz, 4 cores, Go 1.24.7 (`go test ./skill ./dungeon ./game -run '
 | Dispatch: one cast that cascades into 35 firings | 5.5 µs | 0 |
 | Evaluate full depth-2 hex | 3.3 µs | 0 |
 | Evaluate a gated hex (3 crowd checks) | 1.9 µs | 0 |
+| Evaluate the charge nova hex (count, chill, spend) | 0.4 µs | 0 |
 | Game step (1/60 s), depth 1, 7 actors | 1.4 µs | 0 |
 | Game step, depth 10, 22 actors | 2.2 µs | 0 |
 | Game step, depth 30, 54 actors | 4.1 µs | 0 |

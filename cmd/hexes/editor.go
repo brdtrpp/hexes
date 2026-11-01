@@ -188,6 +188,16 @@ func (g *Game) edTap(x, y float64) {
 		}
 		return
 	}
+	if math.Hypot(x-l.ringX, y-l.ringY) < l.slotR*0.9 {
+		// The center plate switches a picked charge part's bank letter.
+		if e.pick == pickSlot && sim.CycleBank(e.hex, e.at) {
+			p := sim.Load.Hexes[e.hex].Slots[e.at].Part
+			e.msg, e.bad = "Now on bank "+skill.BankName(p.Bank)+".", false
+			return
+		}
+		e.pick, e.msg = pickNone, ""
+		return
+	}
 	for i, c := range l.slots {
 		if math.Hypot(x-c[0], y-c[1]) > l.slotR*0.95 {
 			continue
@@ -264,6 +274,8 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 		tc = color.RGBA{0x7d, 0xf0, 0xe0, 0xff}
 	case skill.KindGate:
 		tc = colGate
+	case skill.KindCharge:
+		tc = colCharge
 	case skill.KindEffect:
 		if p.Effect != skill.EffectPush {
 			tc = typeColor(p.Type)
@@ -372,6 +384,13 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 			}
 			g.label(screen, g.small, sock, c[0], c[1], fade(colDim, 0.7), true)
 		}
+		// A charge part or charge gate shows what its bank holds now, at
+		// the top of the tile.
+		if s.Kind == skill.SlotPart && s.Part.UsesBank() {
+			b := s.Part.Bank
+			g.label(screen, g.small, fmt.Sprintf("%s = %d", skill.BankName(b), sim.Banks[e.hex][b]),
+				c[0], c[1]-l.slotR*0.62, colCharge, true)
+		}
 		// A gate's two ways: the yes slot gets the ones that pass, the no
 		// slot the rest. Tagged at the bottom of the tile.
 		switch routes[i].Branch {
@@ -395,6 +414,9 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
 		p := h.Slots[e.at].Part
 		info, ic = loot.Describe(p, sim.Reg), rarityCol[p.Rarity]
+		if p.UsesBank() && e.msg != "" && !e.bad {
+			info = e.msg + " " + info
+		}
 	case e.pick == pickSlot:
 		info = "Empty slot. Tap a part in your pack to put it here."
 	case e.msg != "":
@@ -511,8 +533,9 @@ func (g *Game) castAll(in *game.Input) {
 }
 
 var (
-	colGate = color.RGBA{0xff, 0xa8, 0x4a, 0xff}
-	colYes  = color.RGBA{0x5c, 0xe0, 0x7a, 0xff}
+	colGate   = color.RGBA{0xff, 0xa8, 0x4a, 0xff}
+	colCharge = color.RGBA{0xb4, 0x9c, 0xff, 0xff}
+	colYes    = color.RGBA{0x5c, 0xe0, 0x7a, 0xff}
 )
 
 var rarityName = [skill.NumRarities]string{"+COMMON", "+UNCOMMON", "+RARE", "+EXOTIC"}

@@ -78,7 +78,16 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			return "IF " + strings.ToUpper(dt.Status.String()), dt.Name
 		case skill.GateCrowd:
 			return "IF CROWD", fmt.Sprintf("%d+ in %g", p.Count, p.Value)
+		case skill.GateSpend:
+			return "SPEND " + skill.BankName(p.Bank), fmt.Sprintf("at %d", p.Count)
+		case skill.GateEmpty:
+			return "IF " + skill.BankName(p.Bank) + " EMPTY", "bank " + skill.BankName(p.Bank)
 		}
+	case skill.KindCharge:
+		if p.Charge == skill.ChargeDrain {
+			return "DRAIN " + skill.BankName(p.Bank), fmt.Sprintf("-%g", p.Value)
+		}
+		return "CHARGE " + skill.BankName(p.Bank), fmt.Sprintf("+%g", p.Value)
 	}
 	return "EMPTY", ""
 }
@@ -102,8 +111,19 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 	if p.Heat != 0 {
 		fmt.Fprintf(&b, " %+.0f heat", p.Heat)
 	}
-	if p.Kind == skill.KindGate {
+	switch {
+	case p.Kind == skill.KindGate && p.Gate == skill.GateSpend:
+		fmt.Fprintf(&b, ". Once bank %s holds %d it spends them and the next slot clockwise fires, else the slot after it",
+			skill.BankName(p.Bank), p.Count)
+	case p.Kind == skill.KindGate && p.Gate == skill.GateEmpty:
+		fmt.Fprintf(&b, ". Next slot clockwise fires while bank %s is at zero, the slot after it otherwise", skill.BankName(p.Bank))
+	case p.Kind == skill.KindGate:
 		b.WriteString(". Next slot clockwise hits the ones that pass, the slot after it the rest")
+	case p.Kind == skill.KindCharge:
+		fmt.Fprintf(&b, ". Bank %s keeps its count between firings", skill.BankName(p.Bank))
+	}
+	if p.UsesBank() {
+		b.WriteString(". In a hex, tap the center plate to switch its bank")
 	}
 	if q := QuirkText(p.Quirk); q != "" {
 		b.WriteString(". ")

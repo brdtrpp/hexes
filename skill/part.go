@@ -14,6 +14,9 @@ const (
 	// KindGate tests a condition and splits the chain two ways. See the
 	// routing rules on Compile.
 	KindGate
+	// KindCharge adds to or drains one of the hex's charge banks: counters
+	// that keep their value between firings. See Bank.
+	KindCharge
 )
 
 func (k PartKind) String() string {
@@ -28,6 +31,8 @@ func (k PartKind) String() string {
 		return "mult"
 	case KindGate:
 		return "gate"
+	case KindCharge:
+		return "charge"
 	}
 	return "none"
 }
@@ -120,18 +125,63 @@ const (
 	// GateCrowd passes foes with at least Count other foes within Value
 	// hexes of them.
 	GateCrowd
+	// GateSpend reads charge bank Bank: if it holds at least Count and the
+	// group isn't empty, it spends Count from the bank and the whole group
+	// goes yes; otherwise the bank is untouched and the group goes no.
+	// With Count 1 this is a counter machine's decrement-or-branch-on-zero.
+	GateSpend
+	// GateEmpty reads charge bank Bank: the whole group goes yes when the
+	// bank is zero, no otherwise. It never changes the bank.
+	GateEmpty
 )
 
 // NumGates is how many gate conditions exist.
-const NumGates = 5
+const NumGates = 7
 
-var gateNames = [...]string{"hull", "heat", "power", "status", "crowd"}
+var gateNames = [...]string{"hull", "heat", "power", "status", "crowd", "spend", "empty"}
 
 func (g GateKind) String() string { return gateNames[g] }
 
 // PerFoe reports whether the gate tests each foe on its own. The others
 // test the caster's rig, so the whole group goes one way.
 func (g GateKind) PerFoe() bool { return g == GateHull || g == GateStatus || g == GateCrowd }
+
+// Charged reports whether the gate reads a charge bank.
+func (g GateKind) Charged() bool { return g == GateSpend || g == GateEmpty }
+
+// ChargeKind is what a Charge part does to its bank.
+type ChargeKind uint8
+
+const (
+	// ChargeAdd adds Value to the bank each time the slot runs.
+	ChargeAdd ChargeKind = iota
+	// ChargeDrain takes Value off the bank each time the slot runs,
+	// stopping at zero.
+	ChargeDrain
+)
+
+var chargeNames = [...]string{"add", "drain"}
+
+func (c ChargeKind) String() string { return chargeNames[c] }
+
+// MaxBanks is how many charge banks (A, B, C, D) one equipped hex has.
+// Every Charge part and charge gate names one; parts naming the same
+// letter share it, nested hexes included.
+const MaxBanks = 4
+
+// BankName is a bank's letter.
+func BankName(b uint8) string {
+	if b >= MaxBanks {
+		return "?"
+	}
+	return string(rune('A' + b))
+}
+
+// Charge defaults.
+const (
+	ChargePowerCost   = 0.5
+	DefaultSpendEvery = 5
+)
 
 // Gate defaults.
 const (
@@ -225,12 +275,16 @@ type Part struct {
 	Type    TypeID // damage and status effects
 	Verb    Verb   // multipliers
 	Gate    GateKind
+	Charge  ChargeKind // charge parts
+	// Bank is the charge bank a Charge part or charge gate uses (0 is A).
+	Bank uint8
 	// Value means: trigger damage multiplier, target radius, damage amount,
 	// push distance in hexes, status duration in seconds, multiplier factor,
-	// or a gate's threshold (a fraction of max, or the crowd radius).
+	// a gate's threshold (a fraction of max, or the crowd radius), or how
+	// much a Charge part adds or drains.
 	Value float32
-	// Count is the max targets for Nearest, the hop count for Chain and the
-	// foes a crowd gate needs.
+	// Count is the max targets for Nearest, the hop count for Chain, the
+	// foes a crowd gate needs and the charge a spend gate takes.
 	Count uint8
 	// Power is spent and Heat added each time the hex fires.
 	Power, Heat float32
@@ -255,7 +309,12 @@ func (p Part) String() string {
 	case KindMult:
 		return fmt.Sprintf("x%.2g %s", p.Value, p.Verb)
 	case KindGate:
+		if p.Gate.Charged() {
+			return "gate " + p.Gate.String() + " " + BankName(p.Bank)
+		}
 		return "gate " + p.Gate.String()
+	case KindCharge:
+		return fmt.Sprintf("%s %s %g", p.Charge, BankName(p.Bank), p.Value)
 	}
 	return "empty"
 }
@@ -381,6 +440,51 @@ func NewCrowdGate(radius float32, count uint8) Part {
 		p.Count = count
 	}
 	return p
+}
+
+// NewCharge adds amount to a bank every time its slot runs. Zero means 1.
+func NewCharge(bank uint8, amount float32) Part {
+	if amount <= 0 {
+		amount = 1
+	}
+	return Part{Kind: KindCharge, Charge: ChargeAdd, Bank: bank % MaxBanks, Value: amount, Power: ChargePowerCost}
+}
+
+// NewDrain takes amount off a bank every time its slot runs, never below
+// zero. Zero means 1.
+func NewDrain(bank uint8, amount float32) Part {
+	p := NewCharge(bank, amount)
+	p.Charge = ChargeDrain
+	return p
+}
+
+// NewSpendGate passes its group (and spends n from the bank) once the
+// bank holds n. Zero means DefaultSpendEvery. With a Charge part adding 1
+// on every kill, it fires the yes slot on every nth kill.
+func NewSpendGate(bank uint8, n uint8) Part {
+	if n == 0 {
+		n = DefaultSpendEvery
+	}
+	return Part{Kind: KindGate, Gate: GateSpend, Bank: bank % MaxBanks, Count: n, Power: GatePowerCost}
+}
+
+// NewEmptyGate passes its group when the bank is zero.
+func NewEmptyGate(bank uint8) Part {
+	return Part{Kind: KindGate, Gate: GateEmpty, Bank: bank % MaxBanks, Power: GatePowerCost}
+}
+
+// WithBank returns the part reading a different bank. Only Charge parts
+// and charge gates have one; anything else comes back unchanged.
+func (p Part) WithBank(b uint8) Part {
+	if p.Kind == KindCharge || (p.Kind == KindGate && p.Gate.Charged()) {
+		p.Bank = b % MaxBanks
+	}
+	return p
+}
+
+// UsesBank reports whether the part reads or writes a charge bank.
+func (p Part) UsesBank() bool {
+	return p.Kind == KindCharge || (p.Kind == KindGate && p.Gate.Charged())
 }
 
 // WithRarity returns the part at a different tier.

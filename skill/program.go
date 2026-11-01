@@ -30,9 +30,13 @@ const (
 	// registers, so a branch nobody took runs on an empty set and does
 	// nothing: no jumps.
 	OpGate
+	// OpCharge adds Value (negative drains) to charge bank Bank, clamped
+	// to 0..MaxCharge, but only while guard register Src2 holds someone:
+	// in a gate branch nobody took it does nothing.
+	OpCharge
 )
 
-var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate"}
+var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge"}
 
 func (o Op) String() string { return opNames[o] }
 
@@ -61,6 +65,7 @@ type Step struct {
 	Count  uint8
 	Dst2   uint8    // OpGate: where the failures go
 	Gate   GateKind // OpGate: the condition
+	Bank   uint8    // OpCharge and charge gates: which bank
 	Span   uint16
 	Value  float32
 }
@@ -77,7 +82,14 @@ type Program struct {
 	Regs        int
 	// Period is seconds between firings for Periodic programs.
 	Period float32
+	// Banks has bit b set when the hex uses charge bank b. Spend[b] is
+	// what the first spend gate on bank b takes (0 if none), for the HUD.
+	Banks uint8
+	Spend [MaxBanks]uint8
 }
+
+// UsesBank reports whether the program touches charge bank b.
+func (p *Program) UsesBank(b int) bool { return p.Banks&(1<<b) != 0 }
 
 // String disassembles the program, one step per line, nested bodies
 // indented under their foreach.
@@ -118,9 +130,15 @@ func (p *Program) String() string {
 				fmt.Fprintf(&b, " type=%d", s.Type)
 			case GateCrowd:
 				fmt.Fprintf(&b, " count=%d radius=%.2f", s.Count, s.Value)
+			case GateSpend:
+				fmt.Fprintf(&b, " bank=%s n=%d", BankName(s.Bank), s.Count)
+			case GateEmpty:
+				fmt.Fprintf(&b, " bank=%s", BankName(s.Bank))
 			default:
 				fmt.Fprintf(&b, " at=%.2f", s.Value)
 			}
+		case OpCharge:
+			fmt.Fprintf(&b, "bank %s %+g if r%d", BankName(s.Bank), s.Value, s.Src2)
 		}
 		b.WriteByte('\n')
 	}

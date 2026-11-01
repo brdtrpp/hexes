@@ -220,6 +220,27 @@ func (s *Sim) SwapSlots(hex, a, b int) error {
 	return nil
 }
 
+// CycleBank moves a charge part or charge gate in a hex slot to the next
+// bank letter (A, B, C, D, then A again). It reports false when the slot
+// holds no such part. The counts in the banks stay where they are.
+func (s *Sim) CycleBank(hex, slot int) bool {
+	if hex < 0 || hex >= MaxSlots || slot < 0 || slot >= skill.Slots {
+		return false
+	}
+	h := s.Load.Hexes[hex]
+	sl := &h.Slots[slot]
+	if sl.Kind != skill.SlotPart || !sl.Part.UsesBank() {
+		return false
+	}
+	old := sl.Part
+	sl.Part = old.WithBank(old.Bank + 1)
+	if err := s.recompile(hex); err != nil {
+		sl.Part = old
+		return false
+	}
+	return true
+}
+
 // MoveCell trades two inventory cells.
 func (s *Sim) MoveCell(a, b int) {
 	if a < 0 || b < 0 || a >= loot.InventorySize || b >= loot.InventorySize {

@@ -73,6 +73,19 @@ type Loadout struct {
 	Timer [MaxEquip]float32
 	// Cool is the proc cooldown left on each slot.
 	Cool [MaxEquip]float32
+	// Banks, if set, is where each slot's charge banks live, so the
+	// caller can keep them when the dispatcher is rebuilt (a new floor).
+	// Nil uses banks inside the loadout, which Equip clears.
+	Banks *[MaxEquip]Bank
+	own   [MaxEquip]Bank
+}
+
+// Bank is slot's charge banks.
+func (l *Loadout) Bank(slot int) *Bank {
+	if l.Banks != nil {
+		return &l.Banks[slot]
+	}
+	return &l.own[slot]
 }
 
 // Stats counts what the dispatcher did, for tuning and tests.
@@ -345,7 +358,7 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 		d.Stats.Fired++
 		l.Cool[slot] = d.ProcCooldown[p.Trigger]
 		d.chain = ev.Chain
-		res = d.Eval.Run(p, d.World, Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level, Rig: l.Rig})
+		res = d.Eval.Run(p, d.World, Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level, Rig: l.Rig, Bank: l.Bank(slot)})
 	}
 	if d.Listener != nil {
 		d.Listener.Fired(l.Owner, slot, p, o, res)

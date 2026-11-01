@@ -22,6 +22,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -589,6 +590,32 @@ func (g *Game) bar(dst *ebiten.Image, x, y, w, h float32, frac float32, c color.
 	g.label(dst, g.small, label, float64(x+g.u(6)), float64(y+h/2), colText, false)
 }
 
+// bankText is a hex's charge banks for its HUD card, like "A 3/5", and
+// how full the first spend is (-1 when no bank has a spend gate).
+func (g *Game) bankText(i int) (string, float64) {
+	p := g.sim.Load.Progs[i]
+	if p == nil || p.Banks == 0 {
+		return "", -1
+	}
+	b := &g.sim.Banks[i]
+	var parts []string
+	frac := -1.0
+	for k := 0; k < skill.MaxBanks; k++ {
+		if !p.UsesBank(k) {
+			continue
+		}
+		if n := p.Spend[k]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d/%d", skill.BankName(uint8(k)), b[k], n))
+			if frac < 0 {
+				frac = math.Min(1, float64(b[k])/float64(n))
+			}
+		} else {
+			parts = append(parts, fmt.Sprintf("%s %d", skill.BankName(uint8(k)), b[k]))
+		}
+	}
+	return strings.Join(parts, " "), frac
+}
+
 func (g *Game) drawHUD(screen *ebiten.Image) {
 	sim := g.sim
 	p := sim.P()
@@ -656,6 +683,18 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 			}
 		}
 		vector.StrokeRect(screen, x, cy, cardW, cardH, u(2), edge, false)
+		bank, frac := g.bankText(i)
+		if frac >= 0 {
+			// A charge strip along the bottom fills toward the spend.
+			vector.DrawFilledRect(screen, x+u(2), cy+cardH-u(5), (cardW-u(4))*float32(frac), u(3), slotCol[i], false)
+		}
+		if bank != "" && sim.SlotFlash[i] <= 0 {
+			if narrow {
+				sub = bank
+			} else {
+				sub += "  ·  " + bank
+			}
+		}
 		if narrow {
 			g.label(screen, g.small, shortName(sim.Load.Names[i]), float64(x+cardW/2), float64(cy+cardH*0.32), slotCol[i], true)
 			g.label(screen, g.small, sub, float64(x+cardW/2), float64(cy+cardH*0.72), colDim, true)

@@ -68,13 +68,17 @@ func PresetHexes(reg *skill.Registry) (hexes [MaxSlots]*skill.Hex, names, blurbs
 		skill.NewGate(skill.GateHull, 0.4),
 		skill.NewDamage(ty("kinetic"), 18),
 		skill.NewDamage(ty("kinetic"), 6))
-	// Slot 3, on kill: the corpse bursts cold, chilling and hurting what's
-	// around it. Cryo parts vent heat, so killing cools the rig.
-	mk(2, "Cryo Bloom", "chill burst, vents heat",
+	// Slot 3, on kill: every kill chills what's around the corpse and
+	// charges bank A. On the fifth, the spend gate empties A and its yes
+	// slot sets off a big cryo nova on everything around. Cryo parts vent
+	// heat, so the nova cools the rig too.
+	mk(2, "Cryo Bloom", "chill, every 5th kill a nova",
 		skill.NewTrigger(skill.OnKill),
-		skill.NewDamage(ty("cryo"), 14),
+		skill.NewCharge(0, 1),
+		skill.NewStatus(ty("cryo"), 2.5),
 		skill.NewTarget(skill.TargetAdjacent, 2, 0),
-		skill.NewStatus(ty("cryo"), 2.5))
+		skill.NewSpendGate(0, 5),
+		skill.NewDamage(ty("cryo"), 45))
 	// Slot 4, periodic: a nanite cloud eats everything near you.
 	mk(3, "Nanite Swarm", "toxin cloud around you",
 		skill.NewPeriodic(4),

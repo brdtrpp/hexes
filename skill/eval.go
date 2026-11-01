@@ -47,7 +47,18 @@ type Ctx struct {
 	// Rig is the caster's rig, for gates that test Heat or Power. Nil
 	// reads as an empty, cold rig.
 	Rig *Rig
+	// Bank is the firing hex's charge banks, which keep their counts
+	// between firings. Nil gives the run a scratch bank that starts empty
+	// and is thrown away after (a basic strike has nowhere to keep one).
+	Bank *Bank
 }
+
+// Bank is one equipped hex's charge banks, A to D. Each is a counter that
+// Charge parts add to and drain, and charge gates read.
+type Bank [MaxBanks]uint32
+
+// MaxCharge is as high as a bank counts; adding past it stays there.
+const MaxCharge = 1 << 30
 
 // Result tallies one firing.
 type Result struct {
@@ -66,6 +77,7 @@ type Evaluator struct {
 	regs    [MaxRegs][MaxTargets]EntityID
 	n       [MaxRegs]uint8
 	scratch [MaxTargets]EntityID
+	bank    Bank // stand-in when Ctx.Bank is nil
 }
 
 // NewEvaluator makes an evaluator for a type registry and rule set.
@@ -94,6 +106,10 @@ func (e *Evaluator) Run(p *Program, w World, ctx Ctx) Result {
 		e.regs[RegOrigin][0] = ctx.Subject
 	}
 	e.n[RegOrigin] = 1
+	if ctx.Bank == nil {
+		e.bank = Bank{}
+		ctx.Bank = &e.bank
+	}
 	e.exec(p.Steps, w, &ctx, &res)
 	return res
 }
@@ -149,6 +165,12 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			e.status(w, ctx, s, res)
 		case OpGate:
 			e.gate(w, ctx, s)
+		case OpCharge:
+			if e.n[s.Src2] == 0 {
+				continue // in a gate branch nobody took
+			}
+			v := int64(ctx.Bank[s.Bank]) + int64(s.Value)
+			ctx.Bank[s.Bank] = uint32(min(max(v, 0), MaxCharge))
 		case OpForEach:
 			body := steps[pc+1 : pc+1+int(s.Span)]
 			for i := 0; i < int(e.n[s.Src]); i++ {
@@ -308,6 +330,27 @@ func (e *Evaluator) status(w World, ctx *Ctx, s *Step, res *Result) {
 func (e *Evaluator) gate(w World, ctx *Ctx, s *Step) {
 	src := e.regs[s.Src][:e.n[s.Src]]
 	var np, nf uint8
+	if s.Gate.Charged() {
+		// Whole group, one way, decided by the bank.
+		pass := false
+		b := &ctx.Bank[s.Bank]
+		switch s.Gate {
+		case GateEmpty:
+			pass = *b == 0
+		case GateSpend:
+			if len(src) > 0 && *b >= uint32(s.Count) {
+				*b -= uint32(s.Count)
+				pass = true
+			}
+		}
+		dst, n := &e.regs[s.Dst2], &nf
+		if pass {
+			dst, n = &e.regs[s.Dst], &np
+		}
+		*n = uint8(copy(dst[:], src))
+		e.n[s.Dst], e.n[s.Dst2] = np, nf
+		return
+	}
 	if !s.Gate.PerFoe() || (s.Gate == GateStatus && e.Reg.Get(s.Type).Status == StatusCloak) {
 		// One test for the whole group: it all goes one way.
 		dst, n := &e.regs[s.Dst2], &nf

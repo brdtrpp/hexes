@@ -36,6 +36,12 @@ const NestCostPerDepth = 0.5
 //     passed, the no slot on the rest. Effects and nested hexes in a
 //     branch land only on their half, never on the targets beside them.
 //     Targets and multipliers in a branch slot work as they would anywhere.
+//   - A charge adds to (or drains) its bank once each time the ring runs
+//     through its slot, in clockwise order with everything else, so a
+//     charge before a spend gate counts before the gate reads. In a gate
+//     branch it only counts when its half holds someone. Banks belong to
+//     the equipped hex and keep their counts between firings; nested
+//     hexes share them by letter. An echo hex counts twice.
 func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	trig := -1
 	for i, s := range h.Slots {
@@ -106,6 +112,15 @@ func (c *compiler) emit(s Step) int {
 	return len(c.p.Steps) - 1
 }
 
+// useBank notes a bank the program touches, and the first spend on it.
+func (c *compiler) useBank(p Part) {
+	b := p.Bank % MaxBanks
+	c.p.Banks |= 1 << b
+	if p.Kind == KindGate && p.Gate == GateSpend && c.p.Spend[b] == 0 {
+		c.p.Spend[b] = p.Count
+	}
+}
+
 func (c *compiler) cost(p Part, depth int) {
 	f := float32(1 + NestCostPerDepth*float64(depth))
 	heat := p.Heat
@@ -113,8 +128,8 @@ func (c *compiler) cost(p Part, depth int) {
 		heat += c.reg.Get(p.Type).HeatOffset
 	}
 	power := p.Power
-	if p.Kind == KindGate {
-		power /= p.Rarity.Scale() // rarer gates run leaner
+	if p.Kind == KindGate || p.Kind == KindCharge {
+		power /= p.Rarity.Scale() // rarer gates and charges run leaner
 	}
 	switch p.Quirk {
 	case QuirkRelay:
@@ -215,9 +230,34 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			}
 			pass[s], fail[s] = yes, no
 			i := c.emit(Step{Op: OpGate, Gate: p.Gate, Src: in, Dst: yes, Dst2: no,
-				Type: p.Type, Count: p.Count, Value: p.Value})
+				Type: p.Type, Count: p.Count, Value: p.Value, Bank: p.Bank % MaxBanks})
 			fed[s] = span{i, i + 1, true}
 			c.cost(p, depth)
+			if p.Gate.Charged() {
+				c.useBank(p)
+			}
+		case sl.Kind == SlotPart && sl.Part.Kind == KindCharge:
+			// A charge runs once per pass through its slot. In a branch it
+			// runs only when its half holds someone; outside one, always.
+			p := sl.Part
+			guard := uint8(RegCaster)
+			if r := routes[s]; r.Gate >= 0 {
+				guard = pass[r.Gate]
+				if r.Branch == BranchNo {
+					guard = fail[r.Gate]
+				}
+			}
+			v := p.Value
+			if v <= 0 {
+				v = 1
+			}
+			if p.Charge == ChargeDrain {
+				v = -v
+			}
+			i := c.emit(Step{Op: OpCharge, Src: guard, Src2: guard, Bank: p.Bank % MaxBanks, Value: v})
+			fed[s] = span{i, i + 1, true}
+			c.cost(p, depth)
+			c.useBank(p)
 		case sl.Kind == SlotPart && sl.Part.Kind == KindEffect:
 			p := sl.Part
 			src, guard, err := land(s)

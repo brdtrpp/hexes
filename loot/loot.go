@@ -112,18 +112,29 @@ func NewTable(reg *skill.Registry) *Table {
 	return t
 }
 
-// Kind weights: effect, target, multiplier, trigger, gate.
-var kindWeights = [...]float32{40, 22, 22, 16, 10}
+// Kind weights: effect, target, multiplier, trigger, gate, charge.
+var kindWeights = [...]float32{40, 22, 22, 16, 10, 8}
 
-// Exotics always carry a quirk, so they skip targets and gates, which
-// have none.
-var exoticKindWeights = [...]float32{45, 0, 30, 25, 0}
+// Exotics always carry a quirk, so they skip targets, gates and charges,
+// which have none.
+var exoticKindWeights = [...]float32{45, 0, 30, 25, 0, 0}
 
-var partKinds = [...]skill.PartKind{skill.KindEffect, skill.KindTarget, skill.KindMult, skill.KindTrigger, skill.KindGate}
+var partKinds = [...]skill.PartKind{skill.KindEffect, skill.KindTarget, skill.KindMult, skill.KindTrigger, skill.KindGate, skill.KindCharge}
 
 var gateWeights = [...]float32{
 	skill.GateHull: 30, skill.GateHeat: 18, skill.GatePower: 14, skill.GateStatus: 22, skill.GateCrowd: 16,
+	skill.GateSpend: 18, skill.GateEmpty: 6,
 }
+
+// DrainChance is how often a charge part rolls as a drain.
+const DrainChance = 0.25
+
+// Spend gates roll needing SpendMin to SpendMax charge, less for rarer
+// tiers (one less per tier, never under 2).
+const (
+	SpendMin = 3
+	SpendMax = 8
+)
 
 var triggerWeights = [...]float32{
 	skill.OnCast: 26, skill.OnHit: 20, skill.OnKill: 20, skill.FromStealth: 4,
@@ -172,10 +183,15 @@ func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
 		p = t.effect(r, rar == skill.Exotic)
 	case skill.KindGate:
 		p = t.gate(r)
+	case skill.KindCharge:
+		p = charge(r)
 	default:
 		p = t.mult(r)
 	}
 	p = p.WithRarity(rar)
+	if p.Kind == skill.KindGate && p.Gate == skill.GateSpend {
+		p.Count = uint8(max(2, int(p.Count)-int(rar)))
+	}
 	if rar == skill.Exotic || (rar == skill.Rare && r.Float() < RareQuirkChance) {
 		p.Quirk = quirkFor(p)
 	}
@@ -242,6 +258,10 @@ func (t *Table) gate(r *RNG) skill.Part {
 		return skill.NewGate(k, twentieth(r.Range(0.35, 0.75)))
 	case skill.GateCrowd:
 		return skill.NewCrowdGate(float32(1+r.Intn(2)), uint8(2+r.Intn(3)))
+	case skill.GateSpend:
+		return skill.NewSpendGate(rollBank(r), uint8(SpendMin+r.Intn(SpendMax-SpendMin+1)))
+	case skill.GateEmpty:
+		return skill.NewEmptyGate(rollBank(r))
 	default:
 		var ok [skill.MaxTypes]skill.TypeID
 		n := 0
@@ -256,6 +276,23 @@ func (t *Table) gate(r *RNG) skill.Part {
 		}
 		return skill.NewStatusGate(ok[r.Intn(n)])
 	}
+}
+
+// charge rolls an add or a drain of 1.
+func charge(r *RNG) skill.Part {
+	b := rollBank(r)
+	if r.Float() < DrainChance {
+		return skill.NewDrain(b, 1)
+	}
+	return skill.NewCharge(b, 1)
+}
+
+// rollBank is mostly A, sometimes B. The editor can switch it.
+func rollBank(r *RNG) uint8 {
+	if r.Float() < 0.3 {
+		return 1
+	}
+	return 0
 }
 
 // twentieth rounds to the nearest 5%.
