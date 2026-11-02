@@ -56,7 +56,7 @@ const (
 // Limits that keep evaluation in fixed-size arrays.
 const (
 	MaxRegs    = 128 // registers per program (a docked chain needs room)
-	MaxTargets = 24 // entities per register
+	MaxTargets = 24  // entities per register
 )
 
 // Step is one flat instruction. Every number a multiplier could touch has
