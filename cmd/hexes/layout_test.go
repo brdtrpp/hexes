@@ -74,3 +74,49 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 	}
 	sim.Load.Hexes[0].Shape = skill.Shape{}
 }
+
+// The board view: at its starting zoom the whole board shows inside its
+// area, cells big enough to tap, and the buttons don't overlap.
+func TestBoardLayoutFits(t *testing.T) {
+	for _, sc := range []struct {
+		name    string
+		w, h, k float64
+	}{
+		{"phone portrait", 390, 844, 3},
+		{"small phone", 360, 640, 2},
+		{"phone landscape", 844, 390, 3},
+		{"desktop", 1280, 800, 1},
+	} {
+		g := &Game{sim: game.New(1), w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
+		g.ed.bd.zoom = 1
+		l := g.edLayout()
+		b := g.boardLayout(&l)
+		if b.tileR/sc.k < 24 {
+			t.Errorf("%s: board cells %.0f css px across", sc.name, 2*b.tileR/sc.k)
+		}
+		for _, c := range game.BoardOrder {
+			x, y := b.at(c)
+			if x-b.tileR < b.area.x-1 || x+b.tileR > b.area.x+b.area.w+1 || y-b.tileR < b.area.y-1 || y+b.tileR > b.area.y+b.area.h+1 {
+				t.Errorf("%s: cell %v off the board area", sc.name, c)
+			}
+			if got, ok := b.cellAt(x, y); !ok || got != c {
+				t.Errorf("%s: tapping cell %v finds %v", sc.name, c, got)
+			}
+		}
+		btn := []rect{b.rotate, b.edit, b.test}
+		for i, r := range btn {
+			if r.x < 0 || r.x+r.w > float64(g.w) || overlaps(r, b.area) {
+				t.Errorf("%s: button %d misplaced", sc.name, i)
+			}
+			for _, q := range btn[i+1:] {
+				if overlaps(r, q) {
+					t.Errorf("%s: buttons overlap", sc.name)
+				}
+			}
+		}
+	}
+}
+
+func overlaps(r, q rect) bool {
+	return r.x < q.x+q.w && q.x < r.x+r.w && r.y < q.y+q.h && q.y < r.y+r.h
+}

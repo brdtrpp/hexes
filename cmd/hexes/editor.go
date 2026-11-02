@@ -47,6 +47,9 @@ type editor struct {
 	bad  bool // msg is a refusal
 	// shape is set when msg is about the SHAPE button.
 	shape bool
+	// board is set while the docking board is on show (see board.go).
+	board bool
+	bd    boardView
 }
 
 type rect struct{ x, y, w, h float64 }
@@ -55,7 +58,7 @@ func (r rect) hit(x, y float64) bool { return x >= r.x && y >= r.y && x < r.x+r.
 
 // edLayout is where everything sits for the current window.
 type edLayout struct {
-	tabs         [game.MaxSlots]rect
+	tabs         [game.MaxSlots + 1]rect // the four hexes, then BOARD
 	ringX, ringY float64
 	slotR        float64
 	gridX, gridY float64 // where the shape's middle cell (0,0) sits
@@ -81,7 +84,7 @@ func (g *Game) edLayout() edLayout {
 	tw := math.Min(W-2*pad, 760*k)
 	tx := (W - tw) / 2
 	gap := 6 * k
-	cw := (tw - 3*gap) / game.MaxSlots
+	cw := (tw - float64(len(l.tabs)-1)*gap) / float64(len(l.tabs))
 	tabH := 40 * k
 	if short {
 		tabH = 34 * k
@@ -129,7 +132,7 @@ func (g *Game) edLayout() edLayout {
 	// is just under R/sqrt(3) across. Every shape's slots sit on its own
 	// cells (a ring's six around the middle, which is a plate or a Hub's
 	// or Fork's center slot), scaled to fill the area and centered.
-	sh := &g.sim.Load.Hexes[g.ed.hex].Shape
+	sh := &g.sim.Load.Hex(g.ed.hex).Shape
 	gr := sh.Graph()
 	minX, maxX, minY, maxY := math.Inf(1), math.Inf(-1), math.Inf(1), math.Inf(-1)
 	for i := 0; i < int(gr.N); i++ {
@@ -186,8 +189,15 @@ func (g *Game) updateEditor() bool {
 	}
 	for i, key := range []ebiten.Key{ebiten.KeyDigit1, ebiten.KeyDigit2, ebiten.KeyDigit3, ebiten.KeyDigit4} {
 		if inpututil.IsKeyJustPressed(key) {
-			g.ed.hex, g.ed.pick = i, pickNone
+			g.ed.hex, g.ed.pick, g.ed.board = i, pickNone, false
 		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyB) {
+		g.setBoard(!g.ed.board)
+	}
+	if g.ed.board {
+		g.updateBoard()
+		return true
 	}
 	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
 		g.touched = true
@@ -209,6 +219,10 @@ func (g *Game) edTap(x, y float64) {
 	e.shape = false
 	for i, t := range l.tabs {
 		if t.hit(x, y) {
+			if i == game.MaxSlots {
+				g.setBoard(true)
+				return
+			}
 			e.hex, e.pick, e.msg = i, pickNone, ""
 			return
 		}
@@ -251,7 +265,7 @@ func (g *Game) edTap(x, y float64) {
 		e.msg, e.bad = game.ShapeText(sh), false
 		return
 	}
-	sh := &sim.Load.Hexes[e.hex].Shape
+	sh := &sim.Load.Hex(e.hex).Shape
 	if l.plate && math.Hypot(x-l.gridX, y-l.gridY) < l.slotR*0.9 {
 		// The center plate does what tapping a picked slot again does.
 		if e.pick == pickSlot && g.edCycle() {
@@ -307,12 +321,12 @@ func (g *Game) edTap(x, y float64) {
 func (g *Game) edCycle() bool {
 	e, sim := &g.ed, g.sim
 	if sim.CycleBank(e.hex, e.at) {
-		p := sim.Load.Hexes[e.hex].Slots[e.at].Part
+		p := sim.Load.Hex(e.hex).Slots[e.at].Part
 		e.msg, e.bad = "Now on bank "+skill.BankName(p.Bank)+".", false
 		return true
 	}
 	if sim.CycleCall(e.hex, e.at) {
-		p := sim.Load.Hexes[e.hex].Slots[e.at].Part
+		p := sim.Load.Hex(e.hex).Slots[e.at].Part
 		e.msg, e.bad = "Now calls "+g.callName(e.hex, p, false)+".", false
 		return true
 	}
@@ -328,7 +342,10 @@ func (g *Game) edResult(err error) {
 	}
 	e.pick = pickNone
 	pw, ht := g.sim.HexPower(e.hex)
-	e.msg, e.bad = fmt.Sprintf("%s rebuilt: %.0f power, %.0f heat per firing.", g.sim.Load.Names[e.hex], pw, ht), false
+	e.msg, e.bad = fmt.Sprintf("%s rebuilt: %.0f power, %.0f heat per firing.", g.sim.Load.Name(e.hex), pw, ht), false
+	if g.sim.Load.IsMod(e.hex) {
+		e.msg = fmt.Sprintf("%s rebuilt: adds %.0f power, %.0f heat to whatever docks into it.", g.sim.Load.Name(e.hex), pw, ht)
+	}
 }
 
 // drawShapeEdges draws how a hex's slots feed each other: every link with
@@ -431,7 +448,7 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 		tc = colCharge
 	case skill.KindCall:
 		tc = colCall
-		if to, ok := game.CallsTo(g.ed.hex, p); ok && p.Call != skill.CallSelf {
+		if to, ok := game.CallsTo(g.ed.hex, p); ok && p.Call != skill.CallSelf && to < game.MaxSlots {
 			tc = slotCol[to]
 		}
 	case skill.KindEffect:
@@ -500,6 +517,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		l.tabs[0].x, l.tabs[0].y-11*g.k, colDim, false)
 
 	for i, t := range l.tabs {
+		if i == game.MaxSlots {
+			g.drawBoardTab(screen, t)
+			continue
+		}
 		fill, edge := colPanel, fade(slotCol[i], 0.45)
 		if i == e.hex {
 			fill, edge = fade(slotCol[i], 0.25), slotCol[i]
@@ -511,22 +532,26 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 		g.label(screen, g.small, name, t.x+t.w/2, t.y+t.h*0.33, slotCol[i], true)
 		sub := triggerName(sim.Load.Progs[i])
-		if sh := sim.Load.Hexes[i].Shape; sh.Kind != skill.ShapeRing {
+		if sh := sim.Load.Hexes[i].Shape; sh.Kind != skill.ShapeRing && t.w >= 90*g.k {
 			sub += " · " + shapeTag(sh)
 		}
 		g.label(screen, g.small, sub, t.x+t.w/2, t.y+t.h*0.72, colDim, true)
 	}
 
+	if e.board {
+		g.drawBoard(screen)
+		return
+	}
 	// The shape: edges first, then the center plate (shapes without a
 	// center slot), then the slots.
-	h := sim.Load.Hexes[e.hex]
+	h := sim.Load.Hex(e.hex)
 	kind := h.Shape.Kind
 	g.drawShapeEdges(screen, &l, h, false)
 	pw, ht := sim.HexPower(e.hex)
 	if l.plate {
 		px, py := l.gridX, l.gridY
-		drawHex(screen, px, py, l.slotR, true, colPanel, slotCol[e.hex], g.u(2))
-		g.label(screen, g.small, shortName(sim.Load.Names[e.hex]), px, py-l.slotR*0.3, slotCol[e.hex], true)
+		drawHex(screen, px, py, l.slotR, true, colPanel, hexCol(e.hex), g.u(2))
+		g.label(screen, g.small, shortName(sim.Load.Name(e.hex)), px, py-l.slotR*0.3, hexCol(e.hex), true)
 		g.label(screen, g.small, fmt.Sprintf("%.0f pw %.0f ht", pw, ht), px, py+l.slotR*0.12, colDim, true)
 		if l.slotR > 48*g.k {
 			flow := "clockwise"
@@ -587,7 +612,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		case i == h.Shape.Surge():
 			top, col = append(top, "SURGE"), colShape
 		}
-		if s.Kind == skill.SlotPart && s.Part.UsesBank() {
+		if s.Kind == skill.SlotPart && s.Part.UsesBank() && e.hex < game.MaxSlots {
 			b := s.Part.Bank
 			top = append(top, fmt.Sprintf("%s = %d", skill.BankName(b), sim.Banks[e.hex][b]))
 		}
@@ -632,6 +657,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 	}
 	g.drawShapeEdges(screen, &l, h, true)
+	g.drawPorts(screen, &l, e.hex)
 
 	for i, c := range l.cells {
 		g.partTile(screen, c.x+c.w/2, c.y+c.h/2, c.w*0.5, false, inv.Parts[i], inv.Has[i], e.pick == pickCell && e.at == i)
@@ -699,7 +725,7 @@ func (g *Game) edLit(i int) (ok, held bool) {
 	case e.pick == pickCell && sim.Stash.Inv.Has[e.at]:
 		_, ok = sim.PreviewIn(e.hex, i, e.at)
 		return ok, true
-	case e.pick == pickSlot && e.at != i && sim.Load.Hexes[e.hex].Slots[e.at].Kind == skill.SlotPart:
+	case e.pick == pickSlot && e.at != i && sim.Load.Hex(e.hex).Slots[e.at].Kind == skill.SlotPart:
 		_, ok = sim.PreviewSwap(e.hex, e.at, i)
 		return ok, true
 	}
@@ -751,7 +777,7 @@ func (g *Game) callName(hex int, p skill.Part, short bool) string {
 	switch {
 	case !ok:
 		return skill.CallName(p.Call)
-	case p.Call == skill.CallSelf || to == hex:
+	case p.Call == skill.CallSelf || to == hex || to >= game.MaxSlots:
 		return "self"
 	case short:
 		return shortName(g.sim.Load.Names[to])
