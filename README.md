@@ -59,6 +59,7 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 | `shape.go` | Shapes: Triangle, Ring, Hub, Fork, Loop and generated ones as control flow, their quirks, names, Heat and who feeds whom. |
 | `graph.go` | A shape's graph: cells, links, flow order, validity, and the fixed five as graphs. |
 | `gen.go` | The shape generator. |
+| `dock.go` | Ports, docked compile, modules. |
 | `compile.go`, `program.go` | Compiles a hex tree into a flat `[]Step` with all multipliers baked in, plus a disassembler. |
 | `eval.go` | Runs a program against a `World`. Fixed arrays only: zero allocations per run. |
 | `combat.go` | Units, per-hit cap by level gap, adaptive resistance, damage over time. |
@@ -185,6 +186,24 @@ Effects, Calls and nested hexes always do something: with no target beside them 
 **Saves.** A hex saved before shapes has no shape field and six-slot arrays; it loads as a Ring with an empty center. Found shapes save in `Save.Shapes`. A generated shape carries its graph (`Shape.Net`); the fixed five carry none, so saves from before generation load unchanged.
 
 Under the hood: `Hex.Shape` and `Hex.Feeds(a, b)` replace the ring-only adjacency, `Hex.Flow` gives the run order (each slot after everything linking into it, one chain to its end before the next), `Slots` is now 9 (`RingSlots` 6 plus `Center` for the fixed shapes, up to nine for generated ones). Compile, `Hex.Use` and `Hex.Routes` all read the graph, so the fixed five and generated shapes run through the same code. Programs carry `Shape` and `Loops`; the Loop's back edge is one `OpCall` to self after the body (after an Echo copy, so Echo doesn't double it). Still zero allocations per run.
+
+## Docking board (`skill/dock.go`, `game/board.go`, `cmd/hexes/board.go`)
+
+Hexes connect. Every hex sits on a cell of a small honeycomb, the board: your four equipped hexes, plus modules, hexes with no trigger that only run when something docks into them.
+
+**Ports.** Every shape has one way in and one or two ways out on its border, each facing one of its six sides (`Shape.Ports`). The way in sits on the start slot (or, for a Fork whose center is boxed in, the first slot after it with an open side). Ways out sit on the slots that run last, chain ends first; shapes of five slots or more get two. Ports come from the graph alone, so every shape, old or generated, has them with nothing new in the save. A plain Ring comes in at the top (N) and goes out from slots 6 (NW) and 5 (SW).
+
+**Docking.** Turn a hex in 60 degree steps to point its ports. When a hex's way out faces the side of its neighbor that holds the neighbor's way in, they dock: when the first hex's chain reaches the port slot, the docked hex runs too, from its start, on whoever the port slot carries (its targets, its gate half, whoever its effect landed on), or on the hex's subject if the slot carries no one. A docked hex's trigger is skipped, so two equipped hexes can dock and the second still fires on its own trigger as well. Chains keep going (A into B into C), stop where they'd come back round to a hex already running, never loop a docked hex, and run at most 12 docked hexes a firing. Nested hexes never dock. Call stays the way to reach a hex that isn't next to you. A target sitting on a docked way out counts as useful (its targets flow on), so the slot rules allow it there.
+
+**Cost.** Every docked part pays its own Power and Heat at its base cost (no nesting markup), with its Heat on its own shape's scale (a Triangle module runs 25% cooler, a Grand Knotted Hub hotter). A long docked chain is a hot one. Damage in docked hexes scales with level and with the firing hex's trigger like the rest.
+
+**Growing.** The board is 19 cells (two rings round the middle). A new run opens 5: room for the four hexes and one module. One more opens every 3 floors of your deepest dive (depth 4, 7, 10, ... all 19 at depth 43), so a death never takes cells away. The TEST switch opens the whole board; turning it off moves anything on a shut cell to a free open one (or asks you to take modules off first).
+
+**Modules.** + MODULE builds a plain Triangle module on the picked empty cell; EDIT opens it like any hex (SHAPE switches its shape among those you have, no trigger allowed anywhere in it). REMOVE takes one off and puts its parts in your pack. Up to 15.
+
+**In the editor.** HEX, then the BOARD tab (or B). Tap a hex to pick it, tap it again or ROTATE to turn it, tap an open cell to move it there. Drag to pan and pinch to zoom on a phone; arrows or WASD pan, + and - zoom, R turns, Enter edits on a keyboard; the mouse drags and wheel zooms. Each hex shows as a little map of its shape with green (in) and orange (out) triangles on its sides; docked ports and links turn blue. The hex view marks ports on their slots too.
+
+**Saves.** `Save.Mods` and `Save.Board` (a spot and turn per hex). A save from before the board has neither and loads with the hexes on the first four cells, each turned so nothing docks: it plays exactly as it did.
 
 ## Defaults I picked
 
@@ -316,6 +335,8 @@ Intel Xeon 2.1 GHz, 4 cores, Go 1.24.7 (`go test ./skill ./dungeon ./game -run '
 | Game step, depth 30, 54 actors | 4.1 µs | 0 |
 | Roll one drop | 0.1 µs | 0 |
 | Swap a part into a hex and recompile it | 1.9 µs | 19 |
+| Compile a ring with a chain of 6 docked modules | 6.0 µs | 2 |
+| Turn a hex on a full 19-hex board and rebuild everything | 17 µs | 17 |
 
 Game step numbers are from the free-movement pass, rerun on a busier machine (the tile-step version measured 1.0, 1.7 and 3.5 µs in the same run). The rest are from the first pass. A whole frame of simulation at depth 30 is about 0.025% of a 60 fps frame budget. Rendering is the real cost on phones, and the floor draws as pre-rendered hex sprites with off-screen culling for that reason.
 
