@@ -48,7 +48,7 @@
       Keyboard: WASD or arrows to move in any direction, Space casts Arc Lance, R vents heat, Tab or E edits hexes.<br>
       Strikes are automatic. Shove things into pits. Find the ▼ stairs.<br>
       Your progress saves on this device. Dying drops you back a few floors and leaves your newest parts in a salvage cache.<br>
-      New: SHAPES. Tap HEX, then SHAPE: Triangle, Ring, and Hub, Fork and Loop once you find them (the first waits on depth 5). Each found copy has its own quirk. To try them all now, tap TEST next to SHAPE.<br>
+      New: GENERATED SHAPES. Every shape you find from depth 5 on is its own graph of 3 to 9 slots that splits, merges or loops, bigger and stranger the deeper you go. Tap HEX, then SHAPE to switch. To try a spread of them now, tap TEST next to SHAPE.<br>
       Parts only go where they do something: pick one up and the slots it works in turn green.</div>
   </div>
 </div>
@@ -72,12 +72,7 @@
         }
       } catch (e) { bytes = null; }
     }
-    if (!bytes) {
-      msg.textContent = 'Booting the rig (slow path)';
-      const r = await fetch('hexes.wasm');
-      if (!r.ok) throw new Error('download failed (' + r.status + ')');
-      bytes = await r.arrayBuffer();
-    }
+    if (!bytes) throw new Error('the download failed or this browser can’t unpack it. Reload, or try a current Chrome, Safari or Firefox.');
     const go = new Go();
     const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
     boot.remove();

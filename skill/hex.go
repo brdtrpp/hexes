@@ -5,12 +5,13 @@ import (
 	"fmt"
 )
 
-// RingSlots is the number of slots around a hex ring. Slots is the most
-// any shape has: the ring plus its center (see Shape). Center is the
-// center slot's index; only Hubs and Forks use it.
+// RingSlots is the number of slots around an original hex ring. Slots is
+// the most any shape has (a generated one can use them all, see GenGraph).
+// Center is the original shapes' center slot index; only Hubs and Forks
+// use it.
 const (
 	RingSlots = 6
-	Slots     = RingSlots + 1
+	Slots     = 9
 	Center    = RingSlots
 )
 
@@ -93,6 +94,9 @@ func NewHex(name string, sockets [RingSlots]SocketKind) *Hex {
 	h := &Hex{Name: name}
 	copy(h.Sockets[:], sockets[:])
 	h.Sockets[Center] = SocketEffect
+	for i := Center + 1; i < Slots; i++ {
+		h.Sockets[i] = SocketWild
+	}
 	for i := range h.Linked {
 		h.Linked[i] = true
 	}
@@ -218,7 +222,7 @@ type Route struct {
 
 // Routes works out which slots hang off which gates, reading the ring in
 // flow order from slot start (the trigger's slot, or the entry slot for a
-// nested hex). A center slot is never in a gate's branch. The rules, which
+// nested hex). A merge (a Hub's center) is never in a gate's branch. The rules, which
 // Compile follows:
 //   - A gate's yes slot is the next slot in flow order, its no slot the
 //     one after that. Each must be fed by the slot before it, and neither
@@ -232,7 +236,10 @@ func (h *Hex) Routes(start int) [Slots]Route {
 	for i := range r {
 		r[i].Gate = -1
 	}
-	order, n := h.ringFlow(start)
+	order, n := h.Flow(start)
+	g := h.Shape.Graph()
+	// A merge pools what feeds it, so it's never a branch.
+	free := func(s int) bool { return r[s].Gate < 0 && g.Ins(s) < 2 }
 	isGate := func(s int) bool {
 		return h.Slots[s].Kind == SlotPart && h.Slots[s].Part.Kind == KindGate
 	}
@@ -242,7 +249,7 @@ func (h *Hex) Routes(start int) [Slots]Route {
 			continue
 		}
 		yes := k + 1
-		if yes >= n || r[order[yes]].Gate >= 0 || !h.Feeds(s, order[yes]) {
+		if yes >= n || !free(order[yes]) || !h.Feeds(s, order[yes]) {
 			continue
 		}
 		r[order[yes]] = Route{int8(s), BranchYes}
@@ -250,7 +257,7 @@ func (h *Hex) Routes(start int) [Slots]Route {
 			continue
 		}
 		no := k + 2
-		if no >= n || r[order[no]].Gate >= 0 || !h.Feeds(order[yes], order[no]) {
+		if no >= n || !free(order[no]) || !h.Feeds(order[yes], order[no]) {
 			continue
 		}
 		r[order[no]] = Route{int8(s), BranchNo}

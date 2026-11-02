@@ -3,6 +3,8 @@ package game
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"hexes/loot"
 	"hexes/skill"
@@ -10,7 +12,10 @@ import (
 
 // Shapes in the sim. A hex's shape is its control flow (see skill.Shape).
 // Everyone has the plain Ring and the plain Triangle. The rest are found:
-// rare drops deep down, each copy with one rolled quirk. A found shape is
+// rare drops deep down, each one a generated graph (skill.GenGraph) that
+// grows bigger and stranger with depth, with one rolled quirk. Shapes
+// found before generation (the fixed Hub, Fork, Loop and Triangle) keep
+// working as they were. A found shape is
 // learned the moment you walk over it and kept for good, like the rest of
 // progress; a death never takes it. Each found copy goes on one hex at a
 // time, and the editor's SHAPE button switches a hex between the ones you
@@ -43,16 +48,18 @@ func ShapeDropChance(depth int) float32 {
 }
 
 // ShapeSockets is the socket layout of a game hex of a shape: the trigger
-// where the shape wants it, wild sockets on the rest of the ring, and a
-// Hub's center taking effects, multipliers, charges and calls (no targets
-// or gates: the center pools, it doesn't pick or split).
-func ShapeSockets(k skill.ShapeKind) [skill.Slots]skill.SocketKind {
+// where the shape wants it, wild sockets everywhere else, except an
+// original Hub's center, which takes effects, multipliers, charges and
+// calls (no targets or gates: the center pools, it doesn't pick or split).
+func ShapeSockets(sh skill.Shape) [skill.Slots]skill.SocketKind {
 	var s [skill.Slots]skill.SocketKind
 	for i := range s {
 		s[i] = skill.SocketWild
 	}
-	s[skill.Center] = skill.SocketEffect
-	s[k.TriggerSlot()] = skill.SocketTrigger
+	if sh.Kind.Legacy() {
+		s[skill.Center] = skill.SocketEffect
+	}
+	s[sh.Entry()] = skill.SocketTrigger
 	return s
 }
 
@@ -70,7 +77,7 @@ func (s *Sim) rollShapeDrop(id skill.EntityID, at skill.Coord, elite bool) {
 	if r.Float() >= chance {
 		return
 	}
-	s.Stash.Shapes = append(s.Stash.Shapes, ShapeDrop{At: at, Shape: skill.RollShape(r.Next, r.Next())})
+	s.Stash.Shapes = append(s.Stash.Shapes, ShapeDrop{At: at, Shape: skill.RollShape(r.Next, r.Next(), s.Depth)})
 }
 
 // placeFirstShape lays a shape next to the stairs down the first time a
@@ -88,12 +95,14 @@ func (s *Sim) placeFirstShape() {
 			break
 		}
 	}
-	sh := skill.RollShape(r.Next, r.Next())
-	if sh.Kind == skill.ShapeRing || sh.Kind == skill.ShapeTriangle {
-		sh.Kind = skill.ShapeHub // the first find shows something new
-		if !sh.Valid() {
-			sh.Quirk, sh.At = skill.ShapeLean, 0
+	// The first find shows something new: a fork, hub or loop, not a
+	// plain chain.
+	sh := skill.RollShape(r.Next, r.Next(), s.Depth)
+	for try := 0; try < 32; try++ {
+		if f := sh.Family(); f != skill.ShapeRing && f != skill.ShapeTriangle {
+			break
 		}
+		sh = skill.RollShape(r.Next, r.Next(), s.Depth)
 	}
 	s.Stash.Shapes = append(s.Stash.Shapes, ShapeDrop{At: at, Shape: sh})
 }
@@ -125,7 +134,7 @@ func (s *Sim) ShapeChoices(hex int) []skill.Shape {
 	out := []skill.Shape{{Kind: skill.ShapeRing}, {Kind: skill.ShapeTriangle}}
 	have := s.Shapes
 	if s.TestShapes {
-		have = append(append([]skill.Shape(nil), have...), TestShapeSet[:]...)
+		have = append(append([]skill.Shape(nil), have...), TestShapeSet...)
 	}
 	for _, sh := range have {
 		used := false
@@ -192,10 +201,10 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	old := *h
 	nh := old
 	nh.Shape = sh
-	nh.Sockets = ShapeSockets(sh.Kind)
+	nh.Sockets = ShapeSockets(sh)
 	nh.Slots = [skill.Slots]skill.Slot{}
 	var extra []skill.Part
-	trig := sh.Kind.TriggerSlot()
+	trig := sh.Entry()
 	for i, sl := range old.Slots {
 		switch sl.Kind {
 		case skill.SlotEmpty:
@@ -207,7 +216,7 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 		switch {
 		case p.Kind == skill.KindTrigger:
 			nh.Slots[trig] = sl
-		case sh.Kind.Has(i) && i != trig && nh.Sockets[i].Accepts(p.Kind):
+		case sh.Has(i) && i != trig && nh.Sockets[i].Accepts(p.Kind):
 			nh.Slots[i] = sl
 		default:
 			extra = append(extra, p)
@@ -230,7 +239,7 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	}
 	inv := &s.Stash.Inv
 	if free := loot.InventorySize - inv.Count(); free < len(pack) {
-		return fmt.Errorf("a %s has room for fewer parts: free %d pack cells first", sh.Kind, len(pack)-free)
+		return fmt.Errorf("a %s has room for fewer parts: free %d pack cells first", sh.Name(), len(pack)-free)
 	}
 	*h = nh
 	if err := s.recompile(hex); err != nil {
@@ -259,19 +268,57 @@ func (s *Sim) hasShape(sh skill.Shape) bool {
 	return false
 }
 
-// The test switch. With it on, every shape is unlocked without finding
-// it: one test copy of each found shape, each with a different quirk so all
-// four show. Test copies are never added to the shapes you've found, and
-// turning the switch off puts any hex wearing one back to a Ring.
+// The test switch. With it on, every kind of shape is unlocked without
+// finding it: one test copy of each original found shape, each with a
+// different quirk so all four show, then a spread of generated ones from
+// small to the full nine slots, covering every family. Test copies are
+// never added to the shapes you've found, and turning the switch off puts
+// any hex wearing one back to a Ring.
 const testShapeBit = 1 << 63
 
 // TestShapeSet is the copies the test switch unlocks.
-var TestShapeSet = [...]skill.Shape{
-	{Kind: skill.ShapeHub, Quirk: skill.ShapeTwin, At: 2, ID: testShapeBit | 1},
-	{Kind: skill.ShapeFork, Quirk: skill.ShapeSurge, At: 1, ID: testShapeBit | 2},
-	{Kind: skill.ShapeLoop, Quirk: skill.ShapeOneWay, At: 2, ID: testShapeBit | 3},
-	{Kind: skill.ShapeTriangle, Quirk: skill.ShapeLean, ID: testShapeBit | 4},
+var TestShapeSet = testShapes()
+
+func testShapes() []skill.Shape {
+	out := []skill.Shape{
+		{Kind: skill.ShapeHub, Quirk: skill.ShapeTwin, At: 2, ID: testShapeBit | 1},
+		{Kind: skill.ShapeFork, Quirk: skill.ShapeSurge, At: 1, ID: testShapeBit | 2},
+		{Kind: skill.ShapeLoop, Quirk: skill.ShapeOneWay, At: 2, ID: testShapeBit | 3},
+		{Kind: skill.ShapeTriangle, Quirk: skill.ShapeLean, ID: testShapeBit | 4},
+	}
+	// Generated: walk a fixed seed and keep the first shape of each
+	// family and size, smallest first, so the set is the same every run.
+	type key struct {
+		f skill.ShapeKind
+		n int
+	}
+	seen := map[key]bool{}
+	r := loot.NewRNG(0x7e57)
+	var gen []skill.Shape
+	for i := 0; i < 4000 && len(gen) < TestGenShapes; i++ {
+		sh := skill.RollShape(r.Next, 0, 5+i%50)
+		k := key{sh.Family(), sh.Len()}
+		if seen[k] || (k.n < 5 && k.f != skill.ShapeTriangle) {
+			continue
+		}
+		seen[k] = true
+		gen = append(gen, sh)
+	}
+	sort.SliceStable(gen, func(i, j int) bool {
+		if gen[i].Len() != gen[j].Len() {
+			return gen[i].Len() < gen[j].Len()
+		}
+		return gen[i].Family() < gen[j].Family()
+	})
+	for i, sh := range gen {
+		sh.ID = testShapeBit | uint64(16+i)
+		out = append(out, sh)
+	}
+	return out
 }
+
+// TestGenShapes is how many generated shapes the test switch unlocks.
+const TestGenShapes = 16
 
 // IsTestShape reports whether sh is one of the test switch's copies.
 func IsTestShape(sh skill.Shape) bool { return sh.ID&testShapeBit != 0 }
@@ -312,6 +359,8 @@ func ShapeText(sh skill.Shape) string {
 		t = "Fork: the trigger in the center runs two chains of three, side by side."
 	case skill.ShapeLoop:
 		t = "Loop: the last slot feeds back to the first. Whoever it carries gets another pass, each costing heat."
+	case skill.ShapeGen:
+		t = genText(sh)
 	}
 	switch sh.Quirk {
 	case skill.ShapeTwin:
@@ -319,9 +368,39 @@ func ShapeText(sh skill.Shape) string {
 	case skill.ShapeSurge:
 		t += fmt.Sprintf(" Surge: slot %d hits 50%% harder.", sh.At+1)
 	case skill.ShapeOneWay:
-		t += fmt.Sprintf(" One-way: edge %d-%d only feeds clockwise.", sh.At+1, (int(sh.At)+1)%sh.Kind.RingLen()+1)
+		t += fmt.Sprintf(" One-way: edge %d-%d only feeds forward.", sh.At+1, sh.Graph().FirstTwo(int(sh.At))+1)
 	case skill.ShapeLean:
 		t += " Lean: 25% less heat."
 	}
 	return t
+}
+
+// genText describes a generated shape from its features: how many slots,
+// where it splits and merges, whether it loops, and its heat.
+func genText(sh skill.Shape) string {
+	g := sh.Graph()
+	var splits, merges []string
+	for i := 0; i < int(g.N); i++ {
+		if g.Outs(i) >= 2 {
+			splits = append(splits, fmt.Sprint(i+1))
+		}
+		if g.Ins(i) >= 2 {
+			merges = append(merges, fmt.Sprint(i+1))
+		}
+	}
+	t := fmt.Sprintf("%s: %d slots", sh.Name(), g.N)
+	if len(splits) > 0 {
+		t += ", splits after " + strings.Join(splits, " and ")
+	}
+	if len(merges) > 0 {
+		t += ", merges at " + strings.Join(merges, " and ")
+	}
+	t += "."
+	if l := g.LoopFrom(); l >= 0 {
+		t += fmt.Sprintf(" Whoever slot %d carries loops back to 1.", l+1)
+	}
+	if len(merges) > 0 {
+		t += " A merge pools everything linked into it."
+	}
+	return t + fmt.Sprintf(" Heat x%.2f.", sh.HeatScale())
 }

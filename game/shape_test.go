@@ -419,3 +419,100 @@ func TestPartsOnlyGoWhereTheyDoSomething(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Drops are generated now: deep ones are bigger, and every drop goes on a
+// hex with its parts kept where the slots line up.
+func TestDropsAreGenerated(t *testing.T) {
+	big := 0
+	for _, depth := range []int{ShapeMinDepth, 45} {
+		s := New(11)
+		s.ShapeGiven = true
+		s.load(depth, 1)
+		for id := 1; id < 4000 && len(s.Stash.Shapes) < MaxShapeDrops; id++ {
+			s.rollShapeDrop(skill.EntityID(id), s.Floor.Start, true)
+		}
+		if len(s.Stash.Shapes) == 0 {
+			t.Fatalf("no drops at depth %d", depth)
+		}
+		for _, d := range s.Stash.Shapes {
+			sh := d.Shape
+			if sh.Kind != skill.ShapeGen || !sh.Valid() || sh.Len() > skill.GenMaxSlots(depth) {
+				t.Fatalf("depth %d drop %+v", depth, sh)
+			}
+			if depth > ShapeMinDepth && sh.Len() > big {
+				big = sh.Len()
+			}
+			s.Shapes = append(s.Shapes, sh)
+			if err := s.SetShape(1, sh); err != nil {
+				t.Fatalf("%v: %v", sh, err)
+			}
+			if p := s.Load.Progs[1]; p == nil || p.Shape != skill.ShapeGen {
+				t.Fatalf("%v not compiled", sh)
+			}
+		}
+	}
+	if big < 7 {
+		t.Fatalf("biggest deep drop has %d slots", big)
+	}
+}
+
+func TestTestSwitchCoversGeneratedFamilies(t *testing.T) {
+	fam := map[skill.ShapeKind]bool{}
+	most := 0
+	for _, sh := range TestShapeSet {
+		if sh.Kind != skill.ShapeGen {
+			continue
+		}
+		fam[sh.Family()] = true
+		most = max(most, sh.Len())
+	}
+	if len(fam) != int(skill.ShapeGen) || most != skill.Slots {
+		t.Fatalf("test set families %v, biggest %d", fam, most)
+	}
+	s := New(5)
+	if err := s.SetTestShapes(true); err != nil {
+		t.Fatal(err)
+	}
+	for _, sh := range TestShapeSet {
+		if err := s.SetShape(0, sh); err != nil {
+			t.Fatalf("%v: %v", sh, err)
+		}
+		if h := s.Load.Hexes[0]; h.Slots[sh.Entry()].Part.Kind != skill.KindTrigger {
+			t.Fatalf("%v: trigger not at slot %d", sh, sh.Entry()+1)
+		}
+	}
+}
+
+// A save holding found shapes of the old fixed kinds and generated ones
+// loads with every shape intact.
+func TestOldAndGeneratedShapesSave(t *testing.T) {
+	s := New(5)
+	old := found(s, skill.ShapeFork, skill.ShapeSurge, 1)
+	r := loot.NewRNG(3)
+	gen := skill.RollShape(r.Next, 555, 30)
+	s.Shapes = append(s.Shapes, gen)
+	if err := s.SetShape(0, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetShape(1, gen); err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(s.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sv Save
+	if err := json.Unmarshal(b, &sv); err != nil {
+		t.Fatal(err)
+	}
+	back := New(5)
+	if err := back.Restore(sv); err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Shapes) != 2 || back.Shapes[0] != old || back.Shapes[1] != gen {
+		t.Fatalf("shapes after load %+v", back.Shapes)
+	}
+	if back.Load.Hexes[0].Shape != old || back.Load.Hexes[1].Shape != gen {
+		t.Fatal("hex shapes lost")
+	}
+}

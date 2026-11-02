@@ -175,7 +175,7 @@ var ErrNeedsTrigger = errors.New("a hex needs a trigger in its top slot")
 // may be empty: an empty cell takes the slot's part out, an empty slot
 // takes the cell's part in.
 func (s *Sim) SwapIn(hex, slot, cell int) error {
-	if hex < 0 || hex >= MaxSlots || cell < 0 || cell >= loot.InventorySize || !s.Load.Hexes[hex].Shape.Kind.Has(slot) {
+	if hex < 0 || hex >= MaxSlots || cell < 0 || cell >= loot.InventorySize || !s.Load.Hexes[hex].Shape.Has(slot) {
 		return errors.New("no such slot")
 	}
 	h := s.Load.Hexes[hex]
@@ -193,7 +193,7 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 			return err
 		}
 		if what, ok := s.PreviewIn(hex, slot, cell); !ok {
-			return useless(slot, what)
+			return useless(h, slot, what)
 		}
 		h.Slots[slot] = skill.Slot{Kind: skill.SlotPart, Part: in}
 	} else {
@@ -222,7 +222,7 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 // SwapSlots trades two slots of one hex, which rewires it: order and
 // neighbors are the whole game.
 func (s *Sim) SwapSlots(hex, a, b int) error {
-	if hex < 0 || hex >= MaxSlots || !s.Load.Hexes[hex].Shape.Kind.Has(a) || !s.Load.Hexes[hex].Shape.Kind.Has(b) {
+	if hex < 0 || hex >= MaxSlots || !s.Load.Hexes[hex].Shape.Has(a) || !s.Load.Hexes[hex].Shape.Has(b) {
 		return errors.New("no such slot")
 	}
 	if a == b {
@@ -248,7 +248,7 @@ func (s *Sim) SwapSlots(hex, a, b int) error {
 		if sa.Kind != skill.SlotPart {
 			to = a
 		}
-		return useless(to, what)
+		return useless(h, to, what)
 	}
 	h.Slots[a], h.Slots[b] = sb, sa
 	if err := s.recompile(hex); err != nil {
@@ -267,7 +267,7 @@ func (s *Sim) PreviewIn(hex, slot, cell int) (what string, ok bool) {
 	}
 	h := s.Load.Hexes[hex]
 	p := s.Stash.Inv.Parts[cell]
-	if !h.Shape.Kind.Has(slot) || h.Slots[slot].Kind == skill.SlotNested {
+	if !h.Shape.Has(slot) || h.Slots[slot].Kind == skill.SlotNested {
 		return "no slot there", false
 	}
 	if err := fits(h, slot, p); err != nil {
@@ -285,8 +285,7 @@ func (s *Sim) PreviewSwap(hex, a, b int) (what string, ok bool) {
 		return "", false
 	}
 	h := s.Load.Hexes[hex]
-	k := h.Shape.Kind
-	if !k.Has(a) || !k.Has(b) || h.Slots[a].Kind == skill.SlotNested || h.Slots[b].Kind == skill.SlotNested {
+	if !h.Shape.Has(a) || !h.Shape.Has(b) || h.Slots[a].Kind == skill.SlotNested || h.Slots[b].Kind == skill.SlotNested {
 		return "no slot there", false
 	}
 	sa, sb := h.Slots[a], h.Slots[b]
@@ -308,12 +307,10 @@ func (s *Sim) PreviewSwap(hex, a, b int) (what string, ok bool) {
 	return cp.Use(a)
 }
 
-func useless(slot int, what string) error {
-	name := fmt.Sprint(slot + 1)
-	if slot == skill.Center {
+func useless(h *skill.Hex, slot int, what string) error {
+	name := "slot " + h.SlotName(slot)
+	if name == "slot C" {
 		name = "the center"
-	} else {
-		name = "slot " + name
 	}
 	return fmt.Errorf("it would do nothing in %s: %s", name, what)
 }
@@ -403,15 +400,18 @@ func fits(h *skill.Hex, slot int, p skill.Part) error {
 		return nil
 	}
 	where := "top"
-	if h.Shape.Kind.TriggerSlot() == skill.Center {
+	switch {
+	case h.Shape.Kind == skill.ShapeFork:
 		where = "center"
+	case h.Shape.Kind == skill.ShapeGen:
+		where = "first"
 	}
 	switch {
 	case p.Kind == skill.KindTrigger:
 		return fmt.Errorf("triggers only go in the %s slot", where)
 	case h.Sockets[slot] == skill.SocketTrigger:
 		return fmt.Errorf("the %s slot only takes triggers", where)
-	case slot == skill.Center && (p.Kind == skill.KindTarget || p.Kind == skill.KindGate):
+	case slot == skill.Center && h.Shape.Kind == skill.ShapeHub && (p.Kind == skill.KindTarget || p.Kind == skill.KindGate):
 		return errors.New("the center pools the ring: no targets or gates there")
 	}
 	return errors.New("that part doesn't fit this slot")
@@ -424,7 +424,7 @@ func (s *Sim) recompile(hex int) error {
 	s.Load.Edited[hex] = true
 	if err := s.Load.Compile(hex, s.Reg, s.Depth, s.Rig.MaxDepth); err != nil {
 		s.Load.Edited[hex] = was
-		if h := s.Load.Hexes[hex]; h.Slots[h.Shape.Kind.TriggerSlot()].Kind == skill.SlotEmpty {
+		if h := s.Load.Hexes[hex]; h.Slots[h.Shape.Entry()].Kind == skill.SlotEmpty {
 			return ErrNeedsTrigger
 		}
 		return err

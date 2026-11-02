@@ -55,7 +55,7 @@ const (
 
 // Limits that keep evaluation in fixed-size arrays.
 const (
-	MaxRegs    = 32 // registers per program
+	MaxRegs    = 64 // registers per program
 	MaxTargets = 24 // entities per register
 )
 

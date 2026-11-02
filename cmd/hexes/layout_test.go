@@ -23,10 +23,22 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 		{"desktop", 1280, 800, 1},
 	}
 	sim := game.New(1)
+	shapes := []skill.Shape{}
+	for k := skill.ShapeKind(0); k < skill.ShapeGen; k++ {
+		shapes = append(shapes, skill.Shape{Kind: k})
+	}
+	shapes = append(shapes, game.TestShapeSet...)
+	// And a spread of deep drops, the biggest and widest there are.
+	r := uint64(1)
+	next := func() uint64 { r = r*6364136223846793005 + 1442695040888963407; return r ^ r>>29 }
+	for i := 0; i < 200; i++ {
+		shapes = append(shapes, skill.RollShape(next, 1, 60))
+	}
 	for _, sc := range screens {
-		for k := skill.ShapeKind(0); k < skill.NumShapes; k++ {
+		for _, sh := range shapes {
+			k := sh
 			g := &Game{sim: sim, w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
-			sim.Load.Hexes[0].Shape = skill.Shape{Kind: k}
+			sim.Load.Hexes[0].Shape = sh
 			l := g.edLayout()
 			W, H := float64(g.w), float64(g.h)
 			inr := l.slotR * math.Sqrt(3) / 2 // a flat-top tile's half height

@@ -326,24 +326,25 @@ func TestLeanRunsCooler(t *testing.T) {
 
 func TestRollShapeIsValid(t *testing.T) {
 	r := splitmix{1}
-	seen := map[ShapeKind]bool{}
+	families := map[ShapeKind]bool{}
 	quirks := map[ShapeQuirk]bool{}
 	for i := uint64(1); i < 2000; i++ {
-		s := RollShape(r.next, i)
-		if !s.Valid() || s.Quirk == ShapeQuirkNone || s.ID == 0 {
+		s := RollShape(r.next, i, 5+int(i%40))
+		if !s.Valid() || s.Kind != ShapeGen || s.Quirk == ShapeQuirkNone || s.ID == 0 {
 			t.Fatalf("rolled %+v", s)
 		}
-		seen[s.Kind] = true
+		families[s.Family()] = true
 		quirks[s.Quirk] = true
 		// Every rolled shape must compile with just a trigger in it.
-		h := shaped(t, s.Kind, map[int]Part{s.Kind.TriggerSlot(): NewTrigger(OnCast)})
+		h := shaped(t, ShapeRing, map[int]Part{})
 		h.Shape = s
+		h.Slots[s.Entry()] = Slot{Kind: SlotPart, Part: NewTrigger(OnCast)}
 		if _, err := Compile(h, reg, 0); err != nil {
 			t.Fatalf("%v: %v", s, err)
 		}
 	}
-	if len(seen) != int(NumShapes) || len(quirks) != int(NumShapeQuirks)-1 {
-		t.Fatalf("rolled kinds %v quirks %v", seen, quirks)
+	if len(families) != int(ShapeGen) || len(quirks) != int(NumShapeQuirks)-1 {
+		t.Fatalf("rolled families %v quirks %v", families, quirks)
 	}
 }
 

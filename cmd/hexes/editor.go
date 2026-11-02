@@ -1,8 +1,9 @@
 package main
 
 // The hex editor: a paused overlay with one hex's slots laid out in its
-// shape (a ring of six, a triangle of three, a ring with a center slot)
-// and the inventory grid beside it. The SHAPE button switches the hex
+// shape (a ring of six, a triangle of three, a ring with a center slot, or
+// any generated graph, each slot on its own cell of a small honeycomb) and
+// the inventory grid beside it. The SHAPE button switches the hex
 // between the shapes you've found. Everything is a tap: tap a part, then tap
 // where it goes. Slot to slot rewires the hex, pack to slot swaps loot in,
 // slot to an empty cell takes a part out. Every edit recompiles the hex at
@@ -57,6 +58,8 @@ type edLayout struct {
 	tabs         [game.MaxSlots]rect
 	ringX, ringY float64
 	slotR        float64
+	gridX, gridY float64 // where the shape's middle cell (0,0) sits
+	plate        bool    // the shape has a name plate in its middle
 	slots        [skill.Slots][2]float64
 	shape        rect    // the SHAPE button
 	test         rect    // the test switch that unlocks every shape
@@ -108,8 +111,8 @@ func (g *Game) edLayout() edLayout {
 		ring = rect{tx, top, tw * 0.54, areaH}
 		grid = rect{tx + tw*0.56, top, tw * 0.44, areaH}
 	} else {
-		ring = rect{tx, top, tw, areaH * 0.56}
-		grid = rect{tx, top + areaH*0.58, tw, areaH * 0.42}
+		ring = rect{tx, top, tw, areaH * 0.6}
+		grid = rect{tx, top + areaH*0.62, tw, areaH * 0.38}
 	}
 	// A row across the top of the ring area: the SHAPE button and a
 	// caption saying what the shape is.
@@ -123,25 +126,26 @@ func (g *Game) edLayout() edLayout {
 	ring.h -= capH + 6*k
 	l.ringX, l.ringY = ring.x+ring.w/2, ring.y+ring.h/2
 	// Flat-top slots tile like a honeycomb: neighbors sit R apart, a tile
-	// is just under R/sqrt(3) across. The ring's six sit around the center
-	// (a plate, or a Hub's or Fork's center slot).
-	R := math.Min(ring.w/2.85, ring.h/2.98)
-	kind := g.sim.Load.Hexes[g.ed.hex].Shape.Kind
-	if kind == skill.ShapeTriangle {
-		// Three tiles that all touch: top-left, right, bottom-left.
-		R = math.Min(ring.w/2.2, ring.h/2.2)
-		pts := [3][2]float64{{0, 0}, {math.Sqrt(3) / 2, 0.5}, {0, 1}}
-		cx, cy := math.Sqrt(3)/6, 0.5
-		for i, p := range pts {
-			l.slots[i] = [2]float64{l.ringX + R*(p[0]-cx), l.ringY + R*(p[1]-cy)}
-		}
-	} else {
-		for i := 0; i < skill.RingSlots; i++ {
-			a := -math.Pi/2 + float64(i)*math.Pi/3 // slot 0 on top, clockwise
-			l.slots[i] = [2]float64{l.ringX + R*math.Cos(a), l.ringY + R*math.Sin(a)}
-		}
+	// is just under R/sqrt(3) across. Every shape's slots sit on its own
+	// cells (a ring's six around the middle, which is a plate or a Hub's
+	// or Fork's center slot), scaled to fill the area and centered.
+	sh := &g.sim.Load.Hexes[g.ed.hex].Shape
+	gr := sh.Graph()
+	minX, maxX, minY, maxY := math.Inf(1), math.Inf(-1), math.Inf(1), math.Inf(-1)
+	for i := 0; i < int(gr.N); i++ {
+		x, y := gr.At[i].XY()
+		minX, maxX = math.Min(minX, x), math.Max(maxX, x)
+		minY, maxY = math.Min(minY, y), math.Max(maxY, y)
 	}
-	l.slots[skill.Center] = [2]float64{l.ringX, l.ringY}
+	const tile = 0.54 // a tile's radius over R
+	R := math.Min(ring.w/(maxX-minX+2*tile+0.02), ring.h/(maxY-minY+2*tile*0.866+0.01))
+	R = math.Min(R, math.Min(ring.w/2.2, ring.h/2.2)) // small shapes don't balloon
+	l.gridX, l.gridY = l.ringX-R*(minX+maxX)/2, l.ringY-R*(minY+maxY)/2
+	for i := 0; i < int(gr.N); i++ {
+		x, y := gr.At[i].XY()
+		l.slots[i] = [2]float64{l.gridX + R*x, l.gridY + R*y}
+	}
+	l.plate = sh.Kind == skill.ShapeRing || sh.Kind == skill.ShapeLoop
 	l.slotR = R * 0.54
 	cg := 6 * k
 	cs := math.Min(math.Min((grid.w-float64(cols-1)*cg)/float64(cols), (grid.h-float64(rows-1)*cg)/float64(rows)), 90*k)
@@ -247,8 +251,8 @@ func (g *Game) edTap(x, y float64) {
 		e.msg, e.bad = game.ShapeText(sh), false
 		return
 	}
-	kind := sim.Load.Hexes[e.hex].Shape.Kind
-	if !kind.HasCenter() && math.Hypot(x-l.ringX, y-l.ringY) < l.slotR*0.9 {
+	sh := &sim.Load.Hexes[e.hex].Shape
+	if l.plate && math.Hypot(x-l.gridX, y-l.gridY) < l.slotR*0.9 {
 		// The center plate does what tapping a picked slot again does.
 		if e.pick == pickSlot && g.edCycle() {
 			return
@@ -257,7 +261,7 @@ func (g *Game) edTap(x, y float64) {
 		return
 	}
 	for i, c := range l.slots {
-		if !kind.Has(i) || math.Hypot(x-c[0], y-c[1]) > l.slotR*0.95 {
+		if !sh.Has(i) || math.Hypot(x-c[0], y-c[1]) > l.slotR*0.95 {
 			continue
 		}
 		switch {
@@ -327,53 +331,48 @@ func (g *Game) edResult(err error) {
 	e.msg, e.bad = fmt.Sprintf("%s rebuilt: %.0f power, %.0f heat per firing.", g.sim.Load.Names[e.hex], pw, ht), false
 }
 
-// drawShapeEdges draws how a hex's slots feed each other: the ring's
-// edges with a small arrow for the way it runs (gold and bold for a
-// one-way edge, pink for a Loop's back edge), a Hub's spokes into its
-// center and a Fork's from its center to each chain. Lines go under the
-// tiles; arrows (arrows true) go on top, in the gaps between tiles, so a
-// missing arrow reads as a break (a Triangle's end, between a Fork's
-// chains).
+// drawShapeEdges draws how a hex's slots feed each other: every link with
+// a small arrow for the way it runs, bold for a two-way link and thin for
+// one into a merge or out of a split, gold for a one-way quirk, pink for a
+// loop back to the trigger. Lines go under the tiles; arrows (arrows true)
+// go on top, in the gaps between tiles, so a missing arrow reads as a
+// break (a Triangle's end, between a Fork's chains).
 func (g *Game) drawShapeEdges(dst *ebiten.Image, l *edLayout, h *skill.Hex, arrows bool) {
-	kind := h.Shape.Kind
-	n := kind.RingLen()
+	gr := h.Shape.Graph()
 	on := color.RGBA{0x5a, 0x66, 0x82, 0xff}
 	off := color.RGBA{0x2a, 0x2e, 0x3a, 0xff}
-	for i := 0; i < n; i++ {
-		if !kind.HasEdge(i) {
-			continue
-		}
-		a, b := l.slots[i], l.slots[(i+1)%n]
-		c, w, arrow := on, g.u(3), fade(colDim, 0.8)
-		switch {
-		case !h.Linked[i]:
-			c, arrow = off, color.RGBA{}
-		case h.Shape.OneWay() == i:
-			c, w, arrow = fade(colShape, 0.7), g.u(4), colShape
-		case kind == skill.ShapeLoop && (i+1)%n == h.TriggerSlot():
-			c, w, arrow = fade(colCall, 0.7), g.u(4), colCall
-		}
-		if !arrows {
-			vector.StrokeLine(dst, float32(a[0]), float32(a[1]), float32(b[0]), float32(b[1]), w, c, true)
-		} else if arrow.A > 0 {
-			g.edgeArrow(dst, a, b, arrow)
+	loop := h.LoopSlot()
+	trig := h.TriggerSlot()
+	for a := 0; a < int(gr.N); a++ {
+		for b := 0; b < int(gr.N); b++ {
+			if gr.Out[a]&(1<<b) == 0 {
+				continue
+			}
+			pa, pb := l.slots[a], l.slots[b]
+			c, w, arrow := on, g.u(3), fade(colDim, 0.8)
+			if gr.Two[a]&(1<<b) == 0 {
+				c, w = fade(on, 0.8), g.u(2)
+			}
+			switch {
+			case !h.Feeds(a, b):
+				c, arrow = off, color.RGBA{}
+			case h.Shape.OneWay() == a && gr.FirstTwo(a) == b:
+				c, w, arrow = fade(colShape, 0.7), g.u(4), colShape
+			case h.Shape.Kind == skill.ShapeLoop && a == loop && b == trig:
+				c, w, arrow = fade(colCall, 0.7), g.u(4), colCall
+			}
+			if !arrows {
+				vector.StrokeLine(dst, float32(pa[0]), float32(pa[1]), float32(pb[0]), float32(pb[1]), w, c, true)
+			} else if arrow.A > 0 {
+				g.edgeArrow(dst, pa, pb, arrow)
+			}
 		}
 	}
-	spoke := func(from, to [2]float64) {
-		if !arrows {
-			vector.StrokeLine(dst, float32(from[0]), float32(from[1]), float32(to[0]), float32(to[1]), g.u(2), fade(on, 0.8), true)
-		} else {
-			g.edgeArrow(dst, from, to, fade(colDim, 0.8))
-		}
-	}
-	switch kind {
-	case skill.ShapeHub:
-		for i := 0; i < skill.RingSlots; i++ {
-			spoke(l.slots[i], l.slots[skill.Center])
-		}
-	case skill.ShapeFork:
-		spoke(l.slots[skill.Center], l.slots[0])
-		spoke(l.slots[skill.Center], l.slots[3])
+	// A generated loop-back runs from its slot to the trigger, wherever
+	// they sit: a pink line under the tiles, tagged on the tile.
+	if h.Shape.Kind == skill.ShapeGen && loop >= 0 && !arrows {
+		pa, pb := l.slots[loop], l.slots[trig]
+		vector.StrokeLine(dst, float32(pa[0]), float32(pa[1]), float32(pb[0]), float32(pb[1]), g.u(3), fade(colCall, 0.55), true)
 	}
 }
 
@@ -512,8 +511,8 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 		g.label(screen, g.small, name, t.x+t.w/2, t.y+t.h*0.33, slotCol[i], true)
 		sub := triggerName(sim.Load.Progs[i])
-		if k := sim.Load.Hexes[i].Shape.Kind; k != skill.ShapeRing {
-			sub += " · " + shapeTag[k]
+		if sh := sim.Load.Hexes[i].Shape; sh.Kind != skill.ShapeRing {
+			sub += " · " + shapeTag(sh)
 		}
 		g.label(screen, g.small, sub, t.x+t.w/2, t.y+t.h*0.72, colDim, true)
 	}
@@ -524,23 +523,24 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	kind := h.Shape.Kind
 	g.drawShapeEdges(screen, &l, h, false)
 	pw, ht := sim.HexPower(e.hex)
-	if !kind.HasCenter() && kind != skill.ShapeTriangle {
-		drawHex(screen, l.ringX, l.ringY, l.slotR, true, colPanel, slotCol[e.hex], g.u(2))
-		g.label(screen, g.small, shortName(sim.Load.Names[e.hex]), l.ringX, l.ringY-l.slotR*0.3, slotCol[e.hex], true)
-		g.label(screen, g.small, fmt.Sprintf("%.0f pw %.0f ht", pw, ht), l.ringX, l.ringY+l.slotR*0.12, colDim, true)
+	if l.plate {
+		px, py := l.gridX, l.gridY
+		drawHex(screen, px, py, l.slotR, true, colPanel, slotCol[e.hex], g.u(2))
+		g.label(screen, g.small, shortName(sim.Load.Names[e.hex]), px, py-l.slotR*0.3, slotCol[e.hex], true)
+		g.label(screen, g.small, fmt.Sprintf("%.0f pw %.0f ht", pw, ht), px, py+l.slotR*0.12, colDim, true)
 		if l.slotR > 48*g.k {
 			flow := "clockwise"
 			if kind == skill.ShapeLoop {
 				flow = "loops"
 			}
-			g.label(screen, g.small, flow, l.ringX, l.ringY+l.slotR*0.48, fade(colDim, 0.6), true)
+			g.label(screen, g.small, flow, px, py+l.slotR*0.48, fade(colDim, 0.6), true)
 		}
 	}
 	// The SHAPE button and what the shape is.
 	g.drawRect(screen, l.shape, fade(colShape, 0.18), colShape)
 	g.label(screen, g.small, "SHAPE", l.shape.x+l.shape.w/2, l.shape.y+l.shape.h/2, colShape, true)
 	caption := fmt.Sprintf("%s  ·  %.0f pw %.0f ht", h.Shape, pw, ht)
-	for _, alt := range []string{h.Shape.String(), h.Shape.Kind.String()} {
+	for _, alt := range []string{h.Shape.String(), h.Shape.Name()} {
 		if text.Advance(caption, g.small) <= l.capW {
 			break
 		}
@@ -557,8 +557,12 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	}
 
 	routes := h.Routes(h.TriggerSlot())
+	loop := -1
+	if kind == skill.ShapeGen {
+		loop = h.LoopSlot()
+	}
 	for i, c := range l.slots {
-		if !kind.Has(i) {
+		if !h.Shape.Has(i) {
 			continue
 		}
 		s := h.Slots[i]
@@ -568,7 +572,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 			switch {
 			case h.Sockets[i] == skill.SocketTrigger:
 				sock = "trigger"
-			case i == skill.Center:
+			case h.Merge(i):
 				sock = "pool"
 			}
 			g.label(screen, g.small, sock, c[0], c[1], fade(colDim, 0.7), true)
@@ -586,6 +590,12 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		if s.Kind == skill.SlotPart && s.Part.UsesBank() {
 			b := s.Part.Bank
 			top = append(top, fmt.Sprintf("%s = %d", skill.BankName(b), sim.Banks[e.hex][b]))
+		}
+		if i == loop {
+			top = append(top, "LOOPS TO "+h.SlotName(h.TriggerSlot()))
+			if col == colCharge {
+				col = colCall
+			}
 		}
 		if s.Kind == skill.SlotPart && s.Part.Kind == skill.KindCall && s.Part.Call == skill.CallSelf {
 			top = append(top, "LOOP")
@@ -846,6 +856,16 @@ var (
 	colShape  = color.RGBA{0xff, 0xd2, 0x5a, 0xff}
 )
 
-var shapeTag = [skill.NumShapes]string{"RING", "TRI", "HUB", "FORK", "LOOP"}
+var legacyTag = [...]string{"RING", "TRI", "HUB", "FORK", "LOOP"}
+
+// shapeTag is a shape in a word or two for the hex tabs: an original
+// shape's tag, or a generated one's family and size, like FORK7.
+func shapeTag(sh skill.Shape) string {
+	if sh.Kind.Legacy() {
+		return legacyTag[sh.Kind]
+	}
+	name := strings.Fields(sh.Name())
+	return fmt.Sprintf("%s%d", strings.ToUpper(name[len(name)-1]), sh.Len())
+}
 
 var rarityName = [skill.NumRarities]string{"+COMMON", "+UNCOMMON", "+RARE", "+EXOTIC"}

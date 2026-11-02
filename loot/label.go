@@ -168,8 +168,8 @@ func Summary(h *skill.Hex, reg *skill.Registry) string {
 	if len(parts) == 0 {
 		out = "empty"
 	}
-	if k := h.Shape.Kind; k != skill.ShapeRing {
-		out = strings.ToLower(k.String()) + ": " + out
+	if h.Shape.Kind != skill.ShapeRing {
+		out = strings.ToLower(h.Shape.Name()) + ": " + out
 	}
 	return out
 }

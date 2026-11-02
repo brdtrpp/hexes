@@ -20,7 +20,7 @@ gzip -9 -k -f web/hexes.wasm && base64 -w0 web/hexes.wasm.gz > web/hexes.wasm.gz
 cd web && python3 -m http.server 8000      # then open http://localhost:8000
 ```
 
-`web/index.html` loads the gzipped build (shipped as base64 text, since the artifact host doesn't serve .gz) and falls back to the raw `hexes.wasm`. Raw is about 15 MB, the fast path about 4.7 MB.
+`web/index.html` loads the gzipped build (shipped as base64 text, since the artifact host doesn't serve .gz), about 4.9 MB. The raw `hexes.wasm` (about 15.5 MB) is over the host's 15 MB file limit, so the page no longer falls back to it; every current browser has `DecompressionStream`.
 
 The editor's layout test (every shape fits phone and desktop screens without overlaps) lives in `cmd/hexes`, which only builds for js here. It runs under node with a stub DOM:
 
@@ -56,7 +56,9 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 | `damage.go`, `default_types.json` | Damage types as data. The six seed types live in the JSON; adding one is a new row, not code. |
 | `part.go` | Loot parts: triggers, targets, effects, multipliers, with rarity and Power/Heat costs. |
 | `hex.go` | Templates, sockets, `Learn` (seeded layout roll), slotting parts and nesting hexes. |
-| `shape.go` | Shapes: Triangle, Ring, Hub, Fork, Loop as control flow, their quirks, and who feeds whom. |
+| `shape.go` | Shapes: Triangle, Ring, Hub, Fork, Loop and generated ones as control flow, their quirks, names, Heat and who feeds whom. |
+| `graph.go` | A shape's graph: cells, links, flow order, validity, and the fixed five as graphs. |
+| `gen.go` | The shape generator. |
 | `compile.go`, `program.go` | Compiles a hex tree into a flat `[]Step` with all multipliers baked in, plus a disassembler. |
 | `eval.go` | Runs a program against a `World`. Fixed arrays only: zero allocations per run. |
 | `combat.go` | Units, per-hit cap by level gap, adaptive resistance, damage over time. |
@@ -150,7 +152,16 @@ A hex's shape is its control flow. The parts are the same in every shape; the sh
 | Fork | 7 | The trigger sits in the center and feeds two chains, slots 1-3 and 4-6, which run one after the other in the same firing. Neither chain feeds the other and gates stay inside their chain. Heat x1.1. |
 | Loop | 6 | A ring whose last slot feeds back into the first. After the ring runs, it runs again once for each entity the last slot carries: its targets, whoever its effect or Call landed on, a gate's yes half, a charge's half in a branch. Each pass goes through the same queue as a self Call, so it pays the hex's Heat and counts against the 256-call cap. A last slot that carries nobody (empty, a multiplier, a charge outside a branch, a cut back edge, an empty gate half) ends it. `SPEND A at 1` in the last slot loops once per coin in A. |
 
-**Learned.** Everyone has the plain Ring and Triangle. Hub, Fork, Loop, and quirked Triangles and Rings are found: rare drops from depth 5 down (0.6% a kill there, +0.2% a depth, capped at 4%, three times that from a foe above the floor's level), rolled on their own random stream so they never change which parts drop. The first time a save reaches depth 5 without one, a shape (never a plain Ring or Triangle) waits next to where you arrive, and keeps waiting until it's picked up. Walk over a shape to learn it: it's kept for good, like the rest of progress, and a death never takes it. Up to 32.
+**Generated shapes (`skill/graph.go`, `skill/gen.go`).** Every shape is a small graph on a hex grid: slots on cells, links between neighbors that say which slot feeds which, the trigger's slot, and at most one loop-back. The five above are fixed graphs; every shape that drops now is generated, so nobody can look up the best one.
+
+- `GenGraph(rng, depth)` grows a tree out from the trigger, mostly extending the newest chain and sometimes splitting off an earlier slot (20% a slot at depth 5, +1% a depth, max 50%), then may wire a merge between two neighbors (15% +1.5% a depth, max 60%; one more allowed every 15 depths) and a loop-back from the last slot to the trigger (12% +0.8% a depth, max 35%). Size is 3 to `GenMaxSlots(depth)`: 5 at depth 5, one more every 6 depths, 9 from depth 29. Rolls lean big.
+- Every graph is connected, every slot is reachable from the trigger, there's no cycle but the loop-back, and cells stay within two steps of the trigger and a row and a half above or below it, so one hex is readable on a phone. Slots are numbered in the order they run, so slot 1 is always the trigger.
+- Links are two-way along a plain chain (an effect reads targets on both sides, like a ring) and one-way into a merge or out of a split. A merge pools: an effect there lands once on everything every input targeted, a multiplier there boosts every input, and it's never a gate's branch. That's the Hub rule, generalized. A split runs its branches one after the other, each unable to read the other.
+- Heat comes from structure: x(0.55 + 0.075 a slot + 0.05 a split + 0.1 a merge). A six-slot chain costs exactly what a Ring does, three slots 0.78, a nine-slot double merge about 1.5. A loop costs nothing up front since each pass pays its own Heat.
+- Names come from features: Chain, Fork (splits) or Hub (merges), with Short, Long or Grand for size, Looping, Branching (2+ splits), Forked (3+ splits) or Knotted (2+ merges). "Looping Chain", "Branching Fork", "Grand Knotted Hub". The old five are the families: a short chain is a Triangle's cousin, a long one a Ring's.
+- Quirks roll the same way: twin or surge on any slot but the trigger, one-way on any two-way link, or lean.
+
+**Learned.** Everyone has the plain Ring and Triangle. Generated shapes (and, on older saves, the fixed Hub, Fork, Loop and quirked Triangles and Rings found before generation) are found: rare drops from depth 5 down (0.6% a kill there, +0.2% a depth, capped at 4%, three times that from a foe above the floor's level), rolled on their own random stream so they never change which parts drop. The first time a save reaches depth 5 without one, a shape (a fork, hub or loop, never a plain chain) waits next to where you arrive, and keeps waiting until it's picked up. Walk over a shape to learn it: it's kept for good, like the rest of progress, and a death never takes it. Up to 32.
 
 **Quirks.** Every found copy rolls one, on a slot or edge, so two Hubs differ:
 
@@ -159,7 +170,7 @@ A hex's shape is its control flow. The parts are the same in every shape; the sh
 - **One-way** (edge): the edge only feeds clockwise. The slot after still reads the one before; the one before stops seeing the targets after it.
 - **Lean**: the whole hex runs on 75% of its Heat.
 
-**In the editor.** The SHAPE button above the hex steps through the shapes you have: Ring, Triangle, then each found copy not already on another hex. Parts stay in their slots where the new shape has that slot and it takes them, the trigger moves to where the shape wants it (a Fork's center), and leftovers go in the first free slot that takes them, then into the pack (refused if the pack can't hold them). The caption names the shape and its quirk; a TWIN or SURGE slot gets a gold outline and tag, a one-way edge a gold arrow, a Loop's back edge a pink one, and small arrows on every edge show which way it runs. Tapping a picked charge or Call again switches its bank or target, which works in shapes with a center slot where the plate used to be. A hex's tab says TRI, HUB, FORK or LOOP under its trigger.
+**In the editor.** The SHAPE button above the hex steps through the shapes you have: Ring, Triangle, then each found copy not already on another hex. Parts stay in their slots where the new shape has that slot and it takes them, the trigger moves to where the shape wants it (a Fork's center), and leftovers go in the first free slot that takes them, then into the pack (refused if the pack can't hold them). The caption names the shape and its quirk; a TWIN or SURGE slot gets a gold outline and tag, a one-way edge a gold arrow, a Loop's back edge a pink one, and small arrows on every edge show which way it runs. Tapping a picked charge or Call again switches its bank or target, which works in shapes with a center slot where the plate used to be. A hex's tab says TRI, HUB, FORK or LOOP under its trigger, or a generated shape's family and size, like FORK7. A generated shape is drawn cell by cell where its graph puts them, scaled to fit; links show as arrows in the gaps (bold for two-way, thin into a merge or out of a split), merge slots say "pool", and the loop-back is a pink line tagged LOOPS TO 1.
 
 **Parts only go where they do something.** `skill.Hex.Use(slot)` says what the part in a slot does there, following the same rules Compile runs, and whether that's anything. The editor refuses a drop or a move that would do nothing and says why; while a part is held, the slots where it would work get a green edge and the rest go dark. Tapping a slotted part puts what it does first in the info bar ("Here it hits slot 2's targets."), and a part stranded by a later move (its target taken away) gets a red edge. What counts as doing nothing:
 
@@ -169,11 +180,11 @@ A hex's shape is its control flow. The parts are the same in every shape; the sh
 
 Effects, Calls and nested hexes always do something: with no target beside them they land on the trigger's own target (the foe you hit for on-hit, the kill for on-kill, whoever hit you for on-hurt, the nearest foe otherwise), which the presets use. Charges always count. Moving parts with SHAPE can still strand one; it shows red.
 
-**Test switch.** The TEST button at the right of the SHAPE row unlocks every shape without finding it, for trying them out: a Hub with a twin slot 3, a Fork with a surge slot 2, a Loop with a one-way edge 3-4, and a lean Triangle, so every quirk shows. It's off by default and lights up gold while on. Test copies never count as found. Turning it off puts any hex on a test shape back to a Ring (parts that don't fit go to the pack; if the pack can't hold them the switch stays on and says so). The setting saves in `Save.TestShapes`.
+**Test switch.** The TEST button at the right of the SHAPE row unlocks every shape without finding it, for trying them out: a Hub with a twin slot 3, a Fork with a surge slot 2, a Loop with a one-way edge 3-4, and a lean Triangle, so every quirk shows, then 16 generated shapes from 3 to 9 slots covering every family (chains, forks, hubs, loops), smallest first. They're picked from a fixed seed, so they're the same every run. It's off by default and lights up gold while on. Test copies never count as found. Turning it off puts any hex on a test shape back to a Ring (parts that don't fit go to the pack; if the pack can't hold them the switch stays on and says so). The setting saves in `Save.TestShapes`.
 
-**Saves.** A hex saved before shapes has no shape field and six-slot arrays; it loads as a Ring with an empty center. Found shapes save in `Save.Shapes`.
+**Saves.** A hex saved before shapes has no shape field and six-slot arrays; it loads as a Ring with an empty center. Found shapes save in `Save.Shapes`. A generated shape carries its graph (`Shape.Net`); the fixed five carry none, so saves from before generation load unchanged.
 
-Under the hood: `Hex.Shape` and `Hex.Feeds(a, b)` replace the ring-only adjacency, `Hex.Flow` gives the run order, `Slots` is now 7 (`RingSlots` 6 plus `Center`). Programs carry `Shape` and `Loops`; the Loop's back edge is one `OpCall` to self after the body (after an Echo copy, so Echo doesn't double it). Still zero allocations per run.
+Under the hood: `Hex.Shape` and `Hex.Feeds(a, b)` replace the ring-only adjacency, `Hex.Flow` gives the run order (each slot after everything linking into it, one chain to its end before the next), `Slots` is now 9 (`RingSlots` 6 plus `Center` for the fixed shapes, up to nine for generated ones). Compile, `Hex.Use` and `Hex.Routes` all read the graph, so the fixed five and generated shapes run through the same code. Programs carry `Shape` and `Loops`; the Loop's back edge is one `OpCall` to self after the body (after an Echo copy, so Echo doesn't double it). Still zero allocations per run.
 
 ## Defaults I picked
 
