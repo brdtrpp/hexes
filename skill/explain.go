@@ -83,6 +83,9 @@ func (h *Hex) targetUse(s int, routes [Slots]Route) (string, bool) {
 	if len(readers) > 0 {
 		return "picks targets for " + h.slotList(readers), true
 	}
+	if d := h.Docks[s]; d != nil {
+		return "its targets flow on into " + d.Name, true
+	}
 	if h.loopSlot(trig) == s {
 		return "each target loops the hex again", true
 	}
@@ -236,7 +239,7 @@ func (h *Hex) subject() string {
 			return "the nearest foe"
 		}
 	}
-	return "whoever it runs on"
+	return "whoever docks in"
 }
 
 func effectVerb(p Part) string {

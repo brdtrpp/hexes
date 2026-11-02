@@ -138,7 +138,8 @@ func (s *Sim) ShapeChoices(hex int) []skill.Shape {
 	}
 	for _, sh := range have {
 		used := false
-		for j, h := range s.Load.Hexes {
+		for j := 0; j < s.Load.Count(); j++ {
+			h := s.Load.Hex(j)
 			used = used || (j != hex && h != nil && h.Shape.ID == sh.ID)
 		}
 		if !used {
@@ -151,10 +152,10 @@ func (s *Sim) ShapeChoices(hex int) []skill.Shape {
 // CycleShape switches a hex to the next shape in ShapeChoices and returns
 // it. On error the hex is unchanged.
 func (s *Sim) CycleShape(hex int) (skill.Shape, error) {
-	if hex < 0 || hex >= MaxSlots {
+	if !s.Load.Has(hex) {
 		return skill.Shape{}, errors.New("no such hex")
 	}
-	cur := s.Load.Hexes[hex].Shape
+	cur := s.Load.Hex(hex).Shape
 	ch := s.ShapeChoices(hex)
 	at := 0
 	for i, sh := range ch {
@@ -188,7 +189,7 @@ func (s *Sim) CycleShape(hex int) (skill.Shape, error) {
 // free slot that takes it, in flow order, and then into the pack. If the
 // pack can't take the leftovers the shape isn't changed.
 func (s *Sim) SetShape(hex int, sh skill.Shape) error {
-	if hex < 0 || hex >= MaxSlots {
+	if !s.Load.Has(hex) {
 		return errors.New("no such hex")
 	}
 	if !sh.Valid() {
@@ -197,11 +198,14 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	if sh.ID != 0 && !s.hasShape(sh) {
 		return errors.New("you haven't found that shape")
 	}
-	h := s.Load.Hexes[hex]
+	h := s.Load.Hex(hex)
 	old := *h
 	nh := old
 	nh.Shape = sh
 	nh.Sockets = ShapeSockets(sh)
+	if s.Load.IsMod(hex) {
+		nh.Sockets = ModuleSockets()
+	}
 	nh.Slots = [skill.Slots]skill.Slot{}
 	var extra []skill.Part
 	trig := sh.Entry()
@@ -331,12 +335,16 @@ func (s *Sim) SetTestShapes(on bool) error {
 		return nil
 	}
 	if !on {
-		for i, h := range s.Load.Hexes {
+		if err := s.fixBoard(BoardOpen(s.Best)); err != nil {
+			return err
+		}
+		for i := 0; i < s.Load.Count(); i++ {
+			h := s.Load.Hex(i)
 			if h == nil || !IsTestShape(h.Shape) {
 				continue
 			}
 			if err := s.SetShape(i, skill.Shape{Kind: skill.ShapeRing}); err != nil {
-				return fmt.Errorf("hex %d: %w", i+1, err)
+				return fmt.Errorf("%s: %w", s.Load.Name(i), err)
 			}
 		}
 	}

@@ -76,7 +76,7 @@ func (s *Sim) loadLoot(level int) {
 		s.Load = BuildLoadout(s.Reg, level, s.Rig.MaxDepth)
 		return
 	}
-	if err := s.Load.Rebuild(s.Reg, level, s.Rig.MaxDepth); err != nil {
+	if err := s.Load.Rebuild(s.Reg, level, s.Rig.MaxDepth, -1); err != nil {
 		// Every hex compiled when it was last edited; only a lower
 		// Processing limit could break one, and the slice's rig is fixed.
 		panic(err)
@@ -175,10 +175,10 @@ var ErrNeedsTrigger = errors.New("a hex needs a trigger in its top slot")
 // may be empty: an empty cell takes the slot's part out, an empty slot
 // takes the cell's part in.
 func (s *Sim) SwapIn(hex, slot, cell int) error {
-	if hex < 0 || hex >= MaxSlots || cell < 0 || cell >= loot.InventorySize || !s.Load.Hexes[hex].Shape.Has(slot) {
+	if !s.Load.Has(hex) || cell < 0 || cell >= loot.InventorySize || !s.Load.Hex(hex).Shape.Has(slot) {
 		return errors.New("no such slot")
 	}
-	h := s.Load.Hexes[hex]
+	h := s.Load.Hex(hex)
 	inv := &s.Stash.Inv
 	old := h.Slots[slot]
 	if old.Kind == skill.SlotNested {
@@ -189,7 +189,7 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 		return nil
 	}
 	if has {
-		if err := fits(h, slot, in); err != nil {
+		if err := fits(h, slot, in, s.Load.IsMod(hex)); err != nil {
 			return err
 		}
 		if what, ok := s.PreviewIn(hex, slot, cell); !ok {
@@ -222,24 +222,24 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 // SwapSlots trades two slots of one hex, which rewires it: order and
 // neighbors are the whole game.
 func (s *Sim) SwapSlots(hex, a, b int) error {
-	if hex < 0 || hex >= MaxSlots || !s.Load.Hexes[hex].Shape.Has(a) || !s.Load.Hexes[hex].Shape.Has(b) {
+	if !s.Load.Has(hex) || !s.Load.Hex(hex).Shape.Has(a) || !s.Load.Hex(hex).Shape.Has(b) {
 		return errors.New("no such slot")
 	}
 	if a == b {
 		return nil
 	}
-	h := s.Load.Hexes[hex]
+	h := s.Load.Hex(hex)
 	sa, sb := h.Slots[a], h.Slots[b]
 	if sa.Kind == skill.SlotNested || sb.Kind == skill.SlotNested {
 		return errors.New("that slot holds a nested hex")
 	}
 	if sa.Kind == skill.SlotPart {
-		if err := fits(h, b, sa.Part); err != nil {
+		if err := fits(h, b, sa.Part, s.Load.IsMod(hex)); err != nil {
 			return err
 		}
 	}
 	if sb.Kind == skill.SlotPart {
-		if err := fits(h, a, sb.Part); err != nil {
+		if err := fits(h, a, sb.Part, s.Load.IsMod(hex)); err != nil {
 			return err
 		}
 	}
@@ -262,15 +262,15 @@ func (s *Sim) SwapSlots(hex, a, b int) error {
 // whether it would do anything there (see skill.Hex.Use). A part only goes
 // where it does something, so the editor lights those slots.
 func (s *Sim) PreviewIn(hex, slot, cell int) (what string, ok bool) {
-	if hex < 0 || hex >= MaxSlots || cell < 0 || cell >= loot.InventorySize || !s.Stash.Inv.Has[cell] {
+	if !s.Load.Has(hex) || cell < 0 || cell >= loot.InventorySize || !s.Stash.Inv.Has[cell] {
 		return "", false
 	}
-	h := s.Load.Hexes[hex]
+	h := s.Load.Hex(hex)
 	p := s.Stash.Inv.Parts[cell]
 	if !h.Shape.Has(slot) || h.Slots[slot].Kind == skill.SlotNested {
 		return "no slot there", false
 	}
-	if err := fits(h, slot, p); err != nil {
+	if err := fits(h, slot, p, s.Load.IsMod(hex)); err != nil {
 		return err.Error(), false
 	}
 	cp := *h
@@ -281,21 +281,21 @@ func (s *Sim) PreviewIn(hex, slot, cell int) (what string, ok bool) {
 // PreviewSwap says what the part in slot a would do moved to slot b (the
 // part in b going to a), or, with a empty, what b's part would do in a.
 func (s *Sim) PreviewSwap(hex, a, b int) (what string, ok bool) {
-	if hex < 0 || hex >= MaxSlots {
+	if !s.Load.Has(hex) {
 		return "", false
 	}
-	h := s.Load.Hexes[hex]
+	h := s.Load.Hex(hex)
 	if !h.Shape.Has(a) || !h.Shape.Has(b) || h.Slots[a].Kind == skill.SlotNested || h.Slots[b].Kind == skill.SlotNested {
 		return "no slot there", false
 	}
 	sa, sb := h.Slots[a], h.Slots[b]
 	if sa.Kind == skill.SlotPart {
-		if err := fits(h, b, sa.Part); err != nil {
+		if err := fits(h, b, sa.Part, s.Load.IsMod(hex)); err != nil {
 			return err.Error(), false
 		}
 	}
 	if sb.Kind == skill.SlotPart {
-		if err := fits(h, a, sb.Part); err != nil {
+		if err := fits(h, a, sb.Part, s.Load.IsMod(hex)); err != nil {
 			return err.Error(), false
 		}
 	}
@@ -319,10 +319,10 @@ func useless(h *skill.Hex, slot int, what string) error {
 // bank letter (A, B, C, D, then A again). It reports false when the slot
 // holds no such part. The counts in the banks stay where they are.
 func (s *Sim) CycleBank(hex, slot int) bool {
-	if hex < 0 || hex >= MaxSlots || slot < 0 || slot >= skill.Slots {
+	if !s.Load.Has(hex) || slot < 0 || slot >= skill.Slots {
 		return false
 	}
-	h := s.Load.Hexes[hex]
+	h := s.Load.Hex(hex)
 	sl := &h.Slots[slot]
 	if sl.Kind != skill.SlotPart || !sl.Part.UsesBank() {
 		return false
@@ -340,10 +340,10 @@ func (s *Sim) CycleBank(hex, slot int) bool {
 // then each of the others in turn. It reports false when the slot holds
 // no Call.
 func (s *Sim) CycleCall(hex, slot int) bool {
-	if hex < 0 || hex >= MaxSlots || slot < 0 || slot >= skill.Slots {
+	if !s.Load.Has(hex) || slot < 0 || slot >= skill.Slots {
 		return false
 	}
-	h := s.Load.Hexes[hex]
+	h := s.Load.Hex(hex)
 	sl := &h.Slots[slot]
 	if sl.Kind != skill.SlotPart || sl.Part.Kind != skill.KindCall {
 		return false
@@ -395,7 +395,10 @@ func (s *Sim) Scrap(cell int) bool {
 	return ok
 }
 
-func fits(h *skill.Hex, slot int, p skill.Part) error {
+func fits(h *skill.Hex, slot int, p skill.Part, mod bool) error {
+	if mod && p.Kind == skill.KindTrigger {
+		return errors.New("a module has no trigger: it runs when a hex docks into it")
+	}
 	if h.Sockets[slot].Accepts(p.Kind) {
 		return nil
 	}
@@ -417,33 +420,38 @@ func fits(h *skill.Hex, slot int, p skill.Part) error {
 	return errors.New("that part doesn't fit this slot")
 }
 
-// recompile rebuilds one hex at the current level and hands the program to
-// the dispatcher. A new periodic trigger starts a full period from now.
+// recompile rebuilds every hex after an edit to hex (docks reach across
+// hexes) and hands the programs to the dispatcher. A new periodic trigger
+// starts a full period from now.
 func (s *Sim) recompile(hex int) error {
-	was := s.Load.Edited[hex]
-	s.Load.Edited[hex] = true
-	if err := s.Load.Compile(hex, s.Reg, s.Depth, s.Rig.MaxDepth); err != nil {
-		s.Load.Edited[hex] = was
-		if h := s.Load.Hexes[hex]; h.Slots[h.Shape.Entry()].Kind == skill.SlotEmpty {
-			return ErrNeedsTrigger
+	mod := s.Load.IsMod(hex)
+	was := false
+	if !mod {
+		was = s.Load.Edited[hex]
+		s.Load.Edited[hex] = true
+	}
+	if err := s.rebuildAll(hex); err != nil {
+		if !mod {
+			s.Load.Edited[hex] = was
+			if h := s.Load.Hexes[hex]; h.Slots[h.Shape.Entry()].Kind == skill.SlotEmpty {
+				return ErrNeedsTrigger
+			}
 		}
 		return err
-	}
-	s.Dirty = true
-	p := s.Load.Progs[hex]
-	if l := s.Disp.Loadout(s.Player); l != nil {
-		l.Progs[hex] = p
-		l.Cool[hex] = 0
-		l.Timer[hex] = 0
-		if p.Trigger == skill.Periodic {
-			l.Timer[hex] = p.Period
-		}
 	}
 	return nil
 }
 
 // HexPower is what a hex costs per firing, for the editor.
+// A module's is its own parts', as if a plain cast fired it.
 func (s *Sim) HexPower(hex int) (power, heat float32) {
+	if s.Load.IsMod(hex) {
+		p, err := skill.CompileModule(s.Load.Hex(hex), s.Reg, s.Rig.MaxDepth)
+		if err != nil {
+			return 0, 0
+		}
+		return p.Power, p.Heat
+	}
 	p := s.Load.Progs[hex]
 	return p.Power, p.Heat
 }

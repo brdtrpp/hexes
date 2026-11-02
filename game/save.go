@@ -193,6 +193,11 @@ type Save struct {
 	ShapeGiven bool          `json:",omitempty"`
 	// TestShapes is the test switch that unlocks every shape.
 	TestShapes bool `json:",omitempty"`
+	// Mods and Board are the docking board's modules and where every hex
+	// sits. Saves from before the board have neither and load with the
+	// hexes laid out so nothing docks.
+	Mods  []*skill.Hex `json:",omitempty"`
+	Board []Spot       `json:",omitempty"`
 }
 
 // Snapshot is the current progress. While dead it already counts the
@@ -207,6 +212,8 @@ func (s *Sim) Snapshot() Save {
 		CallGiven: s.CallGiven,
 		Shapes:    append([]skill.Shape(nil), s.Shapes...), ShapeGiven: s.ShapeGiven,
 		TestShapes: s.TestShapes,
+		Mods:       append([]*skill.Hex(nil), s.Load.Mods...),
+		Board:      append([]Spot(nil), s.Load.Spots...),
 	}
 	switch s.State {
 	case Dead:
@@ -252,14 +259,20 @@ func (s *Sim) Restore(sv Save) error {
 			shapes = append(shapes, sh)
 		}
 	}
-	l := Loadout{Hexes: sv.Hexes, Names: sv.Names, Blurb: sv.Blurb, Edited: sv.Edited}
+	l := Loadout{Hexes: sv.Hexes, Names: sv.Names, Blurb: sv.Blurb, Edited: sv.Edited, Spots: sv.Board}
 	for i, h := range l.Hexes {
 		if h == nil {
 			return fmt.Errorf("save is missing hex %d", i+1)
 		}
 	}
+	for _, m := range sv.Mods {
+		if m != nil && m.Shape.Valid() && len(l.Mods) < MaxMods {
+			l.Mods = append(l.Mods, m)
+		}
+	}
+	l.FixSpots()
 	rig := skill.NewRig(sv.Points)
-	if err := l.Rebuild(s.Reg, sv.Depth, rig.MaxDepth); err != nil {
+	if err := l.Rebuild(s.Reg, sv.Depth, rig.MaxDepth, -1); err != nil {
 		return err
 	}
 	if sv.Cache.N < 0 || sv.Cache.N > loot.InventorySize {

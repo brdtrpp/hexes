@@ -55,7 +55,7 @@ const (
 
 // Limits that keep evaluation in fixed-size arrays.
 const (
-	MaxRegs    = 64 // registers per program
+	MaxRegs    = 128 // registers per program (a docked chain needs room)
 	MaxTargets = 24 // entities per register
 )
 
@@ -99,6 +99,8 @@ type Program struct {
 	// slot carries someone back round: its last step is the back edge.
 	Shape ShapeKind
 	Loops bool
+	// Docked is how many docked hexes a firing runs (see Hex.Docks).
+	Docked uint8
 }
 
 // CallsHex reports whether the program has a Call aimed at target

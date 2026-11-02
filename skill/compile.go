@@ -50,7 +50,7 @@ const NestCostPerDepth = 0.5
 func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	shape := h.Shape
 	if !shape.Valid() {
-		return nil, fmt.Errorf("hex has a broken shape (%v)", shape)
+		return nil, errBrokenShape(shape)
 	}
 	trig := -1
 	for i, s := range h.Slots {
@@ -58,7 +58,7 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 			continue
 		}
 		if !shape.Has(i) {
-			return nil, fmt.Errorf("slot %d isn't part of a %s", i+1, shape.Name())
+			return nil, errNotInShape(i, shape)
 		}
 		if s.Kind == SlotPart && s.Part.Kind == KindTrigger {
 			if trig >= 0 {
@@ -109,6 +109,7 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 		c.p.Steps = append(c.p.Steps, c.p.Steps...)
 		c.p.Power *= 1 + EchoCost
 		c.p.Heat *= 1 + EchoCost
+		c.dockHeat *= 1 + EchoCost
 	}
 	if c.loop {
 		// The Loop's back edge: run the hex again on whoever the last
@@ -124,6 +125,8 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 			c.p.Heat *= LeanHeat
 		}
 	}
+	c.p.Heat += c.dockHeat
+	c.p.Docked = uint8(c.docked)
 	c.p.Shape = shape.Kind
 	c.p.Regs = int(c.next)
 	return c.p, nil
@@ -138,6 +141,12 @@ type compiler struct {
 	// first: loopSrc is the register holding them.
 	loop    bool
 	loopSrc uint8
+	// docking is how deep in a docked chain the hex being compiled sits
+	// (0 for the hex that fired); docked counts docked hexes run so far.
+	// dockHeat is their Heat, already on each one's own shape scale.
+	docking  int
+	docked   int
+	dockHeat float32
 }
 
 func (c *compiler) alloc() (uint8, error) {
@@ -486,9 +495,17 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		}
 	}
 
-	// A Loop's last slot feeds back into its first: note what it carries
-	// so Compile can add the back edge. Only the top hex loops.
+	// Hexes docked to its ways out run next, on what the port carries.
+	// Only board hexes dock, never ones nested in a slot.
 	if depth == 0 {
+		if err := c.dock(h, order[:n], carry, landing, seen); err != nil {
+			return err
+		}
+	}
+
+	// A Loop's last slot feeds back into its first: note what it carries
+	// so Compile can add the back edge. Only the hex that fired loops.
+	if depth == 0 && c.docking == 0 {
 		if last := h.loopSlot(start); last >= 0 {
 			if r := carry[last]; r >= 0 && r != RegCaster {
 				c.loop, c.loopSrc = true, uint8(r)

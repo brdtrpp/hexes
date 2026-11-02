@@ -23,6 +23,11 @@ type Loadout struct {
 	Blurb  [MaxSlots]string
 	// Edited marks hexes the player has changed, whose blurb is generated.
 	Edited [MaxSlots]bool
+	// Mods are modules: hexes with no trigger that only run docked (see
+	// board.go). Spots is where each hex sits on the board, the equipped
+	// ones first, then the modules.
+	Mods  []*skill.Hex
+	Spots []Spot
 }
 
 // StarterCallTarget is the hex the starting Call points at: Nanite Swarm.
@@ -37,7 +42,8 @@ var LoadoutSockets = [skill.RingSlots]skill.SocketKind{skill.SocketTrigger,
 func BuildLoadout(reg *skill.Registry, level, maxDepth int) Loadout {
 	var l Loadout
 	l.Hexes, l.Names, l.Blurb = PresetHexes(reg)
-	if err := l.Rebuild(reg, level, maxDepth); err != nil {
+	l.FixSpots()
+	if err := l.Rebuild(reg, level, maxDepth, -1); err != nil {
 		panic(err)
 	}
 	return l
@@ -113,8 +119,12 @@ func CompileHex(h *skill.Hex, reg *skill.Registry, level, maxDepth int) (*skill.
 	return p, nil
 }
 
-// Rebuild recompiles the strike and every hex for a level.
-func (l *Loadout) Rebuild(reg *skill.Registry, level, maxDepth int) error {
+// Rebuild recompiles the strike and every hex for a level, with docks
+// from where the hexes sit on the board. It's all or nothing: on error
+// the old programs stay. edited (or -1) is the hex just changed: it's
+// compiled first, so its own error comes back unwrapped, and its blurb is
+// regenerated.
+func (l *Loadout) Rebuild(reg *skill.Registry, level, maxDepth, edited int) error {
 	strike := skill.NewHex("Strike", LoadoutSockets)
 	_ = strike.Set(0, skill.NewTrigger(skill.OnCast))
 	_ = strike.Set(1, skill.NewDamage(reg.MustID("plasma"), 16))
@@ -123,24 +133,32 @@ func (l *Loadout) Rebuild(reg *skill.Registry, level, maxDepth int) error {
 		return err
 	}
 	s.Power, s.Heat = 0, 0
-	l.Strike = s
-	for i := range l.Hexes {
-		if err := l.Compile(i, reg, level, maxDepth); err != nil {
-			return fmt.Errorf("loadout %s: %w", l.Names[i], err)
+	l.Dock()
+	if l.IsMod(edited) {
+		if _, err := skill.CompileModule(l.Hex(edited), reg, maxDepth); err != nil {
+			return err
 		}
 	}
-	return nil
-}
-
-// Compile recompiles one slot. On error the old program stays.
-func (l *Loadout) Compile(slot int, reg *skill.Registry, level, maxDepth int) error {
-	p, err := CompileHex(l.Hexes[slot], reg, level, maxDepth)
-	if err != nil {
-		return err
+	var progs [MaxSlots]*skill.Program
+	order := []int{0, 1, 2, 3}
+	if edited >= 0 && edited < MaxSlots {
+		order[0], order[edited] = edited, 0
 	}
-	l.Progs[slot] = p
-	if l.Edited[slot] {
-		l.Blurb[slot] = loot.Summary(l.Hexes[slot], reg)
+	for _, i := range order {
+		p, err := CompileHex(l.Hexes[i], reg, level, maxDepth)
+		if err != nil {
+			if i == edited {
+				return err
+			}
+			return fmt.Errorf("%s: %w", l.Names[i], err)
+		}
+		progs[i] = p
+	}
+	l.Strike, l.Progs = s, progs
+	for i := range l.Hexes {
+		if l.Edited[i] {
+			l.Blurb[i] = loot.Summary(l.Hexes[i], reg)
+		}
 	}
 	return nil
 }

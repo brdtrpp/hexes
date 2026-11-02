@@ -84,6 +84,9 @@ type Hex struct {
 	Linked [Slots]bool
 	Slots  [Slots]Slot
 	Shape  Shape `json:",omitempty"`
+	// Docks[s] is the hex docked to the way out on slot s, if any. The
+	// game sets it from its board before compiling; it isn't saved.
+	Docks [Slots]*Hex `json:"-"`
 }
 
 // NewHex builds a Ring hex with sockets exactly as given and every edge
