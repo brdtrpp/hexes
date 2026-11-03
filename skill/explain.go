@@ -44,6 +44,12 @@ func (h *Hex) Use(s int) (what string, ok bool) {
 	case KindEffect:
 		return fmt.Sprintf("%s %s", effectVerb(p), h.whom(s, routes)), true
 	case KindCall:
+		if p.RunsNow() {
+			if h.Libs[s] == nil {
+				return "no library hex named " + p.Lib + " on the board", false
+			}
+			return fmt.Sprintf("runs %s on %s, then holds who it returns", p.Lib, h.whom(s, routes)), true
+		}
 		return "runs on " + h.whom(s, routes), true
 	case KindCharge:
 		w := fmt.Sprintf("adds to bank %s each firing", BankName(p.Bank))
@@ -141,6 +147,9 @@ func (h *Hex) gateUse(s int, routes [Slots]Route) (string, bool) {
 		branch = branch || int(r.Gate) == s
 	}
 	if !branch {
+		if !h.HasTrigger() {
+			return "its YES half is what this library returns", true
+		}
 		return "nothing after it to split into", false
 	}
 	if r := routes[s]; r.Gate >= 0 {
@@ -149,6 +158,8 @@ func (h *Hex) gateUse(s int, routes [Slots]Route) (string, bool) {
 	order, n := h.Flow(h.TriggerSlot())
 	if pred := h.inFeed(s, order[:n]); pred >= 0 && h.isTarget(pred) {
 		return fmt.Sprintf("splits slot %s's targets", h.SlotName(pred)), true
+	} else if pred >= 0 && h.carries(pred) {
+		return fmt.Sprintf("splits whoever slot %s reached", h.SlotName(pred)), true
 	}
 	if p := h.Slots[s].Part; p.Gate.Charged() {
 		return fmt.Sprintf("checks bank %s", BankName(p.Bank)), true
@@ -220,8 +231,40 @@ func multFits(v Verb, q Part) string {
 	return ""
 }
 
+// isTarget reports whether slot s holds a group the slots it feeds can
+// act on: a target, or a run-now call (which holds who its library
+// returned).
 func (h *Hex) isTarget(s int) bool {
-	return h.Slots[s].Kind == SlotPart && h.Slots[s].Part.Kind == KindTarget
+	sl := h.Slots[s]
+	return sl.Kind == SlotPart && (sl.Part.Kind == KindTarget || sl.Part.RunsNow())
+}
+
+// carries reports whether slot s passes anyone on to a gate after it:
+// what Compile's carry holds.
+func (h *Hex) carries(s int) bool {
+	sl := h.Slots[s]
+	switch {
+	case sl.Kind == SlotNested:
+		return true
+	case sl.Kind != SlotPart:
+		return false
+	}
+	switch sl.Part.Kind {
+	case KindTarget, KindEffect, KindCall, KindGate:
+		return true
+	}
+	return false
+}
+
+// HasTrigger reports whether the hex has a trigger in its shape. One
+// without is a library hex: it runs when docked into or called.
+func (h *Hex) HasTrigger() bool {
+	for i, sl := range h.Slots {
+		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && h.Shape.Has(i) {
+			return true
+		}
+	}
+	return false
 }
 
 // subject is the trigger's own target, in words.
@@ -281,4 +324,21 @@ func contains(s []int, x int) bool {
 		}
 	}
 	return false
+}
+
+// ReturnSlot is the slot whose group a library hex hands back when
+// called: the last one in its flow that carries anyone, or -1 (it then
+// hands back the group it was called on).
+func (h *Hex) ReturnSlot() int {
+	order, n := h.Flow(h.TriggerSlot())
+	for k := n - 1; k >= 0; k-- {
+		s := order[k]
+		if h.carries(s) {
+			if sl := h.Slots[s]; sl.Kind == SlotPart && sl.Part.Kind == KindCharge {
+				continue
+			}
+			return s
+		}
+	}
+	return -1
 }

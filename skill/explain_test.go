@@ -60,7 +60,7 @@ func TestUseFollowsTheOrder(t *testing.T) {
 
 	// Gates: route into the next slots, and need one.
 	h = useHex(NewTrigger(OnHit), NewPush(2), NewGate(GateHull, 0.4), NewDamage(plasma, 18), NewDamage(plasma, 6))
-	wantUse(t, h, 2, true, "splits the foe you hit")
+	wantUse(t, h, 2, true, "splits whoever slot 2 reached")
 	wantUse(t, h, 3, true, "whoever passes slot 3")
 	wantUse(t, h, 4, true, "whoever fails slot 3")
 	h = useHex(NewTrigger(OnCast), none, none, none, none, NewGate(GateHull, 0.4))

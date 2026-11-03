@@ -337,8 +337,10 @@ func (s *Sim) CycleBank(hex, slot int) bool {
 }
 
 // CycleCall points a Call part in a hex slot at the next hex: itself,
-// then each of the others in turn. It reports false when the slot holds
-// no Call.
+// then each of the other equipped hexes (run later), then each library
+// hex on the board by name (run now). Targets that wouldn't compile, like
+// a library that leads back to this hex, are skipped. It reports false
+// when the slot holds no Call or nothing else fits.
 func (s *Sim) CycleCall(hex, slot int) bool {
 	if !s.Load.Has(hex) || slot < 0 || slot >= skill.Slots {
 		return false
@@ -349,17 +351,45 @@ func (s *Sim) CycleCall(hex, slot int) bool {
 		return false
 	}
 	old := sl.Part
-	next := (int(old.Call) + 1) % (MaxSlots + 1)
-	if next == hex+1 {
-		// Pointing at its own number is the same as self; skip it.
-		next = (next + 1) % (MaxSlots + 1)
+	opts := callTargets(s.Load, hex)
+	cur := 0
+	for i, o := range opts {
+		if o.Lib == old.Lib && (o.Lib != "" || o.Call == old.Call) {
+			cur = i
+		}
 	}
-	sl.Part.Call = uint8(next)
-	if err := s.recompile(hex); err != nil {
-		sl.Part = old
-		return false
+	for k := 1; k < len(opts); k++ {
+		o := opts[(cur+k)%len(opts)]
+		sl.Part.Call, sl.Part.Lib = o.Call, o.Lib
+		if err := s.recompile(hex); err == nil {
+			return true
+		}
 	}
-	return true
+	sl.Part = old
+	_ = s.recompile(hex)
+	return false
+}
+
+// callTarget is one place a Call can point: an equipped hex by number
+// (run later) or a library hex by name (run now).
+type callTarget struct {
+	Call uint8
+	Lib  string
+}
+
+func callTargets(l Loadout, hex int) []callTarget {
+	out := []callTarget{{Call: skill.CallSelf}}
+	for n := 1; n <= MaxSlots; n++ {
+		if n != hex+1 {
+			out = append(out, callTarget{Call: uint8(n)})
+		}
+	}
+	for i, name := range l.LibNames() {
+		if MaxSlots+i != hex {
+			out = append(out, callTarget{Lib: name})
+		}
+	}
+	return out
 }
 
 // CallsTo is the hex a Call part points at: its own index for a self
@@ -454,4 +484,64 @@ func (s *Sim) HexPower(hex int) (power, heat float32) {
 	}
 	p := s.Load.Progs[hex]
 	return p.Power, p.Heat
+}
+
+// AddOpt moves the multiplier in pack cell onto the run-now Call in a
+// hex slot as an option. It fails, changing nothing, when the slot holds
+// no run-now call, the cell holds no multiplier, or the call is full.
+func (s *Sim) AddOpt(hex, slot, cell int) error {
+	if !s.Load.Has(hex) || slot < 0 || slot >= skill.Slots || cell < 0 || cell >= loot.InventorySize {
+		return errors.New("no such slot")
+	}
+	sl := &s.Load.Hex(hex).Slots[slot]
+	inv := &s.Stash.Inv
+	if sl.Kind != skill.SlotPart || !sl.Part.RunsNow() {
+		return errors.New("options go on a call to a library hex")
+	}
+	if !inv.Has[cell] || inv.Parts[cell].Kind != skill.KindMult {
+		return errors.New("only a multiplier rides on a call")
+	}
+	old := sl.Part
+	p, ok := old.WithOpt(inv.Parts[cell])
+	if !ok {
+		return fmt.Errorf("a call takes %d options at most", skill.MaxOpts)
+	}
+	m, fresh := inv.Parts[cell], s.Stash.Fresh[cell]
+	sl.Part = p
+	inv.Take(cell)
+	s.Stash.Fresh[cell] = false
+	if err := s.recompile(hex); err != nil {
+		sl.Part = old
+		inv.Put(cell, m)
+		s.Stash.Fresh[cell] = fresh
+		return err
+	}
+	return nil
+}
+
+// TakeOpt puts option i of the call in a hex slot back in the pack.
+func (s *Sim) TakeOpt(hex, slot, i int) error {
+	if !s.Load.Has(hex) || slot < 0 || slot >= skill.Slots {
+		return errors.New("no such slot")
+	}
+	sl := &s.Load.Hex(hex).Slots[slot]
+	if sl.Kind != skill.SlotPart || sl.Part.Kind != skill.KindCall {
+		return errors.New("no call there")
+	}
+	inv := &s.Stash.Inv
+	if inv.Full() {
+		return errors.New("your pack is full")
+	}
+	old := sl.Part
+	p, m, ok := old.WithoutOpt(i)
+	if !ok {
+		return errors.New("no such option")
+	}
+	sl.Part = p
+	if err := s.recompile(hex); err != nil {
+		sl.Part = old
+		return err
+	}
+	inv.Add(m)
+	return nil
 }

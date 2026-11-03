@@ -147,6 +147,10 @@ type compiler struct {
 	docking  int
 	docked   int
 	dockHeat float32
+	// calling is how deep in run-now calls the hex being compiled sits.
+	// ret is what the hex level just compiled carries out (see level).
+	calling int
+	ret     uint8
 }
 
 func (c *compiler) alloc() (uint8, error) {
@@ -268,7 +272,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 	for _, s := range order[:n] {
 		sl := h.Slots[s]
 		at := len(c.p.Steps)
-		pw, ht := c.p.Power, c.p.Heat
+		pw, ht, dh := c.p.Power, c.p.Heat, c.dockHeat
 		switch {
 		case sl.Kind == SlotPart && sl.Part.Kind == KindTrigger:
 			if depth > 0 {
@@ -276,13 +280,16 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			}
 		case sl.Kind == SlotPart && sl.Part.Kind == KindGate:
 			p := sl.Part
+			// A gate tests what the slot before it carries: a target's
+			// group, who an effect, call or nested hex landed on, another
+			// gate's YES half. With nothing carried, the landing.
 			var in uint8
 			if r := routes[s]; r.Gate >= 0 {
 				in = half(r)
 			} else {
 				in = landing
-				if pred := h.inFeed(s, order[:n]); pred >= 0 && tgt[pred] >= 0 {
-					in = uint8(tgt[pred])
+				if pred := h.inFeed(s, order[:n]); pred >= 0 && carry[pred] >= 0 {
+					in = uint8(carry[pred])
 				}
 			}
 			yes, err := c.alloc()
@@ -322,6 +329,24 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			fed[s] = span{i, i + 1, true}
 			c.cost(p, depth)
 			c.useBank(p)
+		case sl.Kind == SlotPart && sl.Part.RunsNow():
+			// A run-now call: the library hex runs here, inline, and the
+			// slot then holds what it returns, like a target holds its
+			// group, so the slots after it can act on it.
+			p := sl.Part
+			src, _, err := land(s)
+			if err != nil {
+				return err
+			}
+			c.cost(p, depth)
+			ret := src
+			if lib := h.Libs[s]; lib != nil {
+				if ret, err = c.callLib(lib, p, origin, src, depth, seen); err != nil {
+					return err
+				}
+			}
+			fed[s] = span{at, len(c.p.Steps), len(c.p.Steps) > at}
+			carry[s], tgt[s] = int(ret), int(ret)
 		case sl.Kind == SlotPart && sl.Part.Kind == KindCall:
 			p := sl.Part
 			src, _, err := land(s)
@@ -406,6 +431,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			fed[s].hi = len(c.p.Steps)
 			c.p.Power += c.p.Power - pw
 			c.p.Heat += c.p.Heat - ht
+			c.dockHeat += c.dockHeat - dh
 		}
 		if s == surge {
 			c.scale(fed[s], VerbAll, SurgeScale)
@@ -497,7 +523,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 
 	// Hexes docked to its ways out run next, on what the port carries.
 	// Only board hexes dock, never ones nested in a slot.
-	if depth == 0 {
+	if depth == 0 && c.calling == 0 {
 		if err := c.dock(h, order[:n], carry, landing, seen); err != nil {
 			return err
 		}
@@ -505,15 +531,85 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 
 	// A Loop's last slot feeds back into its first: note what it carries
 	// so Compile can add the back edge. Only the hex that fired loops.
-	if depth == 0 && c.docking == 0 {
+	if depth == 0 && c.docking == 0 && c.calling == 0 {
 		if last := h.loopSlot(start); last >= 0 {
 			if r := carry[last]; r >= 0 && r != RegCaster {
 				c.loop, c.loopSrc = true, uint8(r)
 			}
 		}
 	}
+
+	// What the hex returns when called: what the last slot in its flow
+	// that carries anyone carries. With none, the group it was handed.
+	c.ret = landing
+	for k := n - 1; k >= 0; k-- {
+		if r := carry[order[k]]; r >= 0 {
+			c.ret = uint8(r)
+			break
+		}
+	}
 	return nil
 }
+
+// callLib compiles a run-now call to library hex lib inline. Its targets
+// select around the caller's origin, and its effects with nothing feeding
+// them land on src, the group the call landed on. The call's options
+// scale its numbers. Its parts pay no Power, only Heat, on its own shape's
+// scale, times the call's rarity factor. It returns the register holding
+// what the library returns.
+func (c *compiler) callLib(lib *Hex, p Part, origin, src uint8, depth int, seen map[*Hex]bool) (uint8, error) {
+	if seen[lib] {
+		return 0, fmt.Errorf("%s calls a hex that's already running", lib.Name)
+	}
+	if !lib.Shape.Valid() {
+		return 0, errBrokenShape(lib.Shape)
+	}
+	for i, sl := range lib.Slots {
+		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && lib.Shape.Has(i) {
+			return 0, fmt.Errorf("library %s has a trigger", lib.Name)
+		}
+	}
+	if c.calling >= MaxCallDepth {
+		return 0, fmt.Errorf("calls nest more than %d deep", MaxCallDepth)
+	}
+	pw, ht := c.p.Power, c.p.Heat
+	at := len(c.p.Steps)
+	seen[lib] = true
+	c.calling++
+	err := c.level(lib, lib.entry(), depth, origin, src, seen)
+	c.calling--
+	delete(seen, lib)
+	if err != nil {
+		return 0, fmt.Errorf("call %s: %w", lib.Name, err)
+	}
+	ret := c.ret
+	if f := (span{at, len(c.p.Steps), len(c.p.Steps) > at}); f.ok {
+		for _, o := range p.Opts {
+			if o.Value != 0 {
+				c.scale(f, o.Verb, 1+(o.Value-1)*o.Rarity.Scale())
+			}
+		}
+	}
+	d := c.p.Heat - ht
+	c.p.Power, c.p.Heat = pw, ht
+	if d > 0 {
+		d *= lib.Shape.HeatScale()
+		if lib.Shape.Quirk == ShapeLean {
+			d *= LeanHeat
+		}
+	}
+	c.dockHeat += d / p.Rarity.Scale()
+	for _, o := range p.Opts {
+		if o.Value != 0 {
+			c.cost(o.Part(), depth)
+		}
+	}
+	return ret, nil
+}
+
+// MaxCallDepth is how deep run-now calls may nest (a library calling a
+// library calling ...). None may reach a hex already running.
+const MaxCallDepth = 4
 
 // relay follows an effect step with its arc: for each entity the effect
 // landed on, select what's next to it and apply the effect again at

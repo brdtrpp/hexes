@@ -89,6 +89,12 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 		}
 		return "CHARGE " + skill.BankName(p.Bank), fmt.Sprintf("+%g", p.Value)
 	case skill.KindCall:
+		if p.RunsNow() {
+			if n := p.Opts.Len(); n > 0 {
+				return "CALL", fmt.Sprintf("%s +%d", p.Lib, n)
+			}
+			return "CALL", p.Lib
+		}
 		return "CALL", skill.CallName(p.Call)
 	}
 	return "EMPTY", ""
@@ -123,6 +129,13 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 		b.WriteString(". Next slot clockwise hits the ones that pass, the slot after it the rest")
 	case p.Kind == skill.KindCharge:
 		fmt.Fprintf(&b, ". Bank %s keeps its count between firings", skill.BankName(p.Bank))
+	case p.RunsNow():
+		fmt.Fprintf(&b, ". Runs library hex %s right here, on the group this slot lands on, then holds who it returns so the next slot can act on them. Adds its Heat (%.2gx), never its Power", p.Lib, 1/p.Rarity.Scale())
+		for _, o := range p.Opts {
+			if o.Value != 0 {
+				fmt.Fprintf(&b, ". Option x%.2f %s", 1+(o.Value-1)*o.Rarity.Scale(), o.Verb)
+			}
+		}
 	case p.Kind == skill.KindCall && p.Call == skill.CallSelf:
 		fmt.Fprintf(&b, ". When this hex finishes it runs again, on whoever reached the call. Each run adds its Heat (%.2gx). Put it behind a gate or it loops until you overheat", 1/p.Rarity.Scale())
 	case p.Kind == skill.KindCall:
@@ -132,7 +145,7 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 		b.WriteString(". In a hex, tap the center plate to switch its bank")
 	}
 	if p.Kind == skill.KindCall {
-		b.WriteString(". In a hex, tap the center plate to point it at another hex")
+		b.WriteString(". In a hex, tap the center plate to point it at another hex or a library hex")
 	}
 	if q := QuirkText(p.Quirk); q != "" {
 		b.WriteString(". ")

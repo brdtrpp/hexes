@@ -71,6 +71,8 @@ type edLayout struct {
 	cells        [loot.InventorySize]rect
 	close, scrap rect
 	info         rect
+	// opts are a picked run-now call's options, in the caption row.
+	opts [skill.MaxOpts]rect
 }
 
 func (g *Game) edLayout() edLayout {
@@ -125,6 +127,10 @@ func (g *Game) edLayout() edLayout {
 	l.test = rect{ring.x + ring.w - tw2, ring.y, tw2, capH}
 	l.capX, l.capY = l.shape.x+l.shape.w+10*k, l.shape.y+capH/2
 	l.capW = l.test.x - 8*k - l.capX
+	ow := math.Min(84*k, (l.capW-2*gap)/float64(skill.MaxOpts))
+	for i := range l.opts {
+		l.opts[i] = rect{l.capX + float64(i)*(ow+gap), ring.y, ow, capH}
+	}
 	ring.y += capH + 6*k
 	ring.h -= capH + 6*k
 	l.ringX, l.ringY = ring.x+ring.w/2, ring.y+ring.h/2
@@ -255,6 +261,19 @@ func (g *Game) edTap(x, y float64) {
 		e.bad = false
 		return
 	}
+	if p, ok := g.edPickedCall(); ok {
+		for i, r := range l.opts {
+			if !r.hit(x, y) || p.Opts[i].Value == 0 {
+				continue
+			}
+			if err := sim.TakeOpt(e.hex, e.at, i); err != nil {
+				e.msg, e.bad = err.Error()+".", true
+				return
+			}
+			e.msg, e.bad = "Option back in your pack.", false
+			return
+		}
+	}
 	if l.shape.hit(x, y) {
 		sh, err := sim.CycleShape(e.hex)
 		e.pick, e.shape = pickNone, true
@@ -278,7 +297,18 @@ func (g *Game) edTap(x, y float64) {
 		if !sh.Has(i) || math.Hypot(x-c[0], y-c[1]) > l.slotR*0.95 {
 			continue
 		}
+		hs := sim.Load.Hex(e.hex).Slots[i]
 		switch {
+		case e.pick == pickCell && inv.Has[e.at] && inv.Parts[e.at].Kind == skill.KindMult &&
+			hs.Kind == skill.SlotPart && hs.Part.RunsNow():
+			// A multiplier dropped on a library call rides on it as an
+			// option and leaves the slot after the call free.
+			if err := sim.AddOpt(e.hex, i, e.at); err != nil {
+				e.msg, e.bad = err.Error()+".", true
+				return
+			}
+			e.pick, e.at = pickSlot, i
+			e.msg, e.bad = "Option on: it scales "+hs.Part.Lib+" inside the call. Tap it above to take it off.", false
 		case e.pick == pickCell:
 			g.edResult(sim.SwapIn(e.hex, i, e.at))
 		case e.pick == pickSlot && e.at != i:
@@ -331,6 +361,17 @@ func (g *Game) edCycle() bool {
 		return true
 	}
 	return false
+}
+
+// edPickedCall is the run-now call in the picked slot, if that's what is
+// picked.
+func (g *Game) edPickedCall() (skill.Part, bool) {
+	e := &g.ed
+	if e.pick != pickSlot || !g.sim.Load.Has(e.hex) || e.at < 0 || e.at >= skill.Slots {
+		return skill.Part{}, false
+	}
+	sl := g.sim.Load.Hex(e.hex).Slots[e.at]
+	return sl.Part, sl.Kind == skill.SlotPart && sl.Part.RunsNow()
 }
 
 func (g *Game) edResult(err error) {
@@ -571,7 +612,22 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 		caption = alt
 	}
-	g.label(screen, g.small, caption, l.capX, l.capY, colShape, false)
+	if p, ok := g.edPickedCall(); ok {
+		// A picked library call shows its options here instead.
+		for i, r := range l.opts {
+			o := p.Opts[i]
+			if o.Value == 0 {
+				g.drawRect(screen, r, colPanel, fade(colDim, 0.4))
+				g.label(screen, g.small, "+ option", r.x+r.w/2, r.y+r.h/2, fade(colDim, 0.7), true)
+				continue
+			}
+			c := rarityCol[o.Rarity]
+			g.drawRect(screen, r, fade(c, 0.2), c)
+			g.label(screen, g.small, fmt.Sprintf("x%.2g %s", 1+(o.Value-1)*o.Rarity.Scale(), shortVerb(o.Verb)), r.x+r.w/2, r.y+r.h/2, colText, true)
+		}
+	} else {
+		g.label(screen, g.small, caption, l.capX, l.capY, colShape, false)
+	}
 	// The test switch: lit while every shape is unlocked.
 	if sim.TestShapes {
 		g.drawRect(screen, l.test, fade(colShape, 0.55), colShape)
@@ -582,6 +638,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	}
 
 	routes := h.Routes(h.TriggerSlot())
+	ret := -1 // a library hex's way back to whoever calls it
+	if !h.HasTrigger() {
+		ret = h.ReturnSlot()
+	}
 	loop := -1
 	if kind == skill.ShapeGen {
 		loop = h.LoopSlot()
@@ -622,7 +682,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 				col = colCall
 			}
 		}
-		if s.Kind == skill.SlotPart && s.Part.Kind == skill.KindCall && s.Part.Call == skill.CallSelf {
+		if i == ret {
+			top = append(top, "RETURNS")
+		}
+		if s.Kind == skill.SlotPart && s.Part.Kind == skill.KindCall && s.Part.Call == skill.CallSelf && !s.Part.RunsNow() {
 			top = append(top, "LOOP")
 			if col == colCharge {
 				col = colCall
@@ -773,6 +836,12 @@ func (g *Game) wrapLabel(dst *ebiten.Image, s string, r rect, c color.RGBA) {
 // callName is the hex a Call points at, seen from hex: "self" or its
 // name (short for a tile).
 func (g *Game) callName(hex int, p skill.Part, short bool) string {
+	if p.RunsNow() {
+		if short {
+			return shortName(p.Lib)
+		}
+		return p.Lib + " (runs now)"
+	}
 	to, ok := game.CallsTo(hex, p)
 	switch {
 	case !ok:
@@ -895,3 +964,20 @@ func shapeTag(sh skill.Shape) string {
 }
 
 var rarityName = [skill.NumRarities]string{"+COMMON", "+UNCOMMON", "+RARE", "+EXOTIC"}
+
+// shortVerb is a multiplier's kind in a few letters, for an option chip.
+func shortVerb(v skill.Verb) string {
+	switch v {
+	case skill.VerbDamage:
+		return "dmg"
+	case skill.VerbDuration:
+		return "dur"
+	case skill.VerbPush:
+		return "push"
+	case skill.VerbRadius:
+		return "rad"
+	case skill.VerbCount:
+		return "cnt"
+	}
+	return "all"
+}

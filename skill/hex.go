@@ -87,6 +87,10 @@ type Hex struct {
 	// Docks[s] is the hex docked to the way out on slot s, if any. The
 	// game sets it from its board before compiling; it isn't saved.
 	Docks [Slots]*Hex `json:"-"`
+	// Libs[s] is the library hex a run-now Call in slot s names, if the
+	// board has one by that name. The game sets it with Docks; a call
+	// whose library is missing does nothing and passes its group on.
+	Libs [Slots]*Hex `json:"-"`
 }
 
 // NewHex builds a Ring hex with sockets exactly as given and every edge

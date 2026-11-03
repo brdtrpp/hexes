@@ -123,6 +123,7 @@ func (l *Loadout) Dock() []Dock {
 	for i := 0; i < l.Count(); i++ {
 		l.Hex(i).Docks = [skill.Slots]*skill.Hex{}
 	}
+	l.Link()
 	if len(l.Spots) != l.Count() {
 		return nil
 	}
@@ -145,6 +146,50 @@ func (l *Loadout) Dock() []Dock {
 			h.Docks[p.Slot] = l.Hex(j)
 			out = append(out, Dock{From: i, Slot: int(p.Slot), To: j})
 		}
+	}
+	return out
+}
+
+// Link points every run-now Call, in every hex and every hex nested in
+// one, at the module of that name. A call naming no module is left
+// pointing at nothing: it compiles and does nothing.
+func (l *Loadout) Link() {
+	var link func(h *skill.Hex, depth int)
+	link = func(h *skill.Hex, depth int) {
+		if h == nil || depth > 8 {
+			return
+		}
+		h.Libs = [skill.Slots]*skill.Hex{}
+		for s, sl := range h.Slots {
+			switch {
+			case sl.Kind == skill.SlotNested:
+				link(sl.Nested, depth+1)
+			case sl.Kind == skill.SlotPart && sl.Part.RunsNow():
+				h.Libs[s] = l.Lib(sl.Part.Lib)
+			}
+		}
+	}
+	for i := 0; i < l.Count(); i++ {
+		link(l.Hex(i), 0)
+	}
+}
+
+// Lib is the module called name, or nil.
+func (l *Loadout) Lib(name string) *skill.Hex {
+	for _, m := range l.Mods {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
+}
+
+// LibNames is every module's name, in board order: what a run-now Call
+// can name.
+func (l *Loadout) LibNames() []string {
+	out := make([]string, len(l.Mods))
+	for i, m := range l.Mods {
+		out[i] = m.Name
 	}
 	return out
 }

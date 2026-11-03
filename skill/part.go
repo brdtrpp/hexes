@@ -322,6 +322,75 @@ type Part struct {
 	// Quirk is the rule this part bends, if any. Only rare and exotic loot
 	// rolls one.
 	Quirk Quirk
+	// Lib, on a Call part, names a library hex (a module on the board) to
+	// run right where the call sits, instead of queueing an equipped hex
+	// for later. Empty means the run-later Call.
+	Lib string `json:",omitempty"`
+	// Opts are the options riding on a run-now Call: multipliers that
+	// scale the called hex's numbers, the way a mult after a nested hex
+	// does. They use no shape slot.
+	Opts Opts `json:",omitzero"`
+}
+
+// Opt is one multiplier riding on a call as an option. It keeps what it
+// needs to go back to the pack as the same part.
+type Opt struct {
+	Verb        Verb
+	Rarity      Rarity
+	Quirk       Quirk `json:",omitempty"`
+	Value       float32
+	Power, Heat float32
+}
+
+// Opts is a call's options, filled from the front.
+type Opts [MaxOpts]Opt
+
+// Len is how many options are on.
+func (o Opts) Len() int {
+	n := 0
+	for _, x := range o {
+		if x.Value != 0 {
+			n++
+		}
+	}
+	return n
+}
+
+// OptOf turns a multiplier into an option.
+func OptOf(m Part) Opt {
+	return Opt{Verb: m.Verb, Rarity: m.Rarity, Quirk: m.Quirk, Value: m.Value, Power: m.Power, Heat: m.Heat}
+}
+
+// Part is the option as the multiplier it came from.
+func (o Opt) Part() Part {
+	return Part{Kind: KindMult, Verb: o.Verb, Rarity: o.Rarity, Quirk: o.Quirk, Value: o.Value, Power: o.Power, Heat: o.Heat}
+}
+
+// WithOpt returns the call with multiplier m added as an option, and
+// false if it isn't a run-now call, m isn't a multiplier, or it's full.
+func (p Part) WithOpt(m Part) (Part, bool) {
+	if !p.RunsNow() || m.Kind != KindMult {
+		return p, false
+	}
+	for i := range p.Opts {
+		if p.Opts[i].Value == 0 {
+			p.Opts[i] = OptOf(m)
+			return p, true
+		}
+	}
+	return p, false
+}
+
+// WithoutOpt returns the call with option i taken off, the rest moved up,
+// and the multiplier it was.
+func (p Part) WithoutOpt(i int) (Part, Part, bool) {
+	if i < 0 || i >= MaxOpts || p.Opts[i].Value == 0 {
+		return p, Part{}, false
+	}
+	m := p.Opts[i].Part()
+	copy(p.Opts[i:], p.Opts[i+1:])
+	p.Opts[MaxOpts-1] = Opt{}
+	return p, m, true
 }
 
 func (p Part) String() string {
@@ -509,6 +578,20 @@ func NewEmptyGate(bank uint8) Part {
 func NewCall(target uint8) Part {
 	return Part{Kind: KindCall, Call: target, Power: CallPowerCost, Heat: CallHeatCost}
 }
+
+// NewLibCall makes a run-now Call part that runs the library hex named
+// lib inline, on the group its slot lands on.
+func NewLibCall(lib string) Part {
+	p := NewCall(CallSelf)
+	p.Lib = lib
+	return p
+}
+
+// MaxOpts is the most options one call carries.
+const MaxOpts = 3
+
+// RunsNow reports whether the part is a run-now Call to a library hex.
+func (p Part) RunsNow() bool { return p.Kind == KindCall && p.Lib != "" }
 
 // WithBank returns the part reading a different bank. Only Charge parts
 // and charge gates have one; anything else comes back unchanged.
