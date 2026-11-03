@@ -85,6 +85,14 @@ func (a *Arena) Spawn(team uint8, at Coord, level int, maxHP float32) EntityID {
 	return id
 }
 
+// Distance implements Distancer.
+func (a *Arena) Distance(x, y EntityID) int {
+	if x < 0 || y < 0 || int(x) >= len(a.Pos) || int(y) >= len(a.Pos) {
+		return 0
+	}
+	return Dist(a.Pos[x], a.Pos[y])
+}
+
 // Unit implements World.
 func (a *Arena) Unit(id EntityID) *Unit {
 	if id < 0 || int(id) >= len(a.Units) {

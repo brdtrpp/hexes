@@ -82,6 +82,8 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			return "SPEND " + skill.BankName(p.Bank), fmt.Sprintf("at %d", p.Count)
 		case skill.GateEmpty:
 			return "IF " + skill.BankName(p.Bank) + " EMPTY", "bank " + skill.BankName(p.Bank)
+		case skill.GateCond:
+			return "IF", CondShort(p.Cond, reg)
 		}
 	case skill.KindCharge:
 		if p.Charge == skill.ChargeDrain {
@@ -125,8 +127,10 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 			skill.BankName(p.Bank), p.Count)
 	case p.Kind == skill.KindGate && p.Gate == skill.GateEmpty:
 		fmt.Fprintf(&b, ". Next slot clockwise fires while bank %s is at zero, the slot after it otherwise", skill.BankName(p.Bank))
+	case p.Kind == skill.KindGate && p.Gate == skill.GateCond:
+		fmt.Fprintf(&b, ". Tests: %s. Next slot clockwise hits the ones that pass, the slot after it the rest. Tap it again in a hex to edit the condition", p.Cond.Text(reg))
 	case p.Kind == skill.KindGate:
-		b.WriteString(". Next slot clockwise hits the ones that pass, the slot after it the rest")
+		b.WriteString(". Next slot clockwise hits the ones that pass, the slot after it the rest. Tap it again in a hex to edit it as a condition")
 	case p.Kind == skill.KindCharge:
 		fmt.Fprintf(&b, ". Bank %s keeps its count between firings", skill.BankName(p.Bank))
 	case p.RunsNow():
@@ -185,4 +189,29 @@ func Summary(h *skill.Hex, reg *skill.Registry) string {
 		out = strings.ToLower(h.Shape.Name()) + ": " + out
 	}
 	return out
+}
+
+// CondShort is a condition in a dozen characters, for a tile: its first
+// test, and "+n" for the rest.
+func CondShort(c skill.Cond, reg *skill.Registry) string {
+	ts := c.Tiles()
+	if len(ts) == 0 {
+		return "empty"
+	}
+	n, first := 0, ""
+	for i, t := range ts {
+		if t.K.Sensor() {
+			if n == 0 {
+				first = t.Text(reg, skill.TileNone)
+				if i+1 < len(ts) && ts[i+1].K.Compare() {
+					first += " " + ts[i+1].Text(reg, t.K)
+				}
+			}
+			n++
+		}
+	}
+	if n > 1 {
+		return fmt.Sprintf("%s +%d", first, n-1)
+	}
+	return first
 }

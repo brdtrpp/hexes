@@ -173,6 +173,7 @@ func (g *Game) openEditor() {
 	}
 	g.ed.on = true
 	g.ed.pick = pickNone
+	g.cd.on = false
 	g.stick.End() // a thumb on the stick shouldn't keep walking after
 
 	g.ed.msg, g.ed.bad = "", false
@@ -188,9 +189,13 @@ func (g *Game) updateEditor() bool {
 		}
 		return false
 	}
+	if g.cd.on && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.cd.on = false
+		return true
+	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyTab) || inpututil.IsKeyJustPressed(ebiten.KeyE) ||
 		inpututil.IsKeyJustPressed(ebiten.KeyI) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		g.ed.on = false
+		g.ed.on, g.cd.on = false, false
 		return true
 	}
 	for i, key := range []ebiten.Key{ebiten.KeyDigit1, ebiten.KeyDigit2, ebiten.KeyDigit3, ebiten.KeyDigit4} {
@@ -201,18 +206,22 @@ func (g *Game) updateEditor() bool {
 	if inpututil.IsKeyJustPressed(ebiten.KeyB) {
 		g.setBoard(!g.ed.board)
 	}
-	if g.ed.board {
+	if g.ed.board && !g.cd.on {
 		g.updateBoard()
 		return true
+	}
+	tap := g.edTap
+	if g.cd.on {
+		tap = g.condTap
 	}
 	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
 		g.touched = true
 		x, y := ebiten.TouchPosition(id)
-		g.edTap(float64(x), float64(y))
+		tap(float64(x), float64(y))
 	}
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		x, y := ebiten.CursorPosition()
-		g.edTap(float64(x), float64(y))
+		tap(float64(x), float64(y))
 	}
 	return true
 }
@@ -360,7 +369,7 @@ func (g *Game) edCycle() bool {
 		e.msg, e.bad = "Now calls "+g.callName(e.hex, p, false)+".", false
 		return true
 	}
-	return false
+	return g.openCond(e.hex, e.at)
 }
 
 // edPickedCall is the run-now call in the picked slot, if that's what is
@@ -579,6 +588,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		g.label(screen, g.small, sub, t.x+t.w/2, t.y+t.h*0.72, colDim, true)
 	}
 
+	if g.cd.on {
+		g.drawCond(screen)
+		return
+	}
 	if e.board {
 		g.drawBoard(screen)
 		return
@@ -918,6 +931,20 @@ func (g *Game) drawDrops(screen *ebiten.Image) {
 		paint(vs, colShape)
 		screen.DrawTriangles(vs, is, whiteSub(), &ebiten.DrawTrianglesOptions{AntiAlias: true})
 		g.label(screen, g.small, "SHAPE", sx, sy-r*1.9, fade(colShape, 0.9), true)
+	}
+	// A logic tile on the floor: an orange square that bobs.
+	for _, d := range g.sim.Stash.Tiles {
+		x, y := d.At.Pixel()
+		sx, sy := g.toScreen(x, y)
+		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s {
+			continue
+		}
+		r := s * 0.3
+		sy += math.Sin(float64(g.frame)*0.08) * r * 0.25
+		vector.DrawFilledCircle(screen, float32(sx), float32(sy), float32(r*1.8), fade(colGate, 0.16), true)
+		vector.DrawFilledRect(screen, float32(sx-r), float32(sy-r), float32(2*r), float32(2*r), fade(colGate, 0.35), true)
+		vector.StrokeRect(screen, float32(sx-r), float32(sy-r), float32(2*r), float32(2*r), g.u(2), colGate, true)
+		g.label(screen, g.small, strings.ToUpper(d.Tile.String()), sx, sy-r*2.4, fade(colGate, 0.9), true)
 	}
 }
 

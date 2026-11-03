@@ -464,6 +464,33 @@ func (e *Evaluator) gate(w World, ctx *Ctx, s *Step) {
 		e.n[s.Dst], e.n[s.Dst2] = np, nf
 		return
 	}
+	if s.Gate == GateCond {
+		if e.cur == nil || int(s.Count) >= len(e.cur.Conds) {
+			e.n[s.Dst], e.n[s.Dst2] = 0, uint8(copy(e.regs[s.Dst2][:], src))
+			return
+		}
+		cp := &e.cur.Conds[s.Count]
+		if !cp.Foe {
+			dst, n := &e.regs[s.Dst2], &nf
+			if e.testCond(w, ctx, cp, NoEntity) {
+				dst, n = &e.regs[s.Dst], &np
+			}
+			*n = uint8(copy(dst[:], src))
+			e.n[s.Dst], e.n[s.Dst2] = np, nf
+			return
+		}
+		for _, id := range src {
+			if e.testCond(w, ctx, cp, id) {
+				e.regs[s.Dst][np] = id
+				np++
+			} else {
+				e.regs[s.Dst2][nf] = id
+				nf++
+			}
+		}
+		e.n[s.Dst], e.n[s.Dst2] = np, nf
+		return
+	}
 	if !s.Gate.PerFoe() || (s.Gate == GateStatus && e.Reg.Get(s.Type).Status == StatusCloak) {
 		// One test for the whole group: it all goes one way.
 		dst, n := &e.regs[s.Dst2], &nf
@@ -513,20 +540,35 @@ func (e *Evaluator) foeTest(w World, ctx *Ctx, s *Step, id EntityID) bool {
 	case GateCrowd:
 		return w.Select(TargetAdjacent, id, ctx.Caster, s.Value, e.scratch[:]) >= int(s.Count)
 	case GateStatus:
-		switch e.Reg.Get(s.Type).Status {
-		case StatusBurn, StatusToxin:
-			for _, d := range u.Dots {
-				if d.Left > 0 && d.Type == s.Type {
-					return true
-				}
-			}
-		case StatusChill:
-			return u.Frozen || u.SlowLeft > 0
-		case StatusStagger:
-			return u.StunLeft > 0
-		case StatusMark:
-			return u.MarkLeft > 0
-		}
+		return e.hasStatus(u, s.Type)
 	}
 	return false
+}
+
+// hasStatus reports whether u suffers type t's status: burning or eaten
+// by toxin of that type, chilled or frozen, staggered, marked.
+func (e *Evaluator) hasStatus(u *Unit, t TypeID) bool {
+	switch e.Reg.Get(t).Status {
+	case StatusBurn, StatusToxin:
+		for _, d := range u.Dots {
+			if d.Left > 0 && d.Type == t {
+				return true
+			}
+		}
+	case StatusChill:
+		return u.Frozen || u.SlowLeft > 0
+	case StatusStagger:
+		return u.StunLeft > 0
+	case StatusMark:
+		return u.MarkLeft > 0
+	}
+	return false
+}
+
+// bankRead is what bank b holds right now.
+func (e *Evaluator) bankRead(ctx *Ctx, b uint8) uint32 {
+	if int(b) < MaxBanks {
+		return ctx.Bank[b]
+	}
+	return 0
 }

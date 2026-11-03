@@ -120,3 +120,42 @@ func TestBoardLayoutFits(t *testing.T) {
 func overlaps(r, q rect) bool {
 	return r.x < q.x+q.w && q.x < r.x+r.w && r.y < q.y+q.h && q.y < r.y+r.h
 }
+
+// The condition editor fits phone and desktop screens: every button on
+// screen, none overlapping another, all big enough to tap.
+func TestCondLayoutFits(t *testing.T) {
+	for _, sc := range []struct {
+		name    string
+		w, h, k float64
+	}{
+		{"phone portrait", 390, 844, 3},
+		{"small phone", 360, 640, 2},
+		{"phone landscape", 844, 390, 3},
+		{"desktop", 1280, 800, 1},
+	} {
+		g := &Game{sim: game.New(1), w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
+		l := g.condLayout()
+		rs := []rect{l.minus, l.plus, l.value, l.cycle, l.del, l.cancel, l.clear, l.done}
+		for _, k := range palette {
+			rs = append(rs, l.pal[k])
+		}
+		rs = append(rs, l.row[:]...)
+		W, H := float64(g.w), float64(g.h)
+		for i, a := range rs {
+			if a.x < 0 || a.y < 0 || a.x+a.w > W+0.5 || a.y+a.h > H+0.5 {
+				t.Errorf("%s: piece %d off screen %+v", sc.name, i, a)
+			}
+			if a.w/sc.k < 28 || a.h/sc.k < 28 {
+				t.Errorf("%s: piece %d too small %+v", sc.name, i, a)
+			}
+			for j, b := range rs[:i] {
+				if a.x < b.x+b.w-0.5 && b.x < a.x+a.w-0.5 && a.y < b.y+b.h-0.5 && b.y < a.y+a.h-0.5 {
+					t.Errorf("%s: pieces %d and %d overlap", sc.name, i, j)
+				}
+			}
+		}
+		if l.info.h/sc.k < 30 {
+			t.Errorf("%s: info line %.0f css px tall", sc.name, l.info.h/sc.k)
+		}
+	}
+}

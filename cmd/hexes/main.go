@@ -115,7 +115,8 @@ type Game struct {
 	savedAt    int    // frame of the last save
 	hexBtn     button // opens the hex editor
 	ed         editor
-	touched    bool // a touch has happened: show touch hints, not keys
+	cd         condEd // the condition editor, over the hex editor
+	touched    bool   // a touch has happened: show touch hints, not keys
 	// stickMode moves with a thumb joystick on the left half of the
 	// screen instead of walking toward the finger.
 	stickMode bool
@@ -569,6 +570,10 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 			name := g.sim.LastShape.Name()
 			g.label(screen, g.face, "LEARNED "+strings.ToUpper(name), x, y-s*1.1-float64(k)*s*1.2, fade(colShape, a), true)
 			g.label(screen, g.small, "HEX > SHAPE to use it", x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
+		case game.FXTile:
+			name := strings.ToUpper(skill.TileKind(f.Slot).String())
+			g.label(screen, g.face, "LOGIC TILE: "+name, x, y-s*1.1-float64(k)*s*1.2, fade(colGate, a), true)
+			g.label(screen, g.small, "tap an IF gate twice to build with it", x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
 		case game.FXFull:
 			g.label(screen, g.small, "PACK FULL", x, y-s*0.9-float64(k)*s, fade(colHot, a), true)
 		case game.FXVent:

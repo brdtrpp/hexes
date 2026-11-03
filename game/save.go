@@ -198,6 +198,8 @@ type Save struct {
 	// hexes laid out so nothing docks.
 	Mods  []*skill.Hex `json:",omitempty"`
 	Board []Spot       `json:",omitempty"`
+	// Tiles are the logic tiles found (see tiles.go).
+	Tiles uint32 `json:",omitempty"`
 }
 
 // Snapshot is the current progress. While dead it already counts the
@@ -214,6 +216,7 @@ func (s *Sim) Snapshot() Save {
 		TestShapes: s.TestShapes,
 		Mods:       append([]*skill.Hex(nil), s.Load.Mods...),
 		Board:      append([]Spot(nil), s.Load.Spots...),
+		Tiles:      s.Tiles,
 	}
 	switch s.State {
 	case Dead:
@@ -288,6 +291,7 @@ func (s *Sim) Restore(sv Save) error {
 	s.CallGiven = sv.CallGiven
 	s.Shapes, s.ShapeGiven = shapes, sv.ShapeGiven || len(shapes) > 0
 	s.TestShapes = sv.TestShapes
+	s.Tiles = sv.Tiles & skill.AllTiles
 	dirty := s.giveCall()
 	s.load(sv.Depth, sv.HPFrac)
 	s.Dirty = dirty

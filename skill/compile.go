@@ -301,8 +301,26 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				return err
 			}
 			pass[s], fail[s] = yes, no
+			count := p.Count
+			if p.Gate == GateCond {
+				cp, err := p.Cond.Compile()
+				if err != nil {
+					return fmt.Errorf("slot %s's condition: %w", h.SlotName(s), err)
+				}
+				if len(c.p.Conds) >= 255 {
+					return errors.New("too many conditions")
+				}
+				count = uint8(len(c.p.Conds))
+				c.p.Conds = append(c.p.Conds, cp)
+				c.p.Heat += cp.Heat() * float32(1+NestCostPerDepth*float64(depth))
+				for _, t := range p.Cond.Tiles() {
+					if t.K == TileBank {
+						c.useBank(Part{Kind: KindCharge, Bank: t.B})
+					}
+				}
+			}
 			i := c.emit(Step{Op: OpGate, Gate: p.Gate, Src: in, Dst: yes, Dst2: no,
-				Type: p.Type, Count: p.Count, Value: p.Value, Bank: p.Bank % MaxBanks})
+				Type: p.Type, Count: count, Value: p.Value, Bank: p.Bank % MaxBanks})
 			fed[s] = span{i, i + 1, true}
 			carry[s] = int(yes)
 			c.cost(p, depth)

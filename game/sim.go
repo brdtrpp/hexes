@@ -155,6 +155,11 @@ type Sim struct {
 	// TestShapes is the test switch: every shape unlocked for trying out
 	// (see shape.go). A setting, so a new run keeps it.
 	TestShapes bool
+	// Tiles are the logic tiles found so far, one bit each (see
+	// tiles.go); the starter set is always known on top. LastTile is
+	// the latest, for the HUD.
+	Tiles    uint32
+	LastTile skill.TileKind
 
 	// SlotFlash counts down after a slot tries to fire; SlotLast is how.
 	SlotFlash [MaxSlots]float32
@@ -193,6 +198,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.Load = Loadout{}
 	s.CallGiven = true // the preset Arc Lance carries it
 	s.Shapes, s.ShapeGiven, s.LastShape = nil, false, skill.Shape{}
+	s.Tiles, s.LastTile = 0, 0
 	s.resetStash()
 	s.load(1, 1)
 	s.Dirty = true

@@ -138,12 +138,15 @@ const (
 	// GateEmpty reads charge bank Bank: the whole group goes yes when the
 	// bank is zero, no otherwise. It never changes the bank.
 	GateEmpty
+	// GateCond tests the condition the player built in Cond (see
+	// cond.go). The fixed kinds above are its presets.
+	GateCond
 )
 
 // NumGates is how many gate conditions exist.
-const NumGates = 7
+const NumGates = 8
 
-var gateNames = [...]string{"hull", "heat", "power", "status", "crowd", "spend", "empty"}
+var gateNames = [...]string{"hull", "heat", "power", "status", "crowd", "spend", "empty", "condition"}
 
 func (g GateKind) String() string { return gateNames[g] }
 
@@ -330,6 +333,8 @@ type Part struct {
 	// scale the called hex's numbers, the way a mult after a nested hex
 	// does. They use no shape slot.
 	Opts Opts `json:",omitzero"`
+	// Cond is a condition gate's tiles (GateCond).
+	Cond Cond `json:",omitzero"`
 }
 
 // Opt is one multiplier riding on a call as an option. It keeps what it

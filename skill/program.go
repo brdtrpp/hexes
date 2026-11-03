@@ -101,6 +101,9 @@ type Program struct {
 	Loops bool
 	// Docked is how many docked hexes a firing runs (see Hex.Docks).
 	Docked uint8
+	// Conds are the conditions its condition gates test; a GateCond
+	// step's Count indexes them.
+	Conds []CondProg
 }
 
 // CallsHex reports whether the program has a Call aimed at target
@@ -153,6 +156,8 @@ func (p *Program) String() string {
 				fmt.Fprintf(&b, " bank=%s n=%d", BankName(s.Bank), s.Count)
 			case GateEmpty:
 				fmt.Fprintf(&b, " bank=%s", BankName(s.Bank))
+			case GateCond:
+				fmt.Fprintf(&b, " cond=%d", s.Count)
 			default:
 				fmt.Fprintf(&b, " at=%.2f", s.Value)
 			}

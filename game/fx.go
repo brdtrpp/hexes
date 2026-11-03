@@ -20,6 +20,7 @@ const (
 	FXFull                  // walked over a part with a full inventory
 	FXSalvage               // recovered a salvage cache at At; Value is how many parts
 	FXShape                 // learned a shape at At; Slot is its kind
+	FXTile                  // learned a logic tile at At; Slot is its kind
 )
 
 // FX is one effect.

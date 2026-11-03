@@ -18,6 +18,14 @@ func (s *Sim) Unit(id skill.EntityID) *skill.Unit {
 	return &s.Actors[id].U
 }
 
+// Distance implements skill.Distancer, for the distance sensor.
+func (s *Sim) Distance(a, b skill.EntityID) int {
+	if a < 0 || b < 0 || int(a) >= len(s.Actors) || int(b) >= len(s.Actors) {
+		return 0
+	}
+	return skill.Dist(s.Actors[a].At, s.Actors[b].At)
+}
+
 func (s *Sim) foe(caster skill.EntityID, i int) bool {
 	u := &s.Actors[i].U
 	return u.Alive && u.Team != s.Actors[caster].U.Team
