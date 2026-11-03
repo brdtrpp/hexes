@@ -173,7 +173,7 @@ func (g *Game) openEditor() {
 	}
 	g.ed.on = true
 	g.ed.pick = pickNone
-	g.cd.on = false
+	g.cd.on, g.tm.on = false, false
 	g.stick.End() // a thumb on the stick shouldn't keep walking after
 
 	g.ed.msg, g.ed.bad = "", false
@@ -189,13 +189,13 @@ func (g *Game) updateEditor() bool {
 		}
 		return false
 	}
-	if g.cd.on && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		g.cd.on = false
+	if (g.cd.on || g.tm.on) && inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.cd.on, g.tm.on = false, false
 		return true
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyTab) || inpututil.IsKeyJustPressed(ebiten.KeyE) ||
 		inpututil.IsKeyJustPressed(ebiten.KeyI) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		g.ed.on, g.cd.on = false, false
+		g.ed.on, g.cd.on, g.tm.on = false, false, false
 		return true
 	}
 	for i, key := range []ebiten.Key{ebiten.KeyDigit1, ebiten.KeyDigit2, ebiten.KeyDigit3, ebiten.KeyDigit4} {
@@ -206,12 +206,15 @@ func (g *Game) updateEditor() bool {
 	if inpututil.IsKeyJustPressed(ebiten.KeyB) {
 		g.setBoard(!g.ed.board)
 	}
-	if g.ed.board && !g.cd.on {
+	if g.ed.board && !g.cd.on && !g.tm.on {
 		g.updateBoard()
 		return true
 	}
 	tap := g.edTap
-	if g.cd.on {
+	switch {
+	case g.tm.on:
+		tap = g.testTap
+	case g.cd.on:
 		tap = g.condTap
 	}
 	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
@@ -256,18 +259,16 @@ func (g *Game) edTap(x, y float64) {
 		return
 	}
 	if l.test.hit(x, y) {
-		on := !sim.TestShapes
-		e.pick, e.shape = pickNone, true
-		if err := sim.SetTestShapes(on); err != nil {
-			e.msg, e.bad = err.Error()+".", true
-			return
+		e.pick = pickNone
+		if !sim.TestShapes {
+			if err := sim.SetTestShapes(true); err != nil {
+				e.msg, e.bad = err.Error()+".", true
+				return
+			}
+			e.shape = true
+			e.msg, e.bad = "Test switch on: every shape and logic tile is unlocked. Tap SHAPE to step through shapes.", false
 		}
-		if on {
-			e.msg = "Test switch on: every shape is unlocked, each with a different quirk. Tap SHAPE to step through them."
-		} else {
-			e.msg = "Test switch off: only shapes you've found. Hexes on a test shape went back to a Ring."
-		}
-		e.bad = false
+		g.openTestMenu()
 		return
 	}
 	if p, ok := g.edPickedCall(); ok {
@@ -597,6 +598,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		g.label(screen, g.small, sub, t.x+t.w/2, t.y+t.h*0.72, colDim, true)
 	}
 
+	if g.tm.on {
+		g.drawTestMenu(screen)
+		return
+	}
 	if g.cd.on {
 		g.drawCond(screen)
 		return

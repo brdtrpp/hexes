@@ -115,8 +115,9 @@ type Game struct {
 	savedAt    int    // frame of the last save
 	hexBtn     button // opens the hex editor
 	ed         editor
-	cd         condEd // the condition editor, over the hex editor
-	touched    bool   // a touch has happened: show touch hints, not keys
+	cd         condEd   // the condition editor, over the hex editor
+	tm         testMenu // the test menu of example builds, over the hex editor
+	touched    bool     // a touch has happened: show touch hints, not keys
 	// stickMode moves with a thumb joystick on the left half of the
 	// screen instead of walking toward the finger.
 	stickMode bool

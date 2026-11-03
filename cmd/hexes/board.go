@@ -290,15 +290,14 @@ func (g *Game) boardTap(x, y float64) {
 		g.boardEdit()
 		return
 	case b.test.hit(x, y):
-		on := !sim.TestShapes
-		if err := sim.SetTestShapes(on); err != nil {
-			e.msg, e.bad = err.Error()+".", true
-			return
+		if !sim.TestShapes {
+			if err := sim.SetTestShapes(true); err != nil {
+				e.msg, e.bad = err.Error()+".", true
+				return
+			}
+			e.msg, e.bad = "Test switch on: the whole board is open and every shape unlocked.", false
 		}
-		e.msg, e.bad = "Test switch off: only your open cells and the shapes you've found.", false
-		if on {
-			e.msg = "Test switch on: the whole board is open and every shape unlocked."
-		}
+		g.openTestMenu()
 		return
 	}
 	if !b.area.hit(x, y) {

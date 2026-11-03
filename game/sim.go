@@ -163,7 +163,11 @@ type Sim struct {
 	// Tiles are the logic tiles found so far, one bit each (see
 	// tiles.go); the starter set is always known on top. LastTile is
 	// the latest, for the HUD.
-	Tiles    uint32
+	Tiles uint32
+	// Mine is the player's own build while an example is loaded (see
+	// examples.go); Example names the example.
+	Mine     *MyBuild
+	Example  string
 	LastTile skill.TileKind
 
 	// SlotFlash counts down after a slot tries to fire; SlotLast is how.

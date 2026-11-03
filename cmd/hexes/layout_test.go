@@ -159,3 +159,40 @@ func TestCondLayoutFits(t *testing.T) {
 		}
 	}
 }
+
+func TestTestMenuFits(t *testing.T) {
+	for _, sc := range []struct {
+		name    string
+		w, h, k float64
+	}{
+		{"phone portrait", 390, 844, 3},
+		{"small phone", 360, 640, 2},
+		{"phone landscape", 844, 390, 3},
+		{"desktop", 1280, 800, 1},
+	} {
+		g := &Game{sim: game.New(1), w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
+		n := len(game.Examples(g.sim.Reg))
+		l := g.testLayout(n)
+		rs := append([]rect{l.mine, l.off, l.closeBtn}, l.rows...)
+		W, H := float64(g.w), float64(g.h)
+		for i, a := range rs {
+			if a.x < 0 || a.y < 0 || a.x+a.w > W+0.5 || a.y+a.h > H+0.5 {
+				t.Errorf("%s: piece %d off screen %+v", sc.name, i, a)
+			}
+			if a.w/sc.k < 28 || a.h/sc.k < 36 {
+				t.Errorf("%s: piece %d too small %+v", sc.name, i, a)
+			}
+			for j, b := range rs[:i] {
+				if a.x < b.x+b.w-0.5 && b.x < a.x+a.w-0.5 && a.y < b.y+b.h-0.5 && b.y < a.y+a.h-0.5 {
+					t.Errorf("%s: pieces %d and %d overlap", sc.name, i, j)
+				}
+			}
+		}
+		// A blurb fits its row: about 7 css px a character at the small size.
+		for _, e := range game.Examples(g.sim.Reg) {
+			if need := float64(len(e.Blurb))*7*sc.k + 20*sc.k; need > l.rows[0].w {
+				t.Errorf("%s: %s blurb too wide", sc.name, e.Name)
+			}
+		}
+	}
+}

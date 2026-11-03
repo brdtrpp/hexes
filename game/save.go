@@ -200,6 +200,10 @@ type Save struct {
 	Board []Spot       `json:",omitempty"`
 	// Tiles are the logic tiles found (see tiles.go).
 	Tiles uint32 `json:",omitempty"`
+	// Mine is the player's own build while an example is loaded, and
+	// Example the example's name.
+	Mine    *MyBuild `json:",omitempty"`
+	Example string   `json:",omitempty"`
 }
 
 // Snapshot is the current progress. While dead it already counts the
@@ -217,6 +221,7 @@ func (s *Sim) Snapshot() Save {
 		Mods:       append([]*skill.Hex(nil), s.Load.Mods...),
 		Board:      append([]Spot(nil), s.Load.Spots...),
 		Tiles:      s.Tiles,
+		Mine:       s.Mine, Example: s.Example,
 	}
 	switch s.State {
 	case Dead:
@@ -292,6 +297,12 @@ func (s *Sim) Restore(sv Save) error {
 	s.Shapes, s.ShapeGiven = shapes, sv.ShapeGiven || len(shapes) > 0
 	s.TestShapes = sv.TestShapes
 	s.Tiles = sv.Tiles & skill.AllTiles
+	s.Mine, s.Example = nil, ""
+	if sv.Mine != nil {
+		if m, err := copyBuild(sv.Mine); err == nil {
+			s.Mine, s.Example = m, sv.Example
+		}
+	}
 	dirty := s.giveCall()
 	s.load(sv.Depth, sv.HPFrac)
 	s.Dirty = dirty
