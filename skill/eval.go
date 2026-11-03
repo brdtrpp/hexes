@@ -55,6 +55,9 @@ type Ctx struct {
 	// Calls is the equipped hexes a Call part can run: Call n runs
 	// Calls[n-1]. Nil leaves only self-calls working.
 	Calls *[MaxEquip]*Program
+	// Board is the board's shared banks, X and Y. Nil gives the run a
+	// scratch pair that starts empty.
+	Board *BoardBank
 }
 
 // Bank is one equipped hex's charge banks, A to D. Each is a counter that
@@ -105,7 +108,8 @@ type Evaluator struct {
 	regs    [MaxRegs][MaxTargets]EntityID
 	n       [MaxRegs]uint8
 	scratch [MaxTargets]EntityID
-	bank    Bank // stand-in when Ctx.Bank is nil
+	bank    Bank      // stand-in when Ctx.Bank is nil
+	board   BoardBank // stand-in when Ctx.Board is nil
 
 	// The call queue and what's running now.
 	queue   [MaxPending]pending
@@ -126,10 +130,7 @@ func NewEvaluator(reg *Registry, rules Rules) *Evaluator {
 // order they queued, until the queue is empty or a limit stops it.
 func (e *Evaluator) Run(p *Program, w World, ctx Ctx) Result {
 	var res Result
-	if ctx.Bank == nil {
-		e.bank = Bank{}
-		ctx.Bank = &e.bank
-	}
+	e.scratch2(&ctx)
 	e.qHead, e.qLen, e.dropped = 0, 0, 0
 	e.start(p, w, &ctx, ctx.Subject, 0, 1, &res)
 	for e.qLen > 0 {
@@ -157,6 +158,32 @@ func (e *Evaluator) Run(p *Program, w World, ctx Ctx) Result {
 	return res
 }
 
+// scratch2 gives a run without banks of its own empty stand-ins.
+func (e *Evaluator) scratch2(ctx *Ctx) {
+	if ctx.Bank == nil {
+		e.bank = Bank{}
+		ctx.Bank = &e.bank
+	}
+	if ctx.Board == nil {
+		e.board = BoardBank{}
+		ctx.Board = &e.board
+	}
+}
+
+// Check runs a watch hex's check alone and reports how many it found:
+// more than zero means the hex should fire. It changes nothing in the
+// world (a watched library only picks and tests).
+func (e *Evaluator) Check(p *Program, w World, ctx Ctx) int {
+	if p == nil || p.WatchSteps == 0 {
+		return 0
+	}
+	var res Result
+	e.scratch2(&ctx)
+	e.prepare(p, w, &ctx, ctx.Subject, 0, 1)
+	e.exec(p.Steps[:p.WatchSteps], w, &ctx, &res)
+	return int(e.n[p.WatchRet])
+}
+
 // payCall adds a call's Heat to the rig. It refuses while the rig is
 // locked. Reaching max heat still runs the call but locks the rig, the
 // same as TryFire.
@@ -175,8 +202,8 @@ func (e *Evaluator) payCall(r *Rig, c pending) bool {
 	return true
 }
 
-// start runs one hex's steps with subject as its subject.
-func (e *Evaluator) start(p *Program, w World, ctx *Ctx, subject EntityID, code uint8, heat float32, res *Result) {
+// prepare loads a hex's fixed registers: caster, subject, origin.
+func (e *Evaluator) prepare(p *Program, w World, ctx *Ctx, subject EntityID, code uint8, heat float32) {
 	for i := 0; i < p.Regs && i < MaxRegs; i++ {
 		e.n[i] = 0
 	}
@@ -196,6 +223,20 @@ func (e *Evaluator) start(p *Program, w World, ctx *Ctx, subject EntityID, code 
 	}
 	e.n[RegOrigin] = 1
 	e.cur, e.curCode, e.curHeat = p, code, heat
+}
+
+// start runs one hex's steps with subject as its subject. A watch hex
+// stops after its check when the check found nobody.
+func (e *Evaluator) start(p *Program, w World, ctx *Ctx, subject EntityID, code uint8, heat float32, res *Result) {
+	e.prepare(p, w, ctx, subject, code, heat)
+	if p.WatchSteps > 0 && p.Trigger == Watch {
+		e.exec(p.Steps[:p.WatchSteps], w, ctx, res)
+		if e.n[p.WatchRet] == 0 {
+			return
+		}
+		e.exec(p.Steps[p.WatchSteps:], w, ctx, res)
+		return
+	}
 	e.exec(p.Steps, w, ctx, res)
 }
 
@@ -282,8 +323,8 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			if e.n[s.Src2] == 0 {
 				continue // in a gate branch nobody took
 			}
-			v := int64(ctx.Bank[s.Bank]) + int64(s.Value)
-			ctx.Bank[s.Bank] = uint32(min(max(v, 0), MaxCharge))
+			b := e.bankAt(ctx, s.Bank)
+			*b = uint32(min(max(int64(*b)+int64(s.Value), 0), MaxCharge))
 		case OpForEach:
 			body := steps[pc+1 : pc+1+int(s.Span)]
 			for i := 0; i < int(e.n[s.Src]); i++ {
@@ -446,7 +487,7 @@ func (e *Evaluator) gate(w World, ctx *Ctx, s *Step) {
 	if s.Gate.Charged() {
 		// Whole group, one way, decided by the bank.
 		pass := false
-		b := &ctx.Bank[s.Bank]
+		b := e.bankAt(ctx, s.Bank)
 		switch s.Gate {
 		case GateEmpty:
 			pass = *b == 0
@@ -566,9 +607,15 @@ func (e *Evaluator) hasStatus(u *Unit, t TypeID) bool {
 }
 
 // bankRead is what bank b holds right now.
-func (e *Evaluator) bankRead(ctx *Ctx, b uint8) uint32 {
-	if int(b) < MaxBanks {
-		return ctx.Bank[b]
+func (e *Evaluator) bankRead(ctx *Ctx, b uint8) uint32 { return *e.bankAt(ctx, b) }
+
+// bankAt is bank b: the hex's own A to D, or the board's X and Y.
+func (e *Evaluator) bankAt(ctx *Ctx, b uint8) *uint32 {
+	switch {
+	case b < MaxBanks:
+		return &ctx.Bank[b]
+	case b < NumBanks && ctx.Board != nil:
+		return &ctx.Board[b-MaxBanks]
 	}
-	return 0
+	return &e.board[(b-MaxBanks)%BoardBanks]
 }

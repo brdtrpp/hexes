@@ -100,7 +100,15 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	if t.Trigger == Periodic && c.p.Period <= 0 {
 		c.p.Period = DefaultPeriod
 	}
-	if err := c.level(h, trig, 0, RegOrigin, RegSubject, map[*Hex]bool{h: true}); err != nil {
+	seen := map[*Hex]bool{h: true}
+	landing := uint8(RegSubject)
+	if t.Trigger == Watch {
+		var err error
+		if landing, err = c.watch(h, trig, t, seen); err != nil {
+			return nil, err
+		}
+	}
+	if err := c.level(h, trig, 0, RegOrigin, landing, seen); err != nil {
 		return nil, err
 	}
 	if t.Quirk == QuirkEcho {
@@ -126,6 +134,7 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 		}
 	}
 	c.p.Heat += c.dockHeat
+	c.p.Inert = !acts(c.p.Steps[c.p.WatchSteps:])
 	c.p.Docked = uint8(c.docked)
 	c.p.Shape = shape.Kind
 	c.p.Regs = int(c.next)
@@ -169,7 +178,7 @@ func (c *compiler) emit(s Step) int {
 
 // useBank notes a bank the program touches, and the first spend on it.
 func (c *compiler) useBank(p Part) {
-	b := p.Bank % MaxBanks
+	b := p.Bank % NumBanks
 	c.p.Banks |= 1 << b
 	if p.Kind == KindGate && p.Gate == GateSpend && c.p.Spend[b] == 0 {
 		c.p.Spend[b] = p.Count
@@ -320,7 +329,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				}
 			}
 			i := c.emit(Step{Op: OpGate, Gate: p.Gate, Src: in, Dst: yes, Dst2: no,
-				Type: p.Type, Count: count, Value: p.Value, Bank: p.Bank % MaxBanks})
+				Type: p.Type, Count: count, Value: p.Value, Bank: p.Bank % NumBanks})
 			fed[s] = span{i, i + 1, true}
 			carry[s] = int(yes)
 			c.cost(p, depth)
@@ -343,7 +352,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			if p.Charge == ChargeDrain {
 				v = -v
 			}
-			i := c.emit(Step{Op: OpCharge, Src: guard, Src2: guard, Bank: p.Bank % MaxBanks, Value: v})
+			i := c.emit(Step{Op: OpCharge, Src: guard, Src2: guard, Bank: p.Bank % NumBanks, Value: v})
 			fed[s] = span{i, i + 1, true}
 			c.cost(p, depth)
 			c.useBank(p)
@@ -623,6 +632,99 @@ func (c *compiler) callLib(lib *Hex, p Part, origin, src uint8, depth int, seen 
 		}
 	}
 	return ret, nil
+}
+
+// watch compiles a watch trigger's check at the front of the program and
+// returns where the hex's effects land when it fires: who the check
+// found, or the usual subject when the check only read the rig. The
+// check costs nothing here; the dispatcher charges WatchHeat for each.
+func (c *compiler) watch(h *Hex, trig int, t Part, seen map[*Hex]bool) (uint8, error) {
+	pw, ht, dh := c.p.Power, c.p.Heat, c.dockHeat
+	defer func() { c.p.Power, c.p.Heat, c.dockHeat = pw, ht, dh }()
+	switch {
+	case t.Lib != "":
+		lib := h.Libs[trig]
+		if lib == nil {
+			return RegSubject, nil // watches nothing until the library is on the board
+		}
+		if why := finderOnly(lib); why != "" {
+			return 0, fmt.Errorf("a watched library can only pick and test foes, and %s %s", lib.Name, why)
+		}
+		ret, err := c.callLib(lib, Part{Kind: KindCall, Lib: t.Lib}, RegOrigin, RegSubject, 0, seen)
+		if err != nil {
+			return 0, err
+		}
+		c.p.WatchSteps, c.p.WatchRet = len(c.p.Steps), ret
+		return ret, nil
+	case t.Cond.Len() > 0:
+		cp, err := t.Cond.Compile()
+		if err != nil {
+			return 0, fmt.Errorf("the watch's condition: %w", err)
+		}
+		src := uint8(RegCaster)
+		if cp.Foe {
+			if src, err = c.alloc(); err != nil {
+				return 0, err
+			}
+			c.emit(Step{Op: OpSelect, Target: TargetAdjacent, Src: RegOrigin, Dst: src, Value: WatchRange})
+		}
+		yes, err := c.alloc()
+		if err != nil {
+			return 0, err
+		}
+		no, err := c.alloc()
+		if err != nil {
+			return 0, err
+		}
+		for _, tl := range t.Cond.Tiles() {
+			if tl.K == TileBank {
+				c.useBank(Part{Kind: KindCharge, Bank: tl.B})
+			}
+		}
+		c.emit(Step{Op: OpGate, Gate: GateCond, Src: src, Dst: yes, Dst2: no, Count: uint8(len(c.p.Conds))})
+		c.p.Conds = append(c.p.Conds, cp)
+		c.p.WatchSteps, c.p.WatchRet = len(c.p.Steps), yes
+		if cp.Foe {
+			return yes, nil
+		}
+		return RegSubject, nil
+	}
+	return RegSubject, nil
+}
+
+// acts reports whether steps do anything when they run: hit, push,
+// afflict, charge a bank or call a hex. An equipped hex that doesn't act
+// is Inert and won't fire, so it never spends Power for nothing.
+func acts(steps []Step) bool {
+	for _, s := range steps {
+		switch s.Op {
+		case OpDamage, OpPush, OpStatus, OpCharge, OpCall:
+			return true
+		}
+	}
+	return false
+}
+
+// finderOnly says what in a library hex does more than pick and test
+// foes, or "" if nothing does: a watch runs its library on every check.
+func finderOnly(lib *Hex) string {
+	for i, sl := range lib.Slots {
+		if !lib.Shape.Has(i) {
+			continue
+		}
+		switch {
+		case sl.Kind == SlotNested:
+			return "holds a nested hex in slot " + lib.SlotName(i)
+		case sl.Kind != SlotPart:
+		case sl.Part.Kind == KindEffect:
+			return "acts in slot " + lib.SlotName(i)
+		case sl.Part.Kind == KindCharge, sl.Part.Kind == KindCall:
+			return "has a " + sl.Part.Kind.String() + " in slot " + lib.SlotName(i)
+		case sl.Part.Kind == KindGate && sl.Part.Gate == GateSpend:
+			return "spends a bank in slot " + lib.SlotName(i)
+		}
+	}
+	return ""
 }
 
 // MaxCallDepth is how deep run-now calls may nest (a library calling a

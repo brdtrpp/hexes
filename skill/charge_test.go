@@ -252,8 +252,8 @@ func TestChargeCompileDetails(t *testing.T) {
 	if g.Set(2, NewCharge(0, 1)) != nil {
 		t.Fatal("charge should fit an effect socket")
 	}
-	// Bank letters wrap and only bank parts take them.
-	if NewCharge(3, 1).WithBank(4).Bank != 0 || NewDamage(0, 5).WithBank(2).Bank != 0 {
+	// Bank letters run A to D then the board's X and Y, wrap, and only bank parts take them.
+	if NewCharge(3, 1).WithBank(4).Bank != 4 || NewCharge(3, 1).WithBank(6).Bank != 0 || NewDamage(0, 5).WithBank(2).Bank != 0 {
 		t.Fatal("WithBank")
 	}
 	// An echo hex counts twice.

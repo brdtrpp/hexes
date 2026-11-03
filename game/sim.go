@@ -76,6 +76,8 @@ type Input struct {
 	Cast         [MaxSlots]bool
 	Vent         bool
 	Restart      bool
+	// Hold is whether CAST is held down, for channel hexes.
+	Hold bool
 }
 
 // Tuning for the slice. All of it is placeholder balance.
@@ -122,6 +124,9 @@ type Sim struct {
 	// Banks are each hex's charge banks. They keep their counts through
 	// edits and start empty on every new floor.
 	Banks [skill.MaxEquip]skill.Bank
+	// BoardBanks are the board's shared banks X and Y, which every hex
+	// can charge, spend and read. They start empty on every floor too.
+	BoardBanks skill.BoardBank
 
 	State  State
 	StateT float32
@@ -251,10 +256,12 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	s.Rig = skill.NewRig(s.Points)
 	s.loadLoot(lvl)
 	s.Banks = [skill.MaxEquip]skill.Bank{} // every floor starts uncharged
+	s.BoardBanks = skill.BoardBank{}
 	s.Disp = skill.NewDispatcher(s.Eval, s)
 	s.Disp.Listener = s
 	s.Disp.ProcCooldown[skill.OnHit] = 1.2
-	s.Disp.Equip(s.Player, &s.Rig, s.Load.Progs[:]...).Banks = &s.Banks
+	l := s.Disp.Equip(s.Player, &s.Rig, s.Load.Progs[:]...)
+	l.Banks, l.Board = &s.Banks, &s.BoardBanks
 	s.State, s.StateT = Playing, 0
 	s.strikeCD = 0
 	s.refreshField()
@@ -337,6 +344,7 @@ func (s *Sim) playerInput(dt float32) {
 			s.addFX(FX{Kind: FXVent, At: p.At, Life: 0.6})
 		}
 	}
+	s.Disp.Channel(s.Player, in.Hold && p.U.Alive)
 	for slot, pressed := range in.Cast {
 		if !pressed || s.Load.Progs[slot] == nil {
 			continue

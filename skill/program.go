@@ -91,7 +91,7 @@ type Program struct {
 	// Banks has bit b set when the hex uses charge bank b. Spend[b] is
 	// what the first spend gate on bank b takes (0 if none), for the HUD.
 	Banks uint8
-	Spend [MaxBanks]uint8
+	Spend [NumBanks]uint8
 	// Calls has bit 0 set when the hex calls itself and bit n when it
 	// calls equipped hex n.
 	Calls uint16
@@ -104,6 +104,15 @@ type Program struct {
 	// Conds are the conditions its condition gates test; a GateCond
 	// step's Count indexes them.
 	Conds []CondProg
+	// A watch hex's first WatchSteps steps are its check, which leaves
+	// who it found in register WatchRet; the rest only run when that's
+	// anyone. Zero WatchSteps on a watch hex watches nothing yet.
+	WatchSteps int
+	WatchRet   uint8
+	// Inert is set on a hex with nothing in it that acts (no effect,
+	// charge or call, here or in what it nests, docks or calls). It
+	// doesn't fire: a hex you equip needs one.
+	Inert bool
 }
 
 // CallsHex reports whether the program has a Call aimed at target

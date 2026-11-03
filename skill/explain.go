@@ -38,7 +38,7 @@ func (h *Hex) Use(s int) (what string, ok bool) {
 	p := sl.Part
 	switch p.Kind {
 	case KindTrigger:
-		return "fires the hex", true
+		return triggerUse(h, s, p)
 	case KindTarget:
 		return h.targetUse(s, routes)
 	case KindEffect:
@@ -268,6 +268,31 @@ func (h *Hex) HasTrigger() bool {
 }
 
 // subject is the trigger's own target, in words.
+// triggerUse is what a trigger does; a watch says what it watches.
+func triggerUse(h *Hex, s int, p Part) (string, bool) {
+	switch p.Trigger {
+	case Channel:
+		return "fires the hex while you hold CAST", true
+	case Watch:
+		switch {
+		case p.Lib != "" && h.Libs[s] == nil:
+			return "watches " + p.Lib + ", which isn't on the board", false
+		case p.Lib != "":
+			if why := finderOnly(h.Libs[s]); why != "" {
+				return "can't watch " + p.Lib + ": it " + why, false
+			}
+			return "fires when " + p.Lib + " finds anyone", true
+		case p.Cond.Len() > 0:
+			if _, err := p.Cond.Compile(); err != nil {
+				return "its condition doesn't read yet: " + err.Error(), false
+			}
+			return "fires when " + p.Cond.Text(nil) + " holds", true
+		}
+		return "watches nothing yet: tap it again to pick what it watches", false
+	}
+	return "fires the hex", true
+}
+
 func (h *Hex) subject() string {
 	for i, sl := range h.Slots {
 		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && h.Shape.Has(i) {
@@ -278,6 +303,12 @@ func (h *Hex) subject() string {
 				return "the kill"
 			case OnHurt:
 				return "whoever hit you"
+			case Watch:
+				if p := sl.Part; p.Lib != "" {
+					return "whoever " + p.Lib + " finds"
+				} else if cp, err := p.Cond.Compile(); err == nil && cp.Foe {
+					return "the foes the watch finds"
+				}
 			}
 			return "the nearest foe"
 		}

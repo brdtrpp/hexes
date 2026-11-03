@@ -78,6 +78,11 @@ type Loadout struct {
 	// Nil uses banks inside the loadout, which Equip clears.
 	Banks *[MaxEquip]Bank
 	own   [MaxEquip]Bank
+	// Board is the board's shared banks X and Y. Nil gives each firing an
+	// empty scratch pair.
+	Board *BoardBank
+	// Hold is whether CAST is held down, for channel hexes.
+	Hold bool
 }
 
 // Bank is slot's charge banks.
@@ -90,7 +95,7 @@ func (l *Loadout) Bank(slot int) *Bank {
 
 // Stats counts what the dispatcher did, for tuning and tests.
 type Stats struct {
-	Events, Fired, NoPower, Locked, OnCooldown, ChainCut, Dropped int
+	Events, Fired, NoPower, Locked, OnCooldown, ChainCut, Dropped, Checks int
 }
 
 // Dispatcher routes events to loadouts.
@@ -153,11 +158,37 @@ func (d *Dispatcher) Equip(owner EntityID, rig *Rig, progs ...*Program) *Loadout
 			break
 		}
 		l.Progs[i] = p
-		if p != nil && p.Trigger == Periodic {
-			l.Timer[i] = p.Period
-		}
+		l.Timer[i] = startTimer(p)
 	}
 	return l
+}
+
+// startTimer is a slot's timer when its hex is first equipped.
+func startTimer(p *Program) float32 {
+	switch {
+	case p == nil:
+	case p.Trigger == Periodic:
+		return p.Period
+	case p.Trigger == Watch:
+		return WatchEvery
+	}
+	return 0
+}
+
+// StartTimer resets a slot's timer for a newly edited hex: a periodic
+// hex waits a full period, a watch a check, a channel fires at once.
+func (l *Loadout) StartTimer(slot int) {
+	if slot >= 0 && slot < MaxEquip {
+		l.Timer[slot] = startTimer(l.Progs[slot])
+	}
+}
+
+// Channel tells the dispatcher whether owner is holding CAST: channel
+// hexes run every ChannelEvery seconds while it's held.
+func (d *Dispatcher) Channel(owner EntityID, held bool) {
+	if l := d.Loadout(owner); l != nil {
+		l.Hold = held
+	}
 }
 
 // Unequip drops owner's loadout, for when it dies or leaves.
@@ -191,7 +222,15 @@ func (d *Dispatcher) Update(dt float32) {
 				continue
 			}
 			l.Cool[s] = max(0, l.Cool[s]-dt)
-			if p.Trigger != Periodic {
+			switch p.Trigger {
+			case Channel:
+				d.channel(l, s, dt)
+				continue
+			case Watch:
+				d.watch(l, s, dt)
+				continue
+			case Periodic:
+			default:
 				continue
 			}
 			l.Timer[s] -= dt
@@ -205,6 +244,50 @@ func (d *Dispatcher) Update(dt float32) {
 		}
 	}
 	d.drain()
+}
+
+// channel runs a held channel hex: at once on the press, then every
+// ChannelEvery seconds until it's let go or the rig locks.
+func (d *Dispatcher) channel(l *Loadout, s int, dt float32) {
+	if !l.Hold {
+		l.Timer[s] = 0
+		return
+	}
+	l.Timer[s] -= dt
+	if l.Timer[s] > 0 {
+		return
+	}
+	l.Timer[s] += ChannelEvery
+	if l.Timer[s] <= 0 {
+		l.Timer[s] = ChannelEvery
+	}
+	d.push(Event{Trigger: Channel, Actor: l.Owner, Subject: NoEntity, Slot: int8(s)})
+}
+
+// watch checks a watch hex every WatchEvery seconds, paying WatchHeat
+// each time whatever it finds, and fires it when the check finds anyone.
+// After firing it rests WatchRest seconds. A locked rig doesn't check.
+func (d *Dispatcher) watch(l *Loadout, s int, dt float32) {
+	l.Timer[s] -= dt
+	if l.Timer[s] > 0 {
+		return
+	}
+	l.Timer[s] = WatchEvery
+	p := l.Progs[s]
+	u := d.World.Unit(l.Owner)
+	if p.WatchSteps == 0 || l.Rig.Locked() || u == nil || !u.Alive {
+		return
+	}
+	l.Rig.AddHeat(WatchHeat)
+	d.Stats.Checks++
+	ctx := Ctx{Caster: l.Owner, Subject: NoEntity, Level: u.Level, Rig: l.Rig, Bank: l.Bank(s), Board: l.Board}
+	if d.Eval.Check(p, d.World, ctx) == 0 {
+		return
+	}
+	d.chain = 0
+	if d.fire(l, s, Event{Trigger: Watch, Actor: l.Owner, Subject: NoEntity, Slot: int8(s)}) == Fired {
+		l.Timer[s] = WatchRest
+	}
 }
 
 // Cast is a button press on one slot. Only on-cast slots answer it. If
@@ -344,6 +427,8 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 	var o Outcome
 	var res Result
 	switch {
+	case p.Inert:
+		o = Empty
 	case l.Cool[slot] > 0:
 		o = OnCooldown
 		d.Stats.OnCooldown++
@@ -359,7 +444,7 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 		l.Cool[slot] = d.ProcCooldown[p.Trigger]
 		d.chain = ev.Chain
 		res = d.Eval.Run(p, d.World, Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level, Rig: l.Rig,
-			Bank: l.Bank(slot), Calls: &l.Progs})
+			Bank: l.Bank(slot), Calls: &l.Progs, Board: l.Board})
 	}
 	if d.Listener != nil {
 		d.Listener.Fired(l.Owner, slot, p, o, res)

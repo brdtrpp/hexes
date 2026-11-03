@@ -24,6 +24,8 @@ type condEd struct {
 	sel  int // picked tile in the row, or -1
 	msg  string
 	bad  bool
+	// watch is set when the condition belongs to a watch trigger.
+	watch bool
 }
 
 // condLayout is where the condition editor's pieces sit.
@@ -109,14 +111,26 @@ func (g *Game) condLayout() condLayout {
 // openCond opens the condition editor on the gate in hex's slot.
 func (g *Game) openCond(hex, slot int) bool {
 	sl := g.sim.Load.Hex(hex).Slots[slot]
-	if sl.Kind != skill.SlotPart || sl.Part.Kind != skill.KindGate {
+	if sl.Kind != skill.SlotPart {
 		return false
 	}
-	c, ok := skill.PresetCond(sl.Part)
-	if !ok {
+	var c skill.Cond
+	watch := sl.Part.Kind == skill.KindTrigger && sl.Part.Trigger == skill.Watch
+	switch {
+	case watch:
+		c = sl.Part.Cond
+		if c.Len() == 0 {
+			c = skill.Cond{{K: skill.TileHull}, {K: skill.TileLess, V: 0.5}}
+		}
+	case sl.Part.Kind == skill.KindGate:
+		var ok bool
+		if c, ok = skill.PresetCond(sl.Part); !ok {
+			return false
+		}
+	default:
 		return false
 	}
-	g.cd = condEd{on: true, hex: hex, slot: slot, c: c, sel: c.Len() - 1}
+	g.cd = condEd{on: true, hex: hex, slot: slot, c: c, sel: c.Len() - 1, watch: watch}
 	g.condCheck()
 	return true
 }
@@ -127,6 +141,14 @@ func (g *Game) condCheck() {
 	p, err := cd.c.Compile()
 	if err != nil {
 		cd.msg, cd.bad = "Not yet: "+err.Error()+".", true
+		return
+	}
+	if cd.watch {
+		who := fmt.Sprintf("Tests each foe within %g hexes and lands on the ones that pass.", skill.WatchRange)
+		if !p.Foe {
+			who = "Reads only the rig, and lands on the nearest foe."
+		}
+		cd.msg, cd.bad = fmt.Sprintf("WATCH %s. %s Adds %g heat every %g s check.", cd.c.Text(g.sim.Reg), who, skill.WatchHeat, skill.WatchEvery), false
 		return
 	}
 	how := "Tests each foe and splits the group."
@@ -284,7 +306,7 @@ func (g *Game) condCycle(i int) {
 		}
 		t.T = ts[0]
 	case t.K == skill.TileBank:
-		t.B = (t.B + 1) % skill.MaxBanks
+		t.B = (t.B + 1) % skill.NumBanks
 	case t.K.Compare():
 		for range 3 {
 			t.K = skill.TileLess + (t.K-skill.TileLess+1)%3
@@ -324,7 +346,11 @@ func (g *Game) drawCond(screen *ebiten.Image) {
 	cd := &g.cd
 	sim := g.sim
 	g.drawRect(screen, rect{0, 0, float64(g.w), float64(g.h)}, fade(colPanel, 1), fade(colPanel, 1))
-	g.label(screen, g.face, "IF  ·  build the gate's condition", l.panel.x, l.panel.y+12*g.k, colGate, false)
+	title := "IF  ·  build the gate's condition"
+	if g.cd.watch {
+		title = "WATCH  ·  build what the watch looks for"
+	}
+	g.label(screen, g.face, title, l.panel.x, l.panel.y+12*g.k, colGate, false)
 	n := cd.c.Len()
 	for i := 0; i < skill.MaxCondTiles; i++ {
 		r := l.row[i]

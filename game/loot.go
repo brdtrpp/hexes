@@ -377,6 +377,37 @@ func (s *Sim) CycleCall(hex, slot int) bool {
 	return false
 }
 
+// CycleWatch points a watch trigger at the next thing it can watch: its
+// own condition (Lib ""), then each library hex on the board that only
+// picks and tests foes. It reports whether the slot held a watch and what
+// it watches now.
+func (s *Sim) CycleWatch(hex, slot int) (lib string, ok bool) {
+	if !s.Load.Has(hex) || slot < 0 || slot >= skill.Slots {
+		return "", false
+	}
+	sl := &s.Load.Hex(hex).Slots[slot]
+	if sl.Kind != skill.SlotPart || sl.Part.Kind != skill.KindTrigger || sl.Part.Trigger != skill.Watch {
+		return "", false
+	}
+	old := sl.Part
+	opts := append([]string{""}, s.Load.LibNames()...)
+	cur := 0
+	for i, o := range opts {
+		if o == old.Lib {
+			cur = i
+		}
+	}
+	for k := 1; k <= len(opts); k++ {
+		sl.Part.Lib = opts[(cur+k)%len(opts)]
+		if s.recompile(hex) == nil {
+			return sl.Part.Lib, true
+		}
+	}
+	sl.Part = old
+	_ = s.recompile(hex)
+	return old.Lib, true
+}
+
 // callTarget is one place a Call can point: an equipped hex by number
 // (run later) or a library hex by name (run now).
 type callTarget struct {

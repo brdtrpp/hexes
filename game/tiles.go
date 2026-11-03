@@ -133,8 +133,9 @@ func (s *Sim) SetCond(hex, slot int, c skill.Cond) error {
 		return errors.New("no such slot")
 	}
 	sl := &s.Load.Hex(hex).Slots[slot]
-	if sl.Kind != skill.SlotPart || sl.Part.Kind != skill.KindGate || sl.Part.Gate.Charged() {
-		return errors.New("only an IF gate holds a condition")
+	watch := sl.Kind == skill.SlotPart && sl.Part.Kind == skill.KindTrigger && sl.Part.Trigger == skill.Watch
+	if !watch && (sl.Kind != skill.SlotPart || sl.Part.Kind != skill.KindGate || sl.Part.Gate.Charged()) {
+		return errors.New("only an IF gate or a watch holds a condition")
 	}
 	if missing := c.Uses() &^ s.KnownTiles(); missing != 0 {
 		for k := skill.TileHull; k < skill.NumTiles; k++ {
@@ -147,7 +148,11 @@ func (s *Sim) SetCond(hex, slot int, c skill.Cond) error {
 		return err
 	}
 	old := sl.Part
-	sl.Part = old.WithCond(c)
+	if watch {
+		sl.Part.Cond, sl.Part.Lib = c, ""
+	} else {
+		sl.Part = old.WithCond(c)
+	}
 	if err := s.recompile(hex); err != nil {
 		sl.Part = old
 		return err

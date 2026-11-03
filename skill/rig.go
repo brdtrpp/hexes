@@ -69,6 +69,16 @@ func (r *Rig) TryFire(p *Program) bool {
 	return true
 }
 
+// AddHeat adds Heat outside a firing, like a watch's check. Reaching max
+// heat shuts the rig down.
+func (r *Rig) AddHeat(h float32) {
+	r.Heat = max(0, r.Heat+h)
+	if r.Heat >= r.MaxHeat {
+		r.Heat = r.MaxHeat
+		r.ShutdownLeft = OverheatShutdown
+	}
+}
+
 // Tick recharges and vents.
 func (r *Rig) Tick(dt float32) {
 	r.Power = min(r.MaxPower, r.Power+r.RechargeRate*dt)

@@ -254,9 +254,13 @@ func (g *Game) Update() error {
 		press(int(id), float64(x), float64(y))
 	}
 	held := false
+	in.Hold = ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsKeyPressed(ebiten.KeyJ)
 	for _, id := range ebiten.AppendTouchIDs(nil) {
 		x, y := ebiten.TouchPosition(id)
 		fx, fy := float64(x), float64(y)
+		if g.cast.hit(fx, fy) {
+			in.Hold = true
+		}
 		switch {
 		case g.stick.On && int(id) == g.stick.ID:
 			g.stick.Move(fx, fy)
@@ -271,6 +275,9 @@ func (g *Game) Update() error {
 		press(mouseID, fmx, fmy)
 	}
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
+		if g.cast.hit(fmx, fmy) {
+			in.Hold = true
+		}
 		switch {
 		case g.stick.On && g.stick.ID == mouseID:
 			g.stick.Move(fmx, fmy)
@@ -625,10 +632,12 @@ func (g *Game) bankText(i int) (string, float64) {
 	if p == nil || p.Banks == 0 {
 		return "", -1
 	}
-	b := &g.sim.Banks[i]
+	var b [skill.NumBanks]uint32
+	copy(b[:], g.sim.Banks[i][:])
+	copy(b[skill.MaxBanks:], g.sim.BoardBanks[:])
 	var parts []string
 	frac := -1.0
-	for k := 0; k < skill.MaxBanks; k++ {
+	for k := 0; k < skill.NumBanks; k++ {
 		if !p.UsesBank(k) {
 			continue
 		}

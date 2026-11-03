@@ -53,12 +53,40 @@ const (
 	FromBehind                     // cast at a foe's back
 	Periodic                       // fires on its own every Period seconds
 	OnHurt                         // caster takes a hit; subject is the attacker
+	Channel                        // fires every ChannelEvery seconds while CAST is held
+	Watch                          // fires when its condition or library hex comes out true
 )
 
 // NumTriggers is how many trigger kinds exist.
-const NumTriggers = 7
+const NumTriggers = 9
 
-var triggerNames = [...]string{"on-cast", "on-hit", "on-kill", "from-stealth", "from-behind", "periodic", "on-hurt"}
+var triggerNames = [...]string{"on-cast", "on-hit", "on-kill", "from-stealth", "from-behind", "periodic", "on-hurt", "channel", "watch"}
+
+// Tier is how rare a trigger kind is: it drops only at that tier.
+func (t TriggerKind) Tier() Rarity {
+	switch t {
+	case OnCast:
+		return Common
+	case OnHit, OnKill, OnHurt:
+		return Uncommon
+	case Watch:
+		return Exotic
+	}
+	return Rare
+}
+
+// Channel and watch timing (placeholders to tune in play). A channel hex
+// runs every ChannelEvery seconds while held, paying its cost each run. A
+// watch checks every WatchEvery seconds, paying WatchHeat each check true
+// or not, and rests WatchRest seconds after it fires. A watch with a
+// condition that reads foes tests the foes within WatchRange hexes.
+const (
+	ChannelEvery float32 = 0.25
+	WatchEvery   float32 = 0.25
+	WatchHeat    float32 = 0.5
+	WatchRest    float32 = 1
+	WatchRange   float32 = 4
+)
 
 func (t TriggerKind) String() string { return triggerNames[t] }
 
@@ -177,12 +205,26 @@ func (c ChargeKind) String() string { return chargeNames[c] }
 // letter share it, nested hexes included.
 const MaxBanks = 4
 
+// BoardBanks is how many shared board banks (X, Y) there are. Bank
+// numbers MaxBanks and up name them: any hex can charge, spend and read
+// them. NumBanks is every bank a part can name.
+const (
+	BoardBanks = 2
+	NumBanks   = MaxBanks + BoardBanks
+)
+
+// BoardBank is the board's shared banks, X and Y.
+type BoardBank [BoardBanks]uint32
+
 // BankName is a bank's letter.
 func BankName(b uint8) string {
-	if b >= MaxBanks {
-		return "?"
+	switch {
+	case b < MaxBanks:
+		return string(rune('A' + b))
+	case b < NumBanks:
+		return string(rune('X' + b - MaxBanks))
 	}
-	return string(rune('A' + b))
+	return "?"
 }
 
 // Charge defaults.
@@ -552,7 +594,7 @@ func NewCharge(bank uint8, amount float32) Part {
 	if amount <= 0 {
 		amount = 1
 	}
-	return Part{Kind: KindCharge, Charge: ChargeAdd, Bank: bank % MaxBanks, Value: amount, Power: ChargePowerCost}
+	return Part{Kind: KindCharge, Charge: ChargeAdd, Bank: bank % NumBanks, Value: amount, Power: ChargePowerCost}
 }
 
 // NewDrain takes amount off a bank every time its slot runs, never below
@@ -570,12 +612,12 @@ func NewSpendGate(bank uint8, n uint8) Part {
 	if n == 0 {
 		n = DefaultSpendEvery
 	}
-	return Part{Kind: KindGate, Gate: GateSpend, Bank: bank % MaxBanks, Count: n, Power: GatePowerCost}
+	return Part{Kind: KindGate, Gate: GateSpend, Bank: bank % NumBanks, Count: n, Power: GatePowerCost}
 }
 
 // NewEmptyGate passes its group when the bank is zero.
 func NewEmptyGate(bank uint8) Part {
-	return Part{Kind: KindGate, Gate: GateEmpty, Bank: bank % MaxBanks, Power: GatePowerCost}
+	return Part{Kind: KindGate, Gate: GateEmpty, Bank: bank % NumBanks, Power: GatePowerCost}
 }
 
 // NewCall makes a Call part that runs hex target (CallSelf, or n for
@@ -598,11 +640,17 @@ const MaxOpts = 3
 // RunsNow reports whether the part is a run-now Call to a library hex.
 func (p Part) RunsNow() bool { return p.Kind == KindCall && p.Lib != "" }
 
+// Watches reports whether the part is a watch trigger on a library hex.
+func (p Part) Watches() bool { return p.Kind == KindTrigger && p.Trigger == Watch && p.Lib != "" }
+
+// NeedsLib reports whether the part names a library hex to link.
+func (p Part) NeedsLib() bool { return p.RunsNow() || p.Watches() }
+
 // WithBank returns the part reading a different bank. Only Charge parts
 // and charge gates have one; anything else comes back unchanged.
 func (p Part) WithBank(b uint8) Part {
 	if p.Kind == KindCharge || (p.Kind == KindGate && p.Gate.Charged()) {
-		p.Bank = b % MaxBanks
+		p.Bank = b % NumBanks
 	}
 	return p
 }

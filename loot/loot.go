@@ -113,11 +113,12 @@ func NewTable(reg *skill.Registry) *Table {
 }
 
 // Kind weights: effect, target, multiplier, trigger, gate, charge, call.
-var kindWeights = [...]float32{40, 22, 22, 16, 10, 8, 7}
+// Triggers are rare finds, about 1 drop in 25.
+var kindWeights = [...]float32{40, 22, 22, 4.5, 10, 8, 7}
 
 // Exotics always carry a quirk, so they skip targets, gates, charges and
-// calls, which have none.
-var exoticKindWeights = [...]float32{45, 0, 30, 25, 0, 0, 0}
+// calls, which have none. The exotic trigger is the watch.
+var exoticKindWeights = [...]float32{45, 0, 30, 4, 0, 0, 0}
 
 var partKinds = [...]skill.PartKind{skill.KindEffect, skill.KindTarget, skill.KindMult, skill.KindTrigger, skill.KindGate, skill.KindCharge, skill.KindCall}
 
@@ -144,9 +145,11 @@ const (
 	SpendMax = 8
 )
 
+// Trigger weights within a tier: a trigger's kind sets its tier (see
+// TriggerKind.Tier), so a rarity roll picks among the kinds of that tier.
 var triggerWeights = [...]float32{
 	skill.OnCast: 26, skill.OnHit: 20, skill.OnKill: 20, skill.FromStealth: 4,
-	skill.FromBehind: 4, skill.Periodic: 16, skill.OnHurt: 10,
+	skill.FromBehind: 4, skill.Periodic: 16, skill.OnHurt: 10, skill.Channel: 12, skill.Watch: 1,
 }
 
 var targetWeights = [...]float32{
@@ -184,7 +187,7 @@ func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
 	var p skill.Part
 	switch partKinds[r.pick(kw)] {
 	case skill.KindTrigger:
-		p = t.trigger(r)
+		p = t.trigger(r, rar)
 	case skill.KindTarget:
 		p = t.target(r)
 	case skill.KindEffect:
@@ -218,8 +221,14 @@ func quirkFor(p skill.Part) skill.Quirk {
 	return skill.QuirkNone
 }
 
-func (t *Table) trigger(r *RNG) skill.Part {
-	k := skill.TriggerKind(r.pick(triggerWeights[:]))
+func (t *Table) trigger(r *RNG, rar skill.Rarity) skill.Part {
+	w := triggerWeights
+	for k := range w {
+		if skill.TriggerKind(k).Tier() != rar {
+			w[k] = 0
+		}
+	}
+	k := skill.TriggerKind(r.pick(w[:]))
 	if k == skill.Periodic {
 		return skill.NewPeriodic(half(r.Range(2.5, 5.5)))
 	}

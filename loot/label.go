@@ -32,6 +32,16 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			title = "BEHIND"
 		case skill.Periodic:
 			return "EVERY", fmt.Sprintf("%gs", p.Period)
+		case skill.Channel:
+			return "CHANNEL", "hold CAST"
+		case skill.Watch:
+			switch {
+			case p.Lib != "":
+				return "WATCH", p.Lib
+			case p.Cond.Len() > 0:
+				return "WATCH", CondShort(p.Cond, reg)
+			}
+			return "WATCH", "tap to set"
 		}
 		if p.Value != 1 {
 			return title, fmt.Sprintf("x%g dmg", p.Value)
@@ -122,6 +132,11 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 		fmt.Fprintf(&b, " %+.0f heat", p.Heat)
 	}
 	switch {
+	case p.Kind == skill.KindTrigger && p.Trigger == skill.Channel:
+		fmt.Fprintf(&b, ". While you hold CAST the hex runs every %g s, paying its cost each run, until you let go or overheat", skill.ChannelEvery)
+	case p.Kind == skill.KindTrigger && p.Trigger == skill.Watch:
+		fmt.Fprintf(&b, ". Checks every %g s, adding %g Heat each check whatever it finds. It fires when its condition holds for a foe within %g hexes (or for your rig), or when the library hex it watches returns anyone, and lands on who it found. Then it rests %g s. In a hex, tap it again to switch between a condition and a library hex",
+			skill.WatchEvery, skill.WatchHeat, skill.WatchRange, skill.WatchRest)
 	case p.Kind == skill.KindGate && p.Gate == skill.GateSpend:
 		fmt.Fprintf(&b, ". Once bank %s holds %d it spends them and the next slot clockwise fires, else the slot after it",
 			skill.BankName(p.Bank), p.Count)

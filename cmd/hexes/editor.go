@@ -369,6 +369,13 @@ func (g *Game) edCycle() bool {
 		e.msg, e.bad = "Now calls "+g.callName(e.hex, p, false)+".", false
 		return true
 	}
+	if lib, ok := sim.CycleWatch(e.hex, e.at); ok {
+		if lib != "" {
+			e.msg, e.bad = "Now watches "+lib+": fires when it finds anyone.", false
+			return true
+		}
+		return g.openCond(e.hex, e.at)
+	}
 	return g.openCond(e.hex, e.at)
 }
 
@@ -395,6 +402,8 @@ func (g *Game) edResult(err error) {
 	e.msg, e.bad = fmt.Sprintf("%s rebuilt: %.0f power, %.0f heat per firing.", g.sim.Load.Name(e.hex), pw, ht), false
 	if g.sim.Load.IsMod(e.hex) {
 		e.msg = fmt.Sprintf("%s rebuilt: adds %.0f power, %.0f heat to whatever docks into it.", g.sim.Load.Name(e.hex), pw, ht)
+	} else if p := g.sim.Load.Progs[e.hex]; p != nil && p.Inert {
+		e.msg, e.bad = fmt.Sprintf("%s won't fire yet: an equipped hex needs an effect, a charge or a call.", g.sim.Load.Name(e.hex)), true
 	}
 }
 
@@ -687,7 +696,14 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 		if s.Kind == skill.SlotPart && s.Part.UsesBank() && e.hex < game.MaxSlots {
 			b := s.Part.Bank
-			top = append(top, fmt.Sprintf("%s = %d", skill.BankName(b), sim.Banks[e.hex][b]))
+			v := uint32(0)
+			switch {
+			case b < skill.MaxBanks:
+				v = sim.Banks[e.hex][b]
+			case b < skill.NumBanks:
+				v = sim.BoardBanks[b-skill.MaxBanks]
+			}
+			top = append(top, fmt.Sprintf("%s = %d", skill.BankName(b), v))
 		}
 		if i == loop {
 			top = append(top, "LOOPS TO "+h.SlotName(h.TriggerSlot()))
@@ -873,6 +889,10 @@ func triggerName(p *skill.Program) string {
 		return "CAST"
 	case skill.Periodic:
 		return fmt.Sprintf("every %g s", p.Period)
+	case skill.Channel:
+		return "HOLD"
+	case skill.Watch:
+		return "WATCH"
 	}
 	return p.Trigger.String()
 }
@@ -951,11 +971,20 @@ func (g *Game) drawDrops(screen *ebiten.Image) {
 // slotKey is the second line of a HUD card: how the hex fires.
 func (g *Game) slotKey(i int) string {
 	p := g.sim.Load.Progs[i]
-	if p.Trigger == skill.OnCast {
+	if p.Inert {
+		return "NEEDS EFFECT"
+	}
+	switch p.Trigger {
+	case skill.OnCast:
 		if g.touched || float64(g.w) < 700*g.k {
 			return "CAST"
 		}
 		return "SPACE"
+	case skill.Channel:
+		if g.touched || float64(g.w) < 700*g.k {
+			return "HOLD CAST"
+		}
+		return "HOLD SPACE"
 	}
 	return triggerName(p)
 }

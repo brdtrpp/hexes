@@ -164,7 +164,7 @@ func (l *Loadout) Link() {
 			switch {
 			case sl.Kind == skill.SlotNested:
 				link(sl.Nested, depth+1)
-			case sl.Kind == skill.SlotPart && sl.Part.RunsNow():
+			case sl.Kind == skill.SlotPart && sl.Part.NeedsLib():
 				h.Libs[s] = l.Lib(sl.Part.Lib)
 			}
 		}
@@ -418,10 +418,7 @@ func (s *Sim) rebuildAll(edited int) error {
 		l.Progs[i] = p
 		if i == edited {
 			l.Cool[i] = 0
-			l.Timer[i] = 0
-			if p.Trigger == skill.Periodic {
-				l.Timer[i] = p.Period
-			}
+			l.StartTimer(i)
 		}
 	}
 	return nil
