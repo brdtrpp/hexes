@@ -234,3 +234,15 @@ func TestPickupMarksFreshAndRevisitRollsNewLoot(t *testing.T) {
 		t.Fatal("a second visit dropped exactly the same loot")
 	}
 }
+
+// A cache saved where the regenerated floor now has rock moves next to the
+// arrival point instead of being lost.
+func TestStaleCacheMovesNextToStart(t *testing.T) {
+	s := New(11)
+	s.Cache = Cache{Active: true, Depth: 3, At: skill.Coord{Q: -500, R: 2}, N: 1}
+	s.load(3, 1)
+	f := s.Floor
+	if !s.Cache.Active || !f.At(s.Cache.At).Walkable() || skill.Dist(s.Cache.At, f.Start) != 1 {
+		t.Fatalf("cache at %v (%s), start %v", s.Cache.At, f.At(s.Cache.At), f.Start)
+	}
+}

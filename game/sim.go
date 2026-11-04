@@ -274,6 +274,17 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	s.State, s.StateT = Playing, 0
 	s.strikeCD = 0
 	s.refreshField()
+	// A cache saved before floors changed shape can sit in rock or out of
+	// reach on the regenerated floor; move it next to where you arrive.
+	if c := &s.Cache; c.Active && c.Depth == depth && (!f.In(c.At) || s.dist[f.Index(c.At)] <= 0) {
+		c.At = f.Start
+		for _, d := range skill.HexDirs {
+			if n := f.Start.Add(d); f.In(n) && s.dist[f.Index(n)] == 1 {
+				c.At = n
+				break
+			}
+		}
+	}
 	s.Dirty = true
 }
 

@@ -129,6 +129,7 @@ type Game struct {
 	dev       devState   // headless screenshot autopilot (devshots_other.go)
 	look      lookState  // world look: tiles, actors, light (look.go)
 	sndBtn    pill       // mute toggle
+	mm        minimap    // explored-floor chart (minimap.go)
 }
 
 func newGame() *Game {
@@ -360,6 +361,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawParticles(screen)
 	g.drawLabels(screen)
 	g.drawHUD(screen)
+	g.drawMinimap(screen)
 	if g.ed.on {
 		g.drawEditor(screen)
 	}

@@ -26,27 +26,43 @@ type Params struct {
 	SafeRadius  int     // no enemy spawns this close to the start
 }
 
-// ParamsFor returns the tuning for a depth (1 is the first floor). Floors
-// grow with the square root of depth so deep floors stay playable on a
-// phone; enemy count and level keep climbing, which is the progression.
+// Floor growth. Depth 1 is BaseW x BaseH; every floor down adds GrowW
+// columns and GrowH rows until MaxW x MaxH (reached around depth 17), so
+// each descent is a visibly bigger floor while the deepest ones still
+// generate in a few milliseconds and walk across in well under a minute.
+const (
+	BaseW, BaseH = 36, 26
+	GrowW, GrowH = 4, 3
+	MaxW, MaxH   = 100, 74
+	MaxRooms     = 56
+	MaxEnemies   = 100
+)
+
+// ParamsFor returns the tuning for a depth (1 is the first floor). The
+// floor grows every depth up to a cap; rooms, pits and hazards scale with
+// the floor's area so deeper floors are bigger, not emptier, and enemies
+// per room climb with depth, which is the progression.
 func ParamsFor(depth int) Params {
 	if depth < 1 {
 		depth = 1
 	}
-	s := math.Sqrt(float64(depth))
+	w := min(BaseW+GrowW*(depth-1), MaxW)
+	h := min(BaseH+GrowH*(depth-1), MaxH)
+	area := float64(w*h) / float64(BaseW*BaseH) // 1 at depth 1, about 7.9 at the cap
+	rooms := min(int(7*area), MaxRooms)
 	p := Params{
-		W:           min(30+int(6*s), 90),
-		H:           min(22+int(4*s), 64),
-		Rooms:       min(6+int(1.5*s), 22),
+		W:           w,
+		H:           h,
+		Rooms:       rooms,
 		MinRadius:   2,
 		MaxRadius:   min(3+depth/6, 6),
 		LoopChance:  0.25,
 		WideChance:  0.35,
-		PitClusters: min(2+depth/2, 24),
+		PitClusters: min(int(float64(2+depth/2)*area), 48),
 		PitSize:     min(3+depth/4, 9),
-		Hazards:     min(depth/2, 16),
+		Hazards:     min(int(float64(depth/2)*area), 40),
 		HazardSize:  min(2+depth/5, 7),
-		Enemies:     min(5+int(1.6*float64(depth)), 70),
+		Enemies:     min(int(math.Round(float64(rooms)*(0.8+0.05*float64(depth)))), MaxEnemies),
 		EnemyLevel:  depth,
 		EliteChance: 0,
 		SafeRadius:  6,
@@ -182,7 +198,7 @@ func (g *Generator) connect(f *Floor, rng *rng, p Params) {
 		g.best[i] = 0
 		g.bestD[i] = math.MaxInt
 	}
-	// Prim's on hex distance. n is small (under 25), so O(n^2) is fine.
+	// Prim's on hex distance. n is small (MaxRooms), so O(n^2) is fine.
 	g.inTree[0] = true
 	for i := 1; i < n; i++ {
 		g.bestD[i] = skill.Dist(f.Rooms[0].Center, f.Rooms[i].Center)

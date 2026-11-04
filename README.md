@@ -287,15 +287,17 @@ A floor is a pointy-top hex grid stored as rows, so it looks rectangular on scre
 
 Tests check 3,600 floors (60 seeds by depths 1 to 60) for: walled border, start and stairs connected, every room reachable, valid spawns.
 
-Depth drives everything (`ParamsFor`). Floors grow with the square root of depth so deep floors stay playable on a phone; enemy count and level keep climbing, which is the progression.
+Depth drives everything (`ParamsFor`). Every floor down is bigger: 4 more columns and 3 more rows a depth, from 36x26 at depth 1 to a cap of 100x74 at depth 17 (about 8 times the area). Rooms, pit clusters and hazard clusters scale with the floor's area, so deep floors are bigger, not emptier, and enemies per room climb with depth, which is the progression. The biggest floor still generates in about 4 ms.
 
-| | depth 1 | depth 10 | depth 50 |
-| --- | --- | --- | --- |
-| Size | 36x26 | 48x34 | 72x50 |
-| Rooms | 7 | 10 | 16 |
-| Enemies | 6 | 21 | 70 (cap) |
-| Pit clusters | 2 | 7 | 24 (cap) |
-| Hazard clusters | 0 | 5 | 16 (cap) |
+| | depth 1 | depth 5 | depth 10 | depth 17+ |
+| --- | --- | --- | --- | --- |
+| Size | 36x26 | 52x38 | 72x53 | 100x74 (cap) |
+| Rooms | 7 | 14 | 28 | 55 (cap 56) |
+| Enemies | 6 | 15 | 36 | 91, then 100 (cap) |
+| Pit clusters | 2 | 8 | 28 | 48 (cap) |
+| Hazard clusters | 0 | 4 | 20 | 40 (cap) |
+
+The minimap (top right, under the slots on a phone) charts every hex within 8 of where you've been, and marks the stairs with a ring once you've seen them, plus the salvage cache when it's on this floor. It only redraws when you step onto a new tile.
 
 ## Trigger dispatch (`skill/dispatch.go`)
 

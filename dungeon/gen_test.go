@@ -121,6 +121,25 @@ func TestDepthScales(t *testing.T) {
 	}
 }
 
+// Every floor down is bigger than the one above until the cap, and the
+// cap holds.
+func TestFloorsGrow(t *testing.T) {
+	prev := ParamsFor(1)
+	for d := 2; d <= 60; d++ {
+		p := ParamsFor(d)
+		if p.W*p.H < prev.W*prev.H || p.W > MaxW || p.H > MaxH || p.Rooms > MaxRooms || p.Enemies > MaxEnemies {
+			t.Fatalf("depth %d: %dx%d after %dx%d", d, p.W, p.H, prev.W, prev.H)
+		}
+		if p.W < MaxW && p.W*p.H <= prev.W*prev.H {
+			t.Fatalf("depth %d didn't grow: %dx%d", d, p.W, p.H)
+		}
+		prev = p
+	}
+	if p := ParamsFor(10); p.W*p.H < 3*BaseW*BaseH {
+		t.Fatalf("depth 10 is only %dx%d", p.W, p.H)
+	}
+}
+
 // Pits matter in combat because they sit next to where foes stand: most
 // pits should border open floor.
 func TestPitsAreReachable(t *testing.T) {
