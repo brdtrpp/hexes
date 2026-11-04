@@ -126,6 +126,7 @@ type Game struct {
 	fxs       fxState    // procedural effects (fxdraw.go)
 	snd       soundState // procedural sound (sound.go)
 	sndBtn    pill       // mute toggle
+	mm        minimap    // explored-floor chart (minimap.go)
 }
 
 func newGame() *Game {
@@ -353,6 +354,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawParticles(screen)
 	g.drawLabels(screen)
 	g.drawHUD(screen)
+	g.drawMinimap(screen)
 	if g.ed.on {
 		g.drawEditor(screen)
 	}
