@@ -76,20 +76,28 @@ func (g *Game) openMenu() {
 
 type menuLayout struct {
 	panel, left, right rect
+	// The sound row: volume down, sound on/off (shows the level), up.
+	vdown, vmid, vup rect
 }
 
 func (g *Game) menuLayout() menuLayout {
 	W, H, k := float64(g.w), float64(g.h), g.k
 	pw := math.Min(W-28*k, 440*k)
-	ph := math.Min(H-28*k, 290*k)
+	ph := math.Min(H-28*k, 350*k)
 	px, py := (W-pw)/2, (H-ph)/2
 	gap, bh := 12*k, 50*k
 	bw := (pw - 3*gap) / 2
 	by := py + ph - gap - bh
+	rh := 44 * k
+	ry := by - gap - rh
+	sq := rh * 1.3
 	return menuLayout{
 		panel: rect{px, py, pw, ph},
 		left:  rect{px + gap, by, bw, bh},
 		right: rect{px + 2*gap + bw, by, bw, bh},
+		vdown: rect{px + gap, ry, sq, rh},
+		vmid:  rect{px + 2*gap + sq, ry, pw - 4*gap - 2*sq, rh},
+		vup:   rect{px + pw - gap - sq, ry, sq, rh},
 	}
 }
 
@@ -119,7 +127,14 @@ func (g *Game) updateMenu() bool {
 	}
 	l := g.menuLayout()
 	for _, t := range taps {
+		open := g.menu == menuOpen
 		switch {
+		case open && l.vdown.hit(t[0], t[1]):
+			g.nudgeVolume(-10)
+		case open && l.vup.hit(t[0], t[1]):
+			g.nudgeVolume(10)
+		case open && l.vmid.hit(t[0], t[1]):
+			g.toggleMute()
 		case l.left.hit(t[0], t[1]) && g.menu == menuOpen:
 			g.menu = menuConfirm
 		case l.left.hit(t[0], t[1]) && g.menu == menuConfirm:
@@ -144,7 +159,10 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	g.drawRect(screen, l.panel, color.RGBA{0x14, 0x18, 0x24, 0xff}, color.RGBA{0x3a, 0x42, 0x58, 0xff})
 	cx := l.panel.x + l.panel.w/2
 	ty := l.panel.y + 30*k
-	body := rect{l.panel.x + 8*k, ty + 22*k, l.panel.w - 16*k, l.left.y - ty - 30*k}
+	body := rect{l.panel.x + 8*k, ty + 22*k, l.panel.w - 16*k, l.vmid.y - ty - 30*k}
+	if g.menu == menuConfirm {
+		body.h = l.left.y - ty - 30*k
+	}
 	if g.menu == menuConfirm {
 		g.label(screen, g.big, "START FRESH?", cx, ty, colHot, true)
 		g.wrapLabel(screen, "This wipes your rig, level, pack and hexes and starts you over at depth 1. It can't be undone.", body, colText)
@@ -161,6 +179,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 		info += fmt.Sprintf(" Your salvage cache (%d parts) waits on depth %d.", c.N, c.Depth)
 	}
 	g.wrapLabel(screen, info, body, colDim)
+	g.drawSoundRow(screen, l)
 	g.drawRect(screen, l.left, colPanel, colHot)
 	g.label(screen, g.face, "START FRESH", l.left.x+l.left.w/2, l.left.y+l.left.h/2, colHot, true)
 	g.drawRect(screen, l.right, fade(colStairs, 0.25), colStairs)
@@ -206,4 +225,28 @@ func (g *Game) drawSalvage(screen *ebiten.Image) {
 	paint(vs, fade(colSalvage, float32(0.6+0.4*pulse)))
 	screen.DrawTriangles(vs, is, whiteSub(), &ebiten.DrawTrianglesOptions{AntiAlias: true})
 	g.label(screen, g.small, "SALVAGE", ax-dx*r*2, ay-dy*r*2, colSalvage, true)
+}
+
+// drawSoundRow draws the menu's volume controls.
+func (g *Game) drawSoundRow(screen *ebiten.Image, l menuLayout) {
+	s := &g.snd
+	c := colStairs
+	label := fmt.Sprintf("SOUND %d%%", s.vol)
+	switch {
+	case s.player == nil:
+		c, label = colDim, "NO SOUND HERE"
+	case !s.on():
+		c, label = colDim, "SOUND OFF"
+	}
+	for _, r := range []rect{l.vdown, l.vup} {
+		g.drawRect(screen, r, colPanel, colDim)
+	}
+	g.label(screen, g.big, "-", l.vdown.x+l.vdown.w/2, l.vdown.y+l.vdown.h/2, colText, true)
+	g.label(screen, g.big, "+", l.vup.x+l.vup.w/2, l.vup.y+l.vup.h/2, colText, true)
+	g.drawRect(screen, l.vmid, fade(c, 0.18), c)
+	if s.on() { // the level as a bar along the bottom
+		m := l.vmid
+		vector.DrawFilledRect(screen, float32(m.x+4*g.k), float32(m.y+m.h-6*g.k), float32((m.w-8*g.k)*float64(s.vol)/100), float32(3*g.k), c, false)
+	}
+	g.label(screen, g.face, label, l.vmid.x+l.vmid.w/2, l.vmid.y+l.vmid.h/2-2*g.k, colText, true)
 }

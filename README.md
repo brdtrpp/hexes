@@ -3,14 +3,14 @@
 Hexes: a real-time, procedurally generated sci-fi dungeon crawler in Go and Ebitengine. This folder has the hex skill compiler, the floor generator, trigger dispatch, and a first playable slice.
 
 ```
-go test ./skill ./dungeon ./game                                  # unit tests (no graphics needed)
+go test ./skill ./dungeon ./game ./fx ./sfx                       # unit tests (no graphics needed)
 go test ./skill ./dungeon ./game -run '^$' -bench . -benchmem     # benchmarks
 go run ./cmd/hexes                        # play (desktop window)
 go run ./cmd/hexmap -seed 7 -depth 6      # print a floor as text
 go run ./cmd/hexdemo                      # same parts, two rolled hex layouts
 ```
 
-`go run ./cmd/hexes` needs Ebitengine's usual system libraries: nothing extra on macOS or Windows; on Linux the X11 and GL dev packages (`libx11-dev libxrandr-dev libxcursor-dev libxinerama-dev libxi-dev libxxf86vm-dev libgl1-mesa-dev`). `go test ./...` also builds the game window, so on a bare Linux box test the three packages by name as above.
+`go run ./cmd/hexes` needs Ebitengine's usual system libraries: nothing extra on macOS or Windows; on Linux the X11, GL and ALSA dev packages (`libx11-dev libxrandr-dev libxcursor-dev libxinerama-dev libxi-dev libxxf86vm-dev libgl1-mesa-dev libasound2-dev`). On a machine with no sound device set `HEXES_NOSOUND=1`. `go test ./...` also builds the game window, so on a bare Linux box test the three packages by name as above.
 
 ### Browser build
 
@@ -34,6 +34,7 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 
 - Desktop: WASD or arrows to move (or hold the mouse button and point), Space casts every on-cast hex, R or Shift vents heat, Tab or E opens the hex editor (1 to 4 pick a hex, Esc closes), Enter redeploys after dying, Esc or M opens the menu.
 - Touch: hold anywhere to walk toward your finger, tap CAST, VENT and HEX, and MENU (top right) for your record and the start-fresh button. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
+- Sound: the speaker button left of MENU mutes and unmutes; the menu has the volume (- and +, tap the middle to mute). Both are saved. Browsers start sound on your first tap or key.
 - Strikes on an adjacent foe are automatic. Walk over a dropped part to pick it up. Walk onto the stairs to go down a level.
 - Hex editor (game paused): tap a part, then tap where it goes. Pack to slot swaps loot in, slot to slot rewires the hex, slot to an empty pack cell takes a part out, SCRAP throws away the picked pack part. The hex recompiles on every tap; a refused edit says why.
 
@@ -217,6 +218,18 @@ Nothing is canned. Every effect is worked out from numbers the game already has:
 - **Statuses linger.** Burning foes shed embers, toxin orbits, chill glints, frozen foes shard, marks close in, stuns circle, cloak shimmers.
 
 Speed: particles live in one fixed array (1200), spawns thin out as it fills (`Pool.LOD`), nothing allocates per frame, and the renderer draws them all in one additive `DrawTriangles` call from a four-sprite atlas built at start. A full pool updates in about 50 µs on a desktop core. `go run ./tools/fxsheet out.png` renders a contact sheet of every type's impact, wave, cone and cast without a browser.
+
+## Sound (`sfx`, `cmd/hexes/sound.go`)
+
+No recorded files. Every sound is synthesized while it plays from oscillators (sine, triangle, saw, square, FM), noise, envelopes, pitch sweeps and a resonant filter, and its shape comes from the same records the effects draw from:
+
+- **Damage type sets the voice.** `sfx.TimbreOf` reuses the effects' signature (`fx.SigOf`): heat crackles and roars, cold rings like struck glass with a glint, force thumps and drops in pitch, ticks buzz (faster with more `ticks`), `raise_on_kill` chirps a two-note lock-on, stealth breathes. `spread_frac` adds an echo off the target. Cold and markers sit high, force and heat low, and the type's name picks a note of a pentatonic scale so similar types still differ. Each type's loudness is measured once at start and evened out. A new type in the JSON gets its own sound with no code.
+- **Magnitude sets weight.** Harder hits are louder, longer and a little lower; hits over 1.6 add a low boom.
+- **Areas and chains.** A wave whooshes open wider the bigger it is, a cone sweeps up, a chain zaps hop by hop, climbing as it goes. Hits inside an area play quieter, since the area carries them.
+- **Cost at the cast.** Power pulled in rises in pitch (more Power, a longer, higher climb); Heat added hisses, Heat vented sighs cold. VENT is a long falling hiss.
+- **The rest.** Status ticks, kills (your own death is long and low), getting hurt, claws, shoves, slams, pits, loot (rarer climbs higher), a full pack, salvage, new shapes and tiles, the stairs, and UI taps (a low one when an edit is refused).
+
+Speed and mix: one Ebitengine player pulls 32-bit float stereo from one mixer (`sfx.Mixer`, an endless `io.Reader`) with a 20-voice cap; a new voice takes over the quietest. Pitch and filter sweeps update every 32 samples. `sfx.Director` keeps fights readable: the same sound can't retrigger within 40 to 70 ms, a game step starts at most 5 sounds, sounds pan with position and fade with distance, and far-off ones are dropped. A full 20 voices mix in about 1% of a desktop core (`go test ./sfx -bench .`). Muted, the player pauses and the synth costs nothing. Settings live under `hexes.volume` and `hexes.mute`.
 
 ## Defaults I picked
 

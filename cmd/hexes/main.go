@@ -123,7 +123,9 @@ type Game struct {
 	stickMode bool
 	stick     game.Stick
 	frame     int
-	fxs       fxState // procedural effects (fxdraw.go)
+	fxs       fxState    // procedural effects (fxdraw.go)
+	snd       soundState // procedural sound (sound.go)
+	sndBtn    pill       // mute toggle
 }
 
 func newGame() *Game {
@@ -145,6 +147,7 @@ func newGame() *Game {
 	g.stick.Deadzone = 0.15
 	g.loadSave()
 	g.initFX()
+	g.initSound()
 	return g
 }
 
@@ -165,6 +168,7 @@ func (g *Game) Layout(ow, oh int) (int, int) {
 		g.vent = button{g.cast.x - r*1.9, float64(h) - r*0.65 - 24*k, r * 0.65, "VENT"}
 		g.modeBtn = pill{float64(w) - 128*k, 10 * k, 116 * k, 26 * k}
 		g.menuBtn = pill{g.modeBtn.x - 80*k, 10 * k, 70 * k, 26 * k}
+		g.sndBtn = pill{g.menuBtn.x - 52*k, 10 * k, 42 * k, 26 * k}
 		g.stick.Radius = k * math.Max(44, math.Min(64, short/7))
 		g.hexBtn = button{g.cast.x, g.cast.y - r*1.85, r * 0.6, "HEX"}
 		g.face.Size, g.small.Size, g.big.Size = 15*k, 12*k, 30*k
@@ -181,7 +185,12 @@ func (g *Game) Update() error {
 	if g.updateMenu() {
 		return nil // paused while the menu is open
 	}
+	edTap := g.ed.on && (len(inpututil.AppendJustPressedTouchIDs(nil)) > 0 || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft))
+	edMsg := g.ed.msg
 	if g.updateEditor() {
+		if edTap { // a tick per tap, a low one when an edit is refused
+			g.click(!(g.ed.bad && g.ed.msg != edMsg))
+		}
 		return nil // paused while the editor is open
 	}
 	var in game.Input
@@ -223,7 +232,7 @@ func (g *Game) Update() error {
 		}
 	}
 	onButton := func(x, y float64) bool {
-		return g.cast.hit(x, y) || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.menuBtn.hit(x, y) || g.hexBtn.hit(x, y)
+		return g.cast.hit(x, y) || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.menuBtn.hit(x, y) || g.hexBtn.hit(x, y) || g.sndBtn.hit(x, y)
 	}
 	press := func(id int, x, y float64) {
 		switch {
@@ -240,9 +249,14 @@ func (g *Game) Update() error {
 				mode = "stick"
 			}
 			savePref(stickPref, mode)
+			g.click(g.stickMode)
+		case g.sndBtn.hit(x, y):
+			g.toggleMute()
 		case g.menuBtn.hit(x, y):
+			g.click(true)
 			g.openMenu()
 		case g.hexBtn.hit(x, y):
+			g.click(true)
 			g.openEditor()
 		default:
 			in.Restart = true
@@ -311,6 +325,7 @@ func (g *Game) Update() error {
 		g.camX, g.camY = x, y
 		g.fxs.parts.Clear()
 	}
+	g.updateSound(dt)
 	g.updateFX(dt)
 	return nil
 }
@@ -757,7 +772,8 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		g.label(screen, g.face, b.label, b.x, b.y, colText, true)
 	}
 
-	// Menu and movement mode toggles, and the stick itself.
+	// Sound, menu and movement mode toggles, and the stick itself.
+	g.drawSoundButton(screen)
 	{
 		m := g.menuBtn
 		vector.DrawFilledRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), colPanel, false)
