@@ -33,9 +33,10 @@ type Actor struct {
 	Facing   uint8 // index into skill.HexDirs
 	AtkCD    float32
 	Awake    bool
-	DeadFor  float32 // seconds since death, for the fade-out
-	Fell     bool    // died in a pit
-	Flash    float32 // hurt flash, seconds left
+	DeadFor  float32      // seconds since death, for the fade-out
+	Fell     bool         // died in a pit
+	Flash    float32      // hurt flash, seconds left
+	LastHit  skill.TypeID // damage type of the last hit taken, for the death burst
 
 	// Free actors (the player) move continuously instead of tile to tile:
 	// X, Y is the true position in hex units and At is the hex under it.
@@ -134,6 +135,10 @@ type Sim struct {
 	Best   int     // deepest floor ever reached
 	Time   float64 // seconds of play, ever
 	FX     FXBuf
+	// forms are the target areas hexes picked during the current firing
+	// (see form.go); Fired turns the ones that landed into effects.
+	forms  [maxForms]form
+	nforms int
 
 	// Progress that lasts (save.go). Points are the rig's attribute
 	// points. Cache is the salvage from the last death. Visits counts
@@ -300,6 +305,7 @@ func (s *Sim) Step(dt float32) {
 		dt = 0.1 // a dropped frame shouldn't teleport anyone
 	}
 	s.Time += float64(dt)
+	s.nforms = 0 // forms only live within one firing
 	s.FX.Update(dt)
 	for i := range s.SlotFlash {
 		s.SlotFlash[i] = max(0, s.SlotFlash[i]-dt)
@@ -379,6 +385,7 @@ func (s *Sim) playerInput(dt float32) {
 				}
 			}
 			s.Disp.Strike(s.Player, s.Load.Strike, foe)
+			s.flushForms(s.Player, s.Load.Strike, skill.Fired)
 			s.strikeCD = StrikeEvery
 		}
 	}

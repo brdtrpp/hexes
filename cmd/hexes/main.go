@@ -123,6 +123,7 @@ type Game struct {
 	stickMode bool
 	stick     game.Stick
 	frame     int
+	fxs       fxState // procedural effects (fxdraw.go)
 }
 
 func newGame() *Game {
@@ -143,6 +144,7 @@ func newGame() *Game {
 	g.stickMode = loadPref(stickPref) == "stick"
 	g.stick.Deadzone = 0.15
 	g.loadSave()
+	g.initFX()
 	return g
 }
 
@@ -298,7 +300,8 @@ func (g *Game) Update() error {
 	if g.ed.on || g.menu != menuClosed { // a button opened one this frame
 		return nil
 	}
-	g.sim.Step(1.0 / float32(ebiten.TPS()))
+	dt := 1.0 / float32(ebiten.TPS())
+	g.sim.Step(dt)
 
 	// Camera eases toward the player.
 	x, y := g.sim.P().Pos()
@@ -306,7 +309,9 @@ func (g *Game) Update() error {
 	g.camY += (y - g.camY) * 0.18
 	if math.Abs(x-g.camX) > 8 || math.Abs(y-g.camY) > 8 { // new floor: snap
 		g.camX, g.camY = x, y
+		g.fxs.parts.Clear()
 	}
+	g.updateFX(dt)
 	return nil
 }
 
@@ -329,7 +334,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawDrops(screen)
 	g.drawSalvage(screen)
 	g.drawActors(screen)
-	g.drawFX(screen)
+	g.drawForms(screen)
+	g.drawParticles(screen)
+	g.drawLabels(screen)
 	g.drawHUD(screen)
 	if g.ed.on {
 		g.drawEditor(screen)
@@ -531,44 +538,21 @@ func typeColor(t skill.TypeID) color.RGBA {
 	return colText
 }
 
-func (g *Game) drawFX(screen *ebiten.Image) {
+// drawLabels draws the text effects: damage numbers and floating words.
+// Shapes and particles are in fxdraw.go.
+func (g *Game) drawLabels(screen *ebiten.Image) {
 	s := g.size
 	g.sim.FX.Each(func(f *game.FX) {
 		k := f.Age / f.Life // 0 to 1
 		a := 1 - k
 		x, y := g.toScreen(f.X, f.Y)
 		switch f.Kind {
-		case game.FXBolt:
-			fx, fy := g.toScreen(f.FromX, f.FromY)
-			c := fade(typeColor(f.Type), a)
-			// Jagged three-segment bolt.
-			mx, my := (fx+x)/2, (fy+y)/2
-			j := s * 0.35 * math.Sin(float64(f.At.Q*7+f.At.R*13)+float64(g.frame)*0.9)
-			nx, ny := -(y - fy), x-fx
-			nl := math.Hypot(nx, ny) + 1e-9
-			mx += nx / nl * j
-			my += ny / nl * j
-			vector.StrokeLine(screen, float32(fx), float32(fy), float32(mx), float32(my), g.u(3), c, true)
-			vector.StrokeLine(screen, float32(mx), float32(my), float32(x), float32(y), g.u(3), c, true)
-		case game.FXRing:
-			c := fade(slotCol[f.Slot%game.MaxSlots], a)
-			vector.StrokeCircle(screen, float32(x), float32(y), float32(s*(0.7+2.2*float64(k))), g.u(2.5), c, true)
-		case game.FXPush:
-			fx, fy := g.toScreen(f.FromX, f.FromY)
-			vector.StrokeLine(screen, float32(fx), float32(fy), float32(x), float32(y), float32(s*0.5), fade(color.RGBA{0xf0, 0xf0, 0xf0, 0xff}, a*0.35), true)
 		case game.FXSlam:
 			wx, wy := g.toScreen(f.FromX, f.FromY)
 			mx, my := (x+wx)/2, (y+wy)/2
-			vector.StrokeCircle(screen, float32(mx), float32(my), float32(s*(0.3+0.8*float64(k))), g.u(3), fade(color.RGBA{0xff, 0xe0, 0x60, 0xff}, a), true)
 			g.label(screen, g.small, "SLAM", mx, my-s*0.6-float64(k)*s, fade(color.RGBA{0xff, 0xe0, 0x60, 0xff}, a), true)
 		case game.FXFall:
-			vector.DrawFilledCircle(screen, float32(x), float32(y), float32(s*0.9*float64(a)), fade(colPitRim, a), true)
 			g.label(screen, g.face, "PIT!", x, y-s-float64(k)*s, fade(color.RGBA{0xff, 0x6b, 0x8a, 0xff}, a), true)
-		case game.FXKill:
-			vector.StrokeCircle(screen, float32(x), float32(y), float32(s*(0.4+1.2*float64(k))), g.u(2), fade(colText, a*0.7), true)
-		case game.FXClaw:
-			fx, fy := g.toScreen(f.FromX, f.FromY)
-			vector.StrokeLine(screen, float32(fx), float32(fy), float32(x), float32(y), g.u(4), fade(colHot, a), true)
 		case game.FXLoot:
 			c := rarityCol[f.Slot%skill.NumRarities]
 			g.label(screen, g.small, rarityName[f.Slot%skill.NumRarities], x, y-s*0.9-float64(k)*s*1.2, fade(c, a), true)
@@ -584,8 +568,6 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 			g.label(screen, g.small, "tap an IF gate twice to build with it", x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
 		case game.FXFull:
 			g.label(screen, g.small, "PACK FULL", x, y-s*0.9-float64(k)*s, fade(colHot, a), true)
-		case game.FXVent:
-			vector.StrokeCircle(screen, float32(x), float32(y), float32(s*(1+4*float64(k))), g.u(5), fade(color.RGBA{0xd8, 0xf4, 0xff, 0xff}, a), true)
 		case game.FXNumber:
 			if f.Value < 0.5 && !f.Terrain {
 				return
@@ -602,7 +584,16 @@ func (g *Game) drawFX(screen *ebiten.Image) {
 				face = g.small
 			}
 			jx := float64(int(f.At.Q*31+f.At.R*17)%9-4) * s * 0.08
-			g.label(screen, face, fmt.Sprintf("%.0f", f.Value), x+jx, y-s*0.6-float64(k)*s*1.4, fade(c, a), true)
+			// Big hits pop up fast and shake for a beat.
+			rise := float64(k) * s * 1.4
+			if f.Mag >= 1.5 && !f.Small {
+				face = g.big
+				if k < 0.25 {
+					jx += math.Sin(float64(f.Age)*90) * s * 0.06
+				}
+				rise = easeOut(float64(k)) * s * 1.8
+			}
+			g.label(screen, face, fmt.Sprintf("%.0f", f.Value), x+jx, y-s*0.6-rise, fade(c, a), true)
 		}
 	})
 }

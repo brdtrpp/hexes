@@ -37,6 +37,12 @@ type Observer interface {
 	Killed(caster, target EntityID)
 }
 
+// StatusObserver is an Observer that also hears statuses landing, so the
+// game can show a status-only hex's area. It's optional.
+type StatusObserver interface {
+	Statused(caster, target EntityID, t TypeID)
+}
+
 // Ctx is the moment a program fires.
 type Ctx struct {
 	Caster EntityID
@@ -451,6 +457,9 @@ func (e *Evaluator) status(w World, ctx *Ctx, s *Step, res *Result) {
 			continue
 		}
 		res.Statuses++
+		if so, ok := e.Obs.(StatusObserver); ok {
+			so.Statused(ctx.Caster, u.ID, s.Type)
+		}
 		switch dt.Status {
 		case StatusBurn, StatusToxin:
 			ticks := int(dur/e.Rules.DotInterval + 0.5)

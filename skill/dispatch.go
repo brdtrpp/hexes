@@ -353,6 +353,14 @@ func (d *Dispatcher) Hit(caster, target EntityID, dealt float32, t TypeID, terra
 	}
 }
 
+// Statused implements StatusObserver, passing statuses on to a Listener
+// that wants them.
+func (d *Dispatcher) Statused(caster, target EntityID, t TypeID) {
+	if so, ok := d.Listener.(StatusObserver); ok {
+		so.Statused(caster, target, t)
+	}
+}
+
 // Killed implements Observer: a program's kill queues an on-kill event.
 func (d *Dispatcher) Killed(caster, target EntityID) {
 	if d.Listener != nil {

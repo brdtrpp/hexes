@@ -44,6 +44,7 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 | `skill/` | Hex compiler and evaluator (below), plus `dispatch.go`: trigger dispatch. |
 | `dungeon/` | Floor generator: rooms, corridors, walls, pits, hazard vents, spawns, stairs, from a seed and a depth. |
 | `game/` | Real-time simulation: free movement over the hex floor with wall sliding, enemy AI, the player's rig and loadout, terrain kills, effects. No rendering, so it runs in tests. |
+| `fx/` | Procedural effect animation: a fixed particle pool and motion signatures worked out from damage-type numbers. Plain Go, no renderer. |
 | `loot/` | Drop rolls (rarity by depth, part kinds, values, quirks), the inventory grid, and part labels for the screen. |
 | `cmd/hexes/` | The Ebitengine front end: drawing, HUD, keyboard, mouse and touch. `editor.go` is the hex editor. |
 | `cmd/hexmap/` | Prints a floor as text. |
@@ -204,6 +205,18 @@ Hexes connect. Every hex sits on a cell of a small honeycomb, the board: your fo
 **In the editor.** HEX, then the BOARD tab (or B). Tap a hex to pick it, tap it again or ROTATE to turn it, tap an open cell to move it there. Drag to pan and pinch to zoom on a phone; arrows or WASD pan, + and - zoom, R turns, Enter edits on a keyboard; the mouse drags and wheel zooms. Each hex shows as a little map of its shape with green (in) and orange (out) triangles on its sides; docked ports and links turn blue. The hex view marks ports on their slots too.
 
 **Saves.** `Save.Mods` and `Save.Board` (a spot and turn per hex). A save from before the board has neither and loads with the hexes on the first four cells, each turned so nothing docks: it plays exactly as it did.
+
+## Effects (`fx`, `game/form.go`, `cmd/hexes/fxdraw.go`)
+
+Nothing is canned. Every effect is worked out from numbers the game already has:
+
+- **Damage type sets the motion.** `fx.SigOf` reads a type's JSON row: positive `heat_offset` or burn gives rising, flickering embers that cool from white; negative `heat_offset`, `slow` or freeze gives shards that snap out, hang and glint, with hex-sided rings; `push_per_hit` gives fast streaks and an echoing shockwave; `ticks` gives orbiting motes that linger; `raise_on_kill` gives square tracer bits and dashed rings; `stealth_mult` gives a faint shimmer; `spread_frac` adds a second spray. A new type in the JSON animates with no code.
+- **Magnitude sets size.** Damage dealt against the target's max health (`fx.MagOf`, 0.15 to 3) scales particle count, speed, size and line weight. Hits over about a third of a foe's health get a big shaking number.
+- **The area sets the form.** `Sim.Select` notes each target pick; hits and statuses that land mark it; when the firing ends, landed picks become `FXWave` (a ring the size of the area), `FXCone` (a sweeping wedge with ripples) or `FXChain` (crackling arcs hop to hop). Hits inside an area draw no line back to the caster. Status-only hexes show their area too (`skill.StatusObserver`).
+- **Cost shows at the cast.** The Power a hex spent streams in to the caster as cyan streaks; the Heat it added vents out as sparks (or, below zero, falls away as frost). The cast ring's weight follows Power and its flare follows Heat.
+- **Statuses linger.** Burning foes shed embers, toxin orbits, chill glints, frozen foes shard, marks close in, stuns circle, cloak shimmers.
+
+Speed: particles live in one fixed array (1200), spawns thin out as it fills (`Pool.LOD`), nothing allocates per frame, and the renderer draws them all in one additive `DrawTriangles` call from a four-sprite atlas built at start. A full pool updates in about 50 µs on a desktop core. `go run ./tools/fxsheet out.png` renders a contact sheet of every type's impact, wave, cone and cast without a browser.
 
 ## Defaults I picked
 

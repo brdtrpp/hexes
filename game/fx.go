@@ -21,7 +21,13 @@ const (
 	FXSalvage               // recovered a salvage cache at At; Value is how many parts
 	FXShape                 // learned a shape at At; Slot is its kind
 	FXTile                  // learned a logic tile at At; Slot is its kind
+	FXWave                  // a hex touched a round area: centre X, Y, Value is its radius in hexes
+	FXCone                  // a hex swept a cone from X, Y along DX, DY, Value hexes long
+	FXChain                 // a hex chained through Pts, in hop order
 )
+
+// MaxChainPts is how many hops an FXChain draws (the caster plus seven).
+const MaxChainPts = 8
 
 // FX is one effect.
 type FX struct {
@@ -39,6 +45,22 @@ type FX struct {
 	Small              bool // damage-over-time and hazard ticks
 	Age                float32
 	Life               float32
+
+	// What the renderer needs to animate it procedurally.
+	// Mag is how hard it landed (fx.MagOf); Heat and Power are what the
+	// hex cost when it fired (FXRing and the area forms).
+	Mag, Heat, Power float32
+	// DX, DY is a unit direction (cones).
+	DX, DY float32
+	// Pts are an FXChain's hop points in hex units, NPts of them.
+	Pts  [MaxChainPts][2]float32
+	NPts uint8
+	// Impact marks an FXBolt that landed inside an area form: draw the
+	// hit, not a line back to the caster.
+	Impact bool
+	// Seen is set by the renderer once it has spawned this effect's
+	// particles, so each effect bursts once however often it's drawn.
+	Seen bool
 }
 
 // MaxFX is how many effects can be alive at once; the oldest drop first.

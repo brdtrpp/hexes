@@ -43,7 +43,9 @@ func (s *Sim) Select(kind skill.TargetKind, origin, caster skill.EntityID, radiu
 	o := s.Actors[origin].At
 	switch kind {
 	case skill.TargetNearest:
-		return s.nearest(o, origin, caster, NearestRange, out, nil)
+		n := s.nearest(o, origin, caster, NearestRange, out, nil)
+		s.noteForm(kind, origin, caster, 0, 0, 0, out[:n])
+		return n
 	case skill.TargetAdjacent:
 		n := 0
 		for i := range s.Actors {
@@ -58,6 +60,7 @@ func (s *Sim) Select(kind skill.TargetKind, origin, caster skill.EntityID, radiu
 				n++
 			}
 		}
+		s.noteForm(kind, origin, caster, radius, 0, 0, out[:n])
 		return n
 	case skill.TargetCone:
 		var dx, dy float64
@@ -89,6 +92,9 @@ func (s *Sim) Select(kind skill.TargetKind, origin, caster skill.EntityID, radiu
 				n++
 			}
 		}
+		if dl > 1e-9 {
+			s.noteForm(kind, origin, caster, radius, dx/dl, dy/dl, out[:n])
+		}
 		return n
 	case skill.TargetChain:
 		cur := o
@@ -101,6 +107,7 @@ func (s *Sim) Select(kind skill.TargetKind, origin, caster skill.EntityID, radiu
 			cur = s.Actors[out[n]].At
 			n++
 		}
+		s.noteForm(kind, origin, caster, radius, 0, 0, out[:n])
 		return n
 	}
 	return 0
@@ -226,24 +233,39 @@ func (s *Sim) Hit(caster, target skill.EntityID, dealt float32, t skill.TypeID, 
 	a := &s.Actors[target]
 	a.Flash = 0.15
 	a.Awake = true
+	mag := magOf(dealt, a.U.MaxHP)
+	if !terrain {
+		a.LastHit = t
+	}
 	if dealt > 0 || terrain {
 		s.addFX(FX{Kind: FXNumber, At: a.At, Value: dealt, Type: t, Terrain: terrain,
-			Hurt: target == s.Player, Life: 0.8})
+			Hurt: target == s.Player, Mag: mag, Life: 0.8})
 	}
 	if !terrain && caster != target {
-		s.addFX(FX{Kind: FXBolt, From: s.Actors[caster].At, At: a.At, Type: t, Life: 0.25})
+		area := s.landForm(caster, target, dealt, mag, t)
+		s.addFX(FX{Kind: FXBolt, From: s.Actors[caster].At, At: a.At, Type: t, Mag: mag, Impact: area, Life: 0.3})
+	}
+}
+
+// Statused implements skill.StatusObserver: a status landing marks the
+// area it landed in, so status-only hexes still show their reach.
+func (s *Sim) Statused(caster, target skill.EntityID, t skill.TypeID) {
+	if caster != target {
+		s.landForm(caster, target, 0, 0.3, t)
 	}
 }
 
 // Killed implements skill.Listener.
 func (s *Sim) Killed(caster, target skill.EntityID) {
 	s.died(target)
-	s.addFX(FX{Kind: FXKill, At: s.Actors[target].At, Life: 0.5})
+	a := &s.Actors[target]
+	s.addFX(FX{Kind: FXKill, At: a.At, Type: a.LastHit, Slot: int(a.Kind), Life: 0.5})
 }
 
 // Fired implements skill.Listener: flash the slot on the HUD and ring the
 // caster.
 func (s *Sim) Fired(owner skill.EntityID, slot int, p *skill.Program, o skill.Outcome, res skill.Result) {
+	s.flushForms(owner, p, o)
 	if owner != s.Player || slot >= MaxSlots {
 		return
 	}
@@ -254,7 +276,7 @@ func (s *Sim) Fired(owner skill.EntityID, slot int, p *skill.Program, o skill.Ou
 	}
 	s.SlotFlash[slot], s.SlotLast[slot] = 0.4, o
 	if o == skill.Fired {
-		s.addFX(FX{Kind: FXRing, At: s.Actors[owner].At, Slot: slot, Life: 0.4})
+		s.addFX(FX{Kind: FXRing, At: s.Actors[owner].At, Slot: slot, Power: p.Power, Heat: p.Heat, Life: 0.4})
 	}
 	// Hexes it called flash as if they fired too.
 	for i := 0; i < MaxSlots; i++ {
