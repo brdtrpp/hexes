@@ -284,6 +284,7 @@ func TestLoopHexFiresInTheGame(t *testing.T) {
 		t.Fatalf("lance as a loop has no back edge:\n%s", s.Load.Progs[0])
 	}
 	s.Rig.Heat = 0
+	foeInView(t, s)
 	if o := s.Disp.Cast(s.Player, 0, skill.NoEntity); o != skill.Fired {
 		t.Fatalf("cast %s", o)
 	}

@@ -355,6 +355,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.shakeCamera()
 	g.drawFloor(screen)
 	g.drawDrops(screen)
+	g.drawLenses(screen)
 	g.drawSalvage(screen)
 	g.drawActors(screen)
 	g.drawLight(screen)
@@ -451,6 +452,9 @@ func (g *Game) drawLabels(screen *ebiten.Image) {
 			name := strings.ToUpper(skill.TileKind(f.Slot).String())
 			g.label(screen, g.face, "LOGIC TILE: "+name, x, y-s*1.1-float64(k)*s*1.2, fade(colGate, a), true)
 			g.label(screen, g.small, "tap an IF gate twice to build with it", x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
+		case game.FXLens:
+			g.label(screen, g.face, fmt.Sprintf("LENS: OPTICS +%d", f.Slot), x, y-s*1.1-float64(k)*s*1.2, fade(colLens, a), true)
+			g.label(screen, g.small, fmt.Sprintf("light reaches %.1f hexes", f.Value), x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
 		case game.FXFull:
 			g.label(screen, g.small, "PACK FULL", x, y-s*0.9-float64(k)*s, fade(colHot, a), true)
 		case game.FXNumber:

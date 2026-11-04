@@ -631,7 +631,7 @@ func (s *Sim) nearestFoe(c skill.Coord, reach int) skill.EntityID {
 	best, bestD := skill.NoEntity, reach+1
 	for i := range s.Actors {
 		a := &s.Actors[i]
-		if !a.U.Alive || a.U.Team == s.Actors[s.Player].U.Team {
+		if !s.foe(s.Player, i) {
 			continue
 		}
 		if d := skill.Dist(a.At, c); d < bestD {

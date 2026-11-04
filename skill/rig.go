@@ -33,6 +33,11 @@ const (
 	LightPer  = 0.5
 )
 
+// LightFor is the light radius, in hexes, that p's Optics points give.
+func LightFor(p Points) float32 {
+	return LightBase + LightPer*float32(SoftCap(p.Optics, SoftKnee))
+}
+
 // Rig is a player's power and heat state.
 type Rig struct {
 	MaxPower, Power float32
@@ -58,7 +63,7 @@ func NewRig(p Points) Rig {
 		MaxHeat:      100,
 		CoolRate:     6 + 1.5*eff(p.Cooling),
 		MaxDepth:     int(SoftCap(p.Processing, SoftKnee) / 5),
-		Light:        LightBase + LightPer*eff(p.Optics),
+		Light:        LightFor(p),
 	}
 	r.Power = r.MaxPower
 	return r

@@ -24,6 +24,7 @@ const (
 	FXWave                  // a hex touched a round area: centre X, Y, Value is its radius in hexes
 	FXCone                  // a hex swept a cone from X, Y along DX, DY, Value hexes long
 	FXChain                 // a hex chained through Pts, in hop order
+	FXLens                  // picked up a lens at At; Slot is Optics points gained, Value the new light radius
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).

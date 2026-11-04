@@ -1,9 +1,11 @@
 package main
 
 import (
+	"image/color"
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"hexes/dungeon"
 	"hexes/game"
@@ -162,4 +164,31 @@ func (g *Game) seeAt(x, y float64) float32 {
 		return 0
 	}
 	return sh * game.LightAt(fs.lx, fs.ly, x, y, g.lampReach())
+}
+
+// colLens is a lens on the floor: pale lamp light.
+var colLens = color.RGBA{0xff, 0xf1, 0xc4, 0xff}
+
+// drawLenses draws lenses lying on the floor: a pale ring with a bright
+// core that throws a little light of its own, so it reads as something
+// to do with your lamp. Like any loot it's hidden in the dark.
+func (g *Game) drawLenses(screen *ebiten.Image) {
+	s := g.size
+	t := float64(g.frame) / 60
+	for i, d := range g.sim.Stash.Lenses {
+		x, y := d.At.Pixel()
+		sx, sy := g.toScreen(x, y)
+		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s || g.seeAt(x, y) < 0.2 {
+			continue
+		}
+		pop := math.Min(1, float64(d.Age)*4)
+		r := s * 0.3 * pop * (1 + 0.1*math.Sin(t*4+float64(i)))
+		g.glow(screen, sx, sy, r*3.2, 1, 0.92, 0.7, 0.55)
+		vector.StrokeCircle(screen, float32(sx), float32(sy), float32(r), g.u(2.5), colLens, true)
+		vector.DrawFilledCircle(screen, float32(sx), float32(sy), float32(r*0.4), colLens, true)
+		if d.Points > 1 {
+			vector.StrokeCircle(screen, float32(sx), float32(sy), float32(r*1.6), g.u(1.5), fade(colLens, 0.6), true)
+		}
+		g.label(screen, g.small, "LENS", sx, sy-r*2.6, fade(colLens, 0.9), true)
+	}
 }

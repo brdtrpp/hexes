@@ -9,11 +9,12 @@ import (
 // The preset Arc Lance ends in a Call at Nanite Swarm: one press fires
 // both, the swarm's slot flashes and its Heat lands on the rig too.
 func TestStarterCallRunsSwarm(t *testing.T) {
-	s := New(3)
+	s := openArena(30, 30) // one foe in view, so the swarm is called once
 	if p := s.Load.Progs[0]; !p.CallsHex(StarterCallTarget) {
 		t.Fatalf("Arc Lance has no call at hex %d:\n%s", StarterCallTarget, p)
 	}
 	s.Rig.Heat = 0
+	s.spawn(KindGrunt, 1, s.P().At.Add(skill.Coord{Q: 4, R: 0}), 1, 1e5) // lit, out of the ram's reach
 	if o := s.Disp.Cast(s.Player, 0, skill.NoEntity); o != skill.Fired {
 		t.Fatalf("cast %s", o)
 	}
@@ -22,6 +23,9 @@ func TestStarterCallRunsSwarm(t *testing.T) {
 	}
 	lance, swarm := s.Load.Progs[0], s.Load.Progs[StarterCallTarget-1]
 	want := lance.Heat + max(swarm.Heat, skill.CallMinHeat)
+	if s.SlotFlash[1] > 0 { // the lance's hit set off Kinetic Ram on its own
+		want += s.Load.Progs[1].Heat
+	}
 	if d := s.Rig.Heat - want; d < -0.01 || d > 0.01 {
 		t.Fatalf("heat %.2f, want %.2f (lance plus swarm)", s.Rig.Heat, want)
 	}

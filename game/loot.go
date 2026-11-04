@@ -40,6 +40,8 @@ type Stash struct {
 	Shapes []ShapeDrop
 	// Tiles are logic tiles lying on the floor (tiles.go).
 	Tiles []TileDrop
+	// Lenses are Optics upgrades lying on the floor (lens.go).
+	Lenses []LensDrop
 	// Picked counts parts ever picked up.
 	Picked int
 	// Fresh marks pack cells holding a part picked up since the last
@@ -58,7 +60,9 @@ func (s *Sim) resetStash() {
 		s.Stash.Drops = make([]Drop, 0, MaxDrops)
 		s.Stash.Shapes = make([]ShapeDrop, 0, MaxShapeDrops)
 		s.Stash.Tiles = make([]TileDrop, 0, MaxTileDrops)
+		s.Stash.Lenses = make([]LensDrop, 0, MaxLensDrops)
 	}
+	s.Stash.Lenses = s.Stash.Lenses[:0]
 	s.Stash.Shapes = s.Stash.Shapes[:0]
 	s.Stash.Tiles = s.Stash.Tiles[:0]
 	s.Stash.Inv.Clear()
@@ -75,6 +79,7 @@ func (s *Sim) loadLoot(level int) {
 	s.Stash.Drops = s.Stash.Drops[:0]
 	s.Stash.Shapes = s.Stash.Shapes[:0]
 	s.Stash.Tiles = s.Stash.Tiles[:0]
+	s.Stash.Lenses = s.Stash.Lenses[:0]
 	s.Stash.fullShow = false
 	defer s.placeFirstShape()
 	if s.Load.Hexes[0] == nil {
@@ -104,6 +109,7 @@ func (s *Sim) dropLoot(id skill.EntityID) {
 	if at, ok := s.dropSpot(a.At); ok {
 		s.rollShapeDrop(id, at, elite)
 		s.rollTileDrop(id, at, elite)
+		s.rollLensDrop(id, at, elite)
 	}
 	r := loot.NewRNG(loot.Seed(s.Floor.Seed^hash(uint64(s.Visits)), int(id)))
 	p, ok := s.Stash.table.Drop(&r, s.Depth, chance)
@@ -167,6 +173,7 @@ func (s *Sim) pickup(dt float32) {
 		s.salvage(at)
 		s.pickupShapes(at, dt)
 		s.pickupTiles(at, dt)
+		s.pickupLenses(at, dt)
 	}
 }
 

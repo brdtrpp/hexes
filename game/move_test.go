@@ -39,6 +39,7 @@ func openArena(w, h int) *Sim {
 	p.FaceX = 1
 	s.safe = f.Start
 	s.refreshField()
+	s.refreshSight()
 	return s
 }
 

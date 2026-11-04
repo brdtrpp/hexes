@@ -26,9 +26,16 @@ func (s *Sim) Distance(a, b skill.EntityID) int {
 	return skill.Dist(s.Actors[a].At, s.Actors[b].At)
 }
 
+// foe reports whether actor i is a target for caster's hexes: alive, on
+// the other side, and, for the player and their minions, in sight. Every
+// targeting part goes through here, so the player's hexes never pick a
+// foe hidden in the dark (see Sees).
 func (s *Sim) foe(caster skill.EntityID, i int) bool {
 	u := &s.Actors[i].U
-	return u.Alive && u.Team != s.Actors[caster].U.Team
+	if !u.Alive || u.Team == s.Actors[caster].U.Team {
+		return false
+	}
+	return s.Actors[caster].U.Team != s.Actors[s.Player].U.Team || s.Sees(i)
 }
 
 // Select implements skill.World.

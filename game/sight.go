@@ -53,6 +53,17 @@ func (s *Sim) LightRadius() float32 {
 	return max(MinLight, r)
 }
 
+// Sees reports whether the player can see actor i: its hex is in the
+// lamp's line of sight and at least RememberIn hexes inside the light's
+// edge, where it's drawn clearly. Hexes only target what the player sees.
+func (s *Sim) Sees(i int) bool {
+	a := &s.Actors[i]
+	if !s.Sight.Lit(s.Floor, a.At) {
+		return false
+	}
+	return float32(skill.Dist(a.At, s.P().At)) <= s.LightRadius()-RememberIn
+}
+
 // refreshSight relights the floor around the player.
 func (s *Sim) refreshSight() {
 	if s.Floor == nil || int(s.Player) >= len(s.Actors) {
