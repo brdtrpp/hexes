@@ -32,6 +32,7 @@ import (
 	"golang.org/x/image/font/gofont/gobold"
 
 	"hexes/dungeon"
+	"hexes/fx"
 	"hexes/game"
 	"hexes/loot"
 	"hexes/skill"
@@ -125,6 +126,8 @@ type Game struct {
 	frame     int
 	fxs       fxState    // procedural effects (fxdraw.go)
 	snd       soundState // procedural sound (sound.go)
+	dev       devState   // headless screenshot autopilot (devshots_other.go)
+	look      lookState  // world look: tiles, actors, light (look.go)
 	sndBtn    pill       // mute toggle
 }
 
@@ -310,6 +313,7 @@ func (g *Game) Update() error {
 		in.MoveX, in.MoveY = sx, sy
 	}
 
+	g.devInput(&in)
 	g.sim.Input = in
 	if g.ed.on || g.menu != menuClosed { // a button opened one this frame
 		return nil
@@ -327,6 +331,7 @@ func (g *Game) Update() error {
 	}
 	g.updateSound(dt)
 	g.updateFX(dt)
+	g.updateLook(dt)
 	return nil
 }
 
@@ -337,7 +342,7 @@ func (g *Game) playerScreen() (float64, float64) {
 
 // toScreen maps hex-unit world space to pixels.
 func (g *Game) toScreen(x, y float64) (float64, float64) {
-	return (x-g.camX)*g.size + float64(g.w)/2, (y-g.camY)*g.size + float64(g.h)/2
+	return (x-g.camX)*g.size + float64(g.w)/2 + g.look.shx, (y-g.camY)*g.size + float64(g.h)/2 + g.look.shy
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -345,10 +350,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.tiles == nil || g.tileSize != g.size {
 		g.buildTiles()
 	}
+	g.shakeCamera()
 	g.drawFloor(screen)
 	g.drawDrops(screen)
 	g.drawSalvage(screen)
 	g.drawActors(screen)
+	g.drawLight(screen)
 	g.drawForms(screen)
 	g.drawParticles(screen)
 	g.drawLabels(screen)
@@ -359,43 +366,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.menu != menuClosed {
 		g.drawMenu(screen)
 	}
-}
-
-// buildTiles pre-renders one hex sprite per tile kind at the current size,
-// so the floor draws as batched sprites.
-func (g *Game) buildTiles() {
-	g.tileSize = g.size
-	g.tiles = map[dungeon.Tile]*ebiten.Image{}
-	s := g.size
-	w, h := int(math.Ceil(math.Sqrt(3)*s))+2, int(math.Ceil(2*s))+2
-	mk := func(fill color.RGBA, r float64, rim color.RGBA, rimW float32) *ebiten.Image {
-		img := ebiten.NewImage(w, h)
-		var p vector.Path
-		for i := 0; i < 6; i++ {
-			a := math.Pi/180*float64(60*i) - math.Pi/6
-			x, y := float32(float64(w)/2+r*math.Cos(a)), float32(float64(h)/2+r*math.Sin(a))
-			if i == 0 {
-				p.MoveTo(x, y)
-			} else {
-				p.LineTo(x, y)
-			}
-		}
-		p.Close()
-		vs, is := p.AppendVerticesAndIndicesForFilling(nil, nil)
-		paint(vs, fill)
-		img.DrawTriangles(vs, is, whiteSub(), &ebiten.DrawTrianglesOptions{AntiAlias: true})
-		if rimW > 0 {
-			vs, is = p.AppendVerticesAndIndicesForStroke(nil, nil, &vector.StrokeOptions{Width: rimW, LineJoin: vector.LineJoinRound})
-			paint(vs, rim)
-			img.DrawTriangles(vs, is, whiteSub(), &ebiten.DrawTrianglesOptions{AntiAlias: true})
-		}
-		return img
-	}
-	g.tiles[dungeon.Wall] = mk(colWall, s, colWallTop, g.u(2))
-	g.tiles[dungeon.Ground] = mk(colFloor, s-g.k, colFloor, 0)
-	g.tiles[dungeon.Pit] = mk(colPit, s-1.5*g.k, colPitRim, g.u(2))
-	g.tiles[dungeon.Hazard] = mk(colHazard, s-g.k, color.RGBA{0xff, 0xb0, 0x40, 0xff}, g.u(1.5))
-	g.tiles[dungeon.Stairs] = mk(colStairs, s-g.k, color.RGBA{0xc8, 0xff, 0xf2, 0xff}, g.u(2.5))
+	g.devShot(screen)
 }
 
 var white1 = func() *ebiten.Image {
@@ -418,42 +389,6 @@ func paint(vs []ebiten.Vertex, c color.RGBA) {
 	}
 }
 
-func (g *Game) drawFloor(screen *ebiten.Image) {
-	f := g.sim.Floor
-	s := g.size
-	// Visible row and column range.
-	halfW := float64(g.w)/2/s + 2
-	halfH := float64(g.h)/2/s + 2
-	r0 := max(0, int((g.camY-halfH)/1.5))
-	r1 := min(f.H-1, int((g.camY+halfH)/1.5)+1)
-	pulse := float32(0.75 + 0.25*math.Sin(float64(g.frame)*0.12))
-	for r := r0; r <= r1; r++ {
-		for col := 0; col < f.W; col++ {
-			c := skill.Coord{Q: col - r>>1, R: r}
-			x, y := c.Pixel()
-			if math.Abs(x-g.camX) > halfW {
-				continue
-			}
-			t := f.At(c)
-			if t == dungeon.Wall && !g.nearOpen(c) {
-				continue
-			}
-			img := g.tiles[t]
-			op := &ebiten.DrawImageOptions{}
-			sx, sy := g.toScreen(x, y)
-			b := img.Bounds()
-			op.GeoM.Translate(sx-float64(b.Dx())/2, sy-float64(b.Dy())/2)
-			if t == dungeon.Hazard {
-				op.ColorScale.Scale(pulse, pulse, pulse, 1)
-			}
-			screen.DrawImage(img, op)
-			if t == dungeon.Stairs {
-				g.label(screen, g.face, "▼", sx, sy, colBG, true)
-			}
-		}
-	}
-}
-
 func (g *Game) nearOpen(c skill.Coord) bool {
 	for _, d := range skill.HexDirs {
 		if g.sim.Floor.At(c.Add(d)) != dungeon.Wall {
@@ -461,74 +396,6 @@ func (g *Game) nearOpen(c skill.Coord) bool {
 		}
 	}
 	return false
-}
-
-func (g *Game) drawActors(screen *ebiten.Image) {
-	sim := g.sim
-	s := g.size
-	for i := range sim.Actors {
-		a := &sim.Actors[i]
-		alpha := float32(1)
-		rad := s * 0.58
-		if a.Kind == game.KindBrute {
-			rad = s * 0.72
-		} else if a.Kind == game.KindSkitter {
-			rad = s * 0.45
-		}
-		if !a.U.Alive {
-			if a.DeadFor > 0.6 {
-				continue
-			}
-			k := float64(1 - a.DeadFor/0.6)
-			alpha = float32(k)
-			if a.Fell {
-				rad *= k * k
-			}
-		}
-		x, y := a.Pos()
-		sx, sy := g.toScreen(x, y)
-		if sx < -s*2 || sy < -s*2 || sx > float64(g.w)+s*2 || sy > float64(g.h)+s*2 {
-			continue
-		}
-		col := colPlayer
-		if a.Kind != game.KindPlayer {
-			col = enemyCol[a.Kind]
-		}
-		var cs [4]float32
-		cs[0], cs[1], cs[2], cs[3] = float32(col.R)/255, float32(col.G)/255, float32(col.B)/255, 1
-		if a.U.SlowLeft > 0 {
-			cs[0], cs[1], cs[2] = cs[0]*0.6+0.2, cs[1]*0.6+0.35, cs[2]*0.4+0.6
-		}
-		if a.U.Frozen {
-			cs[0], cs[1], cs[2] = 0.75, 0.92, 1
-		}
-		if a.U.Stealth > 0 {
-			alpha *= 0.45
-		}
-		if a.Flash > 0 {
-			cs[0], cs[1], cs[2] = 1, 1, 1
-		}
-		// Elites (above the floor's level) get a white ring.
-		if a.Kind != game.KindPlayer && a.U.Level > sim.Depth {
-			g.drawDisc(screen, sx, sy, rad+float64(g.u(2.5)), 1, 1, 1, alpha)
-		}
-		if a.Kind == game.KindPlayer {
-			g.drawDisc(screen, sx, sy, rad+float64(g.u(3)), 0.05, 0.2, 0.3, alpha)
-		}
-		g.drawDisc(screen, sx, sy, rad, cs[0], cs[1], cs[2], alpha)
-		// Facing nub.
-		if a.U.Alive {
-			dx, dy := a.FaceVec()
-			g.drawDisc(screen, sx+dx*rad*0.8, sy+dy*rad*0.8, rad*0.28, 0.05, 0.06, 0.1, alpha)
-		}
-		// Health bar for hurt enemies.
-		if a.U.Alive && a.Kind != game.KindPlayer && a.U.HP < a.U.MaxHP {
-			bw := float32(s * 1.3)
-			bx, by := float32(sx)-bw/2, float32(sy-rad)-g.u(7)
-			vector.DrawFilledRect(screen, bx, by, bw, g.u(4), color.RGBA{0, 0, 0, 0xc0}, false)
-			vector.DrawFilledRect(screen, bx, by, bw*a.U.HP/a.U.MaxHP, g.u(4), colHP, false)
-		}
-	}
 }
 
 func (g *Game) drawDisc(dst *ebiten.Image, x, y, r float64, cr, cg, cb, ca float32) {
@@ -608,7 +475,7 @@ func (g *Game) drawLabels(screen *ebiten.Image) {
 				}
 				rise = easeOut(float64(k)) * s * 1.8
 			}
-			g.label(screen, face, fmt.Sprintf("%.0f", f.Value), x+jx, y-s*0.6-rise, fade(c, a), true)
+			g.outlined(screen, face, fmt.Sprintf("%.0f", f.Value), x+jx, y-s*0.6-rise, fade(c, a), a)
 		}
 	})
 }
@@ -624,11 +491,35 @@ func (g *Game) label(dst *ebiten.Image, face *text.GoTextFace, s string, x, y fl
 	text.Draw(dst, s, face, op)
 }
 
+// outlined draws text with a dark edge so it reads over bright effects.
+func (g *Game) outlined(dst *ebiten.Image, face *text.GoTextFace, s string, x, y float64, c color.RGBA, a float32) {
+	d := float64(g.u(1.5))
+	sh := fade(color.RGBA{0x05, 0x06, 0x0a, 0xff}, a*0.9)
+	for _, o := range [][2]float64{{-d, 0}, {d, 0}, {0, -d}, {0, d}, {d, d}} {
+		g.label(dst, face, s, x+o[0], y+o[1], sh, true)
+	}
+	g.label(dst, face, s, x, y, c, true)
+}
+
 func (g *Game) bar(dst *ebiten.Image, x, y, w, h float32, frac float32, c color.RGBA, label string) {
 	p := g.u(2)
+	frac = max(0, min(1, frac))
 	vector.DrawFilledRect(dst, x-p, y-p, w+2*p, h+2*p, colPanel, false)
-	vector.DrawFilledRect(dst, x, y, w, h, color.RGBA{0x22, 0x27, 0x36, 0xff}, false)
-	vector.DrawFilledRect(dst, x, y, w*max(0, min(1, frac)), h, c, false)
+	vector.StrokeRect(dst, x-p, y-p, w+2*p, h+2*p, g.u(1), color.RGBA{0x3a, 0x44, 0x5e, 0xff}, false)
+	vector.DrawFilledRect(dst, x, y, w, h, color.RGBA{0x16, 0x1a, 0x26, 0xff}, false)
+	fw := w * frac
+	vector.DrawFilledRect(dst, x, y, fw, h, fade(c, 0.85), false)
+	// A lit strip along the top and a bright cap at the fill's end.
+	vector.DrawFilledRect(dst, x, y, fw, h*0.3, fade(color.RGBA{0xff, 0xff, 0xff, 0xff}, 0.22), false)
+	vector.DrawFilledRect(dst, x, y+h*0.8, fw, h*0.2, fade(color.RGBA{0, 0, 0, 0xff}, 0.25), false)
+	if frac > 0.005 && frac < 0.995 {
+		vector.DrawFilledRect(dst, x+fw-g.u(2), y, g.u(2), h, color.RGBA{0xff, 0xff, 0xff, 0xd0}, false)
+	}
+	for i := 1; i < 10; i++ {
+		tx := x + w*float32(i)/10
+		vector.DrawFilledRect(dst, tx, y+h*0.6, g.u(1), h*0.4, color.RGBA{0, 0, 0, 0x60}, false)
+	}
+	g.label(dst, g.small, label, float64(x+g.u(6))+float64(g.u(1)), float64(y+h/2)+float64(g.u(1)), color.RGBA{0, 0, 0, 0xc0}, false)
 	g.label(dst, g.small, label, float64(x+g.u(6)), float64(y+h/2), colText, false)
 }
 
@@ -733,6 +624,15 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 				sub = sim.SlotLast[i].String()
 			}
 		}
+		if fl := sim.SlotFlash[i]; fl > 0 {
+			fc := slotCol[i]
+			if sim.SlotLast[i] != skill.Fired {
+				fc = colHot
+			}
+			vector.DrawFilledRect(screen, x, cy, cardW, cardH, fade(fc, 0.3*min(1, float32(fl)*3)), false)
+		}
+		vector.DrawFilledRect(screen, x, cy, cardW, cardH*0.45, fade(slotCol[i], 0.06), false)
+		vector.DrawFilledRect(screen, x, cy, u(4), cardH, slotCol[i], false)
 		vector.StrokeRect(screen, x, cy, cardW, cardH, u(2), edge, false)
 		bank, frac := g.bankText(i)
 		if frac >= 0 {
@@ -767,9 +667,26 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 				c = colHot
 			}
 		}
-		vector.DrawFilledCircle(screen, float32(b.x), float32(b.y), float32(b.r), fade(c, 0.22), true)
+		cr, cg, cb := colorF(c)
+		g.glow(screen, b.x, b.y, b.r*1.5, cr, cg, cb, 0.22)
+		vector.DrawFilledCircle(screen, float32(b.x), float32(b.y), float32(b.r), color.RGBA{0x0c, 0x0f, 0x18, 0xe8}, true)
+		vector.DrawFilledCircle(screen, float32(b.x), float32(b.y), float32(b.r), fade(c, 0.2), true)
+		vector.DrawFilledCircle(screen, float32(b.x), float32(b.y-b.r*0.12), float32(b.r*0.82), fade(c, 0.1), true)
+		vector.StrokeCircle(screen, float32(b.x), float32(b.y), float32(b.r*0.86), u(1), fade(c, 0.45), true)
 		vector.StrokeCircle(screen, float32(b.x), float32(b.y), float32(b.r), u(2.5), c, true)
-		g.label(screen, g.face, b.label, b.x, b.y, colText, true)
+		if b.label == "CAST" {
+			// Heat wraps the cast button, so you see it where your thumb is.
+			hf := float64(rig.Heat / rig.MaxHeat)
+			if hf > 0.01 {
+				hc := colHeat
+				if hf > 0.75 {
+					hc = colHot
+				}
+				g.ringPath(b.x, b.y, b.r+float64(u(5)), fx.RingStyle{Sides: 48}, 0, 0, -math.Pi/2, -math.Pi/2+2*math.Pi*hf, false)
+				g.strokePath(screen, hc, 0.9, u(3.5))
+			}
+		}
+		g.outlined(screen, g.face, b.label, b.x, b.y, colText, 1)
 	}
 
 	// Sound, menu and movement mode toggles, and the stick itself.
@@ -872,7 +789,7 @@ func shortName(s string) string {
 }
 
 func main() {
-	ebiten.SetWindowSize(1100, 720)
+	ebiten.SetWindowSize(devWindow())
 	ebiten.SetWindowTitle("Hexes")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	if err := ebiten.RunGame(newGame()); err != nil {

@@ -171,6 +171,7 @@ func (g *Game) spawn(e *game.FX) {
 	x, y := float32(e.X), float32(e.Y)
 	fx0, fy0 := float32(e.FromX), float32(e.FromY)
 	shot := fx.Shot{Sig: g.sigOf(e.Type), Mag: e.Mag, Heat: e.Heat}
+	g.kick(e)
 	switch e.Kind {
 	case game.FXBolt:
 		dx, dy := x-fx0, y-fy0
@@ -246,8 +247,8 @@ func (g *Game) drawParticles(screen *ebiten.Image) {
 	}
 	vs, is := f.vs[:0], f.is[:0]
 	s := float32(g.size)
-	ox := float32(float64(g.w)/2 - g.camX*g.size)
-	oy := float32(float64(g.h)/2 - g.camY*g.size)
+	ox0, oy0 := g.toScreen(0, 0)
+	ox, oy := float32(ox0), float32(oy0)
 	W, H := float32(g.w), float32(g.h)
 	for i := 0; i < p.N; i++ {
 		q := &p.P[i]
@@ -282,6 +283,20 @@ func (g *Game) drawParticles(screen *ebiten.Image) {
 			ebiten.Vertex{DstX: cx - ux + vx, DstY: cy - uy + vy, SrcX: sx0, SrcY: spriteCell, ColorR: cr, ColorG: cg, ColorB: cb, ColorA: ca},
 		)
 		is = append(is, base, base+1, base+2, base, base+2, base+3)
+		// A wide faint halo round every bright bit, so sparks bloom.
+		if q.Sprite != fx.SpriteSquare && l.A > 0.15 {
+			hr := r*2.6 + l.Len*s*0.3
+			ha := ca * 0.16
+			hcr, hcg, hcb := l.R*ha, l.G*ha, l.B*ha
+			base = uint16(len(vs))
+			vs = append(vs,
+				ebiten.Vertex{DstX: cx - hr, DstY: cy - hr, SrcX: 0, SrcY: 0, ColorR: hcr, ColorG: hcg, ColorB: hcb, ColorA: ha},
+				ebiten.Vertex{DstX: cx + hr, DstY: cy - hr, SrcX: spriteCell, SrcY: 0, ColorR: hcr, ColorG: hcg, ColorB: hcb, ColorA: ha},
+				ebiten.Vertex{DstX: cx + hr, DstY: cy + hr, SrcX: spriteCell, SrcY: spriteCell, ColorR: hcr, ColorG: hcg, ColorB: hcb, ColorA: ha},
+				ebiten.Vertex{DstX: cx - hr, DstY: cy + hr, SrcX: 0, SrcY: spriteCell, ColorR: hcr, ColorG: hcg, ColorB: hcb, ColorA: ha},
+			)
+			is = append(is, base, base+1, base+2, base, base+2, base+3)
+		}
 	}
 	if len(is) > 0 {
 		screen.DrawTriangles(vs, is, f.atlas, &ebiten.DrawTrianglesOptions{Blend: ebiten.BlendLighter, Filter: ebiten.FilterLinear})
@@ -403,11 +418,21 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 		seed := float64(int(e.X*7) ^ int(e.Y*13))
 		switch e.Kind {
 		case game.FXBolt:
+			sig := g.sigOf(e.Type)
+			c := typeColor(e.Type)
+			m := math.Sqrt(float64(e.Mag))
+			// The hit itself: a hot glow and a ring kicked out from it.
+			if k < 0.5 {
+				kk := k / 0.5
+				cr, cg, cb := colorF(c)
+				g.glow(screen, x, y, s*(0.9+0.6*m)*(1-0.4*kk), cr, cg, cb, float32(1-kk)*0.9)
+				g.glow(screen, x, y, s*(0.35+0.2*m)*(1-kk), 1, 1, 1, float32(1-kk))
+				g.ringPath(x, y, s*(0.3+(0.9+0.4*m)*easeOut(kk)), sig.Ring(), t, seed, 0, 2*math.Pi, true)
+				g.strokePath(screen, c, float32(1-kk)*0.9, g.u(3*(1-kk)*m+1))
+			}
 			if e.Impact {
 				return
 			}
-			sig := g.sigOf(e.Type)
-			c := typeColor(e.Type)
 			fx0, fy0 := g.toScreen(e.FromX, e.FromY)
 			head := math.Min(1, k/0.3)
 			tail := math.Max(0, (k-0.1)/0.6)
@@ -416,9 +441,9 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 			}
 			ax, ay := fx0+(x-fx0)*tail, fy0+(y-fy0)*tail
 			bx, by := fx0+(x-fx0)*head, fy0+(y-fy0)*head
-			m := math.Sqrt(float64(e.Mag))
 			g.jagPath(ax, ay, bx, by, float64(sig.Jag()), seed)
-			g.strokePath(screen, c, a*0.45, g.u(6*(0.7+0.3*m)))
+			g.strokePath(screen, c, a*0.18, g.u(16*(0.7+0.3*m)))
+			g.strokePath(screen, c, a*0.5, g.u(6*(0.7+0.3*m)))
 			g.strokePath(screen, color.RGBA{0xff, 0xff, 0xff, 0xff}, a*0.8, g.u(1.6*(0.7+0.3*m)))
 		case game.FXChain:
 			sig := g.sigOf(e.Type)
@@ -434,7 +459,10 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 				ax, ay := g.toScreen(float64(e.Pts[i-1][0]), float64(e.Pts[i-1][1]))
 				bx, by := g.toScreen(float64(e.Pts[i][0]), float64(e.Pts[i][1]))
 				g.jagPath(ax, ay, bx, by, float64(sig.Jag())*1.4, seed+float64(i)*3.1)
-				g.strokePath(screen, c, la*0.4, g.u(7*(0.7+0.3*m)))
+				g.strokePath(screen, c, la*0.16, g.u(18*(0.7+0.3*m)))
+				g.strokePath(screen, c, la*0.45, g.u(7*(0.7+0.3*m)))
+				cr, cg, cb := colorF(c)
+				g.glow(screen, bx, by, s*0.9*m, cr, cg, cb, la*0.8)
 				g.strokePath(screen, color.RGBA{0xff, 0xff, 0xff, 0xff}, la*0.85, g.u(1.8))
 			}
 		case game.FXWave:
@@ -446,8 +474,14 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 			e1 := easeOut(k)
 			r := R * (0.2 + 0.8*e1)
 			heat := math.Max(0, math.Min(1.5, float64(e.Heat)/25))
+			if k < 0.35 {
+				cr, cg, cb := colorF(c)
+				g.glow(screen, x, y, R*0.9, cr, cg, cb, float32(1-k/0.35)*0.7)
+			}
 			g.ringPath(x, y, r, st, t, seed, 0, 2*math.Pi, true)
-			g.fillPath(screen, c, a*a*0.12)
+			g.fillPath(screen, c, a*a*0.16)
+			g.ringPath(x, y, r, st, t, seed, 0, 2*math.Pi, true)
+			g.strokePath(screen, c, a*0.2, g.u((6+6*m)*float64(a)+2))
 			g.ringPath(x, y, r, st, t, seed, 0, 2*math.Pi, true)
 			g.strokePath(screen, c, float32(float64(a)*(0.65+0.2*heat)), g.u((1.5+3*m)*float64(a)+1))
 			if st.Echo && k > 0.1 {
@@ -501,6 +535,9 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 		case game.FXFall:
 			vector.DrawFilledCircle(screen, float32(x), float32(y), float32(s*0.9*float64(a)), fade(colPitRim, a), true)
 		case game.FXKill:
+			if k < 0.4 {
+				g.glow(screen, x, y, s*1.6*(1-k), 1, 0.95, 0.85, float32(1-k/0.4)*0.8)
+			}
 			r := s * (0.4 + 1.3*easeOut(k))
 			g.ringPath(x, y, r, fx.RingStyle{Sides: 6}, t, seed, 0, 2*math.Pi, true)
 			g.strokePath(screen, colText, a*0.6, g.u(2*float64(a)+0.6))
@@ -527,4 +564,32 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 			vector.StrokeLine(screen, float32(fx0), float32(fy0), float32(x), float32(y), float32(s*0.5*float64(a)), fade(color.RGBA{0xf0, 0xf0, 0xf0, 0xff}, a*0.3), true)
 		}
 	})
+}
+
+// kick shakes the screen for heavy moments and reddens the edge when the
+// player takes a real hit.
+func (g *Game) kick(e *game.FX) {
+	l := &g.look
+	add := func(v float64) { l.shake = math.Min(1, l.shake+v) }
+	switch e.Kind {
+	case game.FXNumber:
+		if e.Hurt && !e.Small {
+			l.hurt = min(1, l.hurt+0.35+0.4*min(1, e.Value/20))
+			add(0.35)
+		}
+	case game.FXBolt:
+		if e.Mag >= 1.5 {
+			add(0.12 * float64(min(e.Mag, 4)))
+		}
+	case game.FXSlam:
+		add(0.4)
+	case game.FXKill:
+		if e.Slot == int(game.KindBrute) {
+			add(0.5)
+		} else {
+			add(0.15)
+		}
+	case game.FXFall:
+		add(0.3)
+	}
 }

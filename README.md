@@ -219,6 +219,16 @@ Nothing is canned. Every effect is worked out from numbers the game already has:
 
 Speed: particles live in one fixed array (1200), spawns thin out as it fills (`Pool.LOD`), nothing allocates per frame, and the renderer draws them all in one additive `DrawTriangles` call from a four-sprite atlas built at start. A full pool updates in about 50 µs on a desktop core. `go run ./tools/fxsheet out.png` renders a contact sheet of every type's impact, wave, cone and cast without a browser.
 
+## Look (`cmd/hexes/look.go`)
+
+Every sprite is drawn with vector paths when the hex size changes, then drawn as plain images each frame.
+
+- **Floor and walls.** Floor tiles have four panel variants (plain, inset seam, bolts, grate) picked by a coordinate hash, with a small brightness jitter. Walls are raised blocks: a lit top lifted above a dark side, drawn after the floor in row order so tops overlap what's behind them. The floor takes a color cast by depth band (steel, rust, moss, violet, ice, three floors each, blending on the last floor of a band). Stairs breathe a beacon with a rising hex ring.
+- **Actors.** Each kind has a body that faces where it's going (player hull with visor, grunt with prongs, skitter with legs and a wobble, brute with armor plates), a shadow, idle breathing, a squash and white flash when hit, a glowing eye or core (the player's core runs cyan to orange with Heat), a turning dashed ring on elites, and a segmented health bar with a trailing chunk for the last hit. Power and Heat show as arcs round the player.
+- **Light and feedback.** A falloff darkens the screen away from the player, a little more each floor; effects draw after it so they glow. Big hits, slams, falls and kills shake the screen; real hits on you add a red edge. Dust drifts and hazard vents throw embers. Particles get a faint halo, hits get a flash and a ring, and damage numbers have a dark outline.
+
+Check it without a browser: `HEXES_SHOTS=dir xvfb-run go run ./cmd/hexes` plays itself and saves screenshots (`HEXES_COUNT`, `HEXES_EVERY`, `HEXES_EXAMPLE`, and `HEXES_WIN=420x860` for a phone shape).
+
 ## Sound (`sfx`, `cmd/hexes/sound.go`)
 
 No recorded files. Every sound is synthesized while it plays from oscillators (sine, triangle, saw, square, FM), noise, envelopes, pitch sweeps and a resonant filter, and its shape comes from the same records the effects draw from:
