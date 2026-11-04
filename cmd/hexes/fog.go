@@ -1,0 +1,165 @@
+package main
+
+import (
+	"math"
+
+	"github.com/hajimehoshi/ebiten/v2"
+
+	"hexes/dungeon"
+	"hexes/game"
+	"hexes/skill"
+)
+
+// Fog of war. The sim's Sight says which hexes the lamp sees now and
+// which have been explored; this file turns that into light. Each floor
+// hex is drawn as one quad whose four corners are shaded by the light at
+// that point, so the edge of the light is a smooth gradient rather than a
+// ring of hex steps. Ground you've explored stays dimly remembered in a
+// cool tint; ground you've never seen isn't drawn at all. Enemies, drops
+// and status glows outside the light are hidden. Hexes fade in and out of
+// line of sight over a few frames so turning a corner doesn't pop.
+
+const (
+	fogShadeRate = 8.0 // per second: fade in and out of line of sight
+	fogRadRate   = 5.0 // hexes per second: the lamp's reach easing
+	fogMem       = 0.2 // how bright remembered ground is
+	fogMemVent   = 0.4 // remembered vents glow a little brighter
+	fogMemStairs = 0.5 // so do the stairs, so you can find your way back
+)
+
+// fogTint colors remembered ground: dim and cool against the warm light.
+var fogTint = [3]float32{0.62, 0.72, 1}
+
+// The lamp: a touch warm, and brighter than plain in its core so the
+// pool of light reads as light on the dark station floor.
+var lampTint = [3]float32{1.04, 1, 0.92}
+
+const lampBoost = 0.35
+
+type fogState struct {
+	floor  *dungeon.Floor
+	shade  []float32 // per hex: 0 out of sight, 1 in it, eased
+	r      float32   // the lamp's reach as drawn
+	lx, ly float64   // the lamp: the player, in pixel space
+	vs     [4]ebiten.Vertex
+	is     [6]uint16
+}
+
+// beginFog sets up this frame's light. drawFloor calls it first.
+func (g *Game) beginFog() {
+	fs := &g.fog
+	f := g.sim.Floor
+	want := g.sim.LightRadius()
+	g.sim.Sight.Update(f, g.sim.P().At, want) // a no-op unless the sim hasn't yet
+	if fs.floor != f {
+		fs.floor = f
+		n := f.W * f.H
+		if cap(fs.shade) < n {
+			fs.shade = make([]float32, n)
+		}
+		fs.shade = fs.shade[:n]
+		clear(fs.shade)
+		fs.r = want
+		fs.is = [6]uint16{0, 1, 2, 1, 3, 2}
+	}
+	step := float32(fogRadRate / 60)
+	switch {
+	case fs.r < want:
+		fs.r = min(want, fs.r+step)
+	case fs.r > want:
+		fs.r = max(want, fs.r-step)
+	}
+	fs.lx, fs.ly = g.sim.P().Pos()
+}
+
+// lampReach is the reach to shade with this frame: a browned-out lamp
+// flickers.
+func (g *Game) lampReach() float32 {
+	r := g.fog.r
+	if g.sim.Rig.Locked() {
+		h := hash32(uint32(g.frame / 3))
+		r *= 0.94 + 0.06*float32(h&0xff)/255
+	}
+	return r
+}
+
+func hash32(x uint32) uint32 {
+	x ^= x >> 16
+	x *= 0x7feb352d
+	x ^= x >> 15
+	x *= 0x846ca68b
+	return x ^ x>>16
+}
+
+// drawLitTile draws tile sprite img for hex c (index i, pixel-space
+// center x, y, screen center sx, sy) with its top left corner at
+// (left, top), tinted by cr, cg, cb, under the lamp. Each corner of the
+// sprite is shaded by the light at that point. It draws nothing for a
+// hex never seen.
+func (g *Game) drawLitTile(dst, img *ebiten.Image, t dungeon.Tile, i int, x, y, sx, sy, left, top float64, cr, cg, cb, r float32) {
+	fs := &g.fog
+	sight := &g.sim.Sight
+	vis, seen := sight.Vis[i], sight.Seen[i]
+	sh := fs.shade[i]
+	if vis {
+		sh = min(1, sh+fogShadeRate/60)
+	} else {
+		sh = max(0, sh-fogShadeRate/60)
+	}
+	fs.shade[i] = sh
+	if !seen && sh == 0 {
+		return
+	}
+	var mem float32
+	if seen {
+		switch t {
+		case dungeon.Hazard:
+			mem = fogMemVent
+		case dungeon.Stairs:
+			mem = fogMemStairs
+		default:
+			// A little darker each floor down, to a floor of its own.
+			mem = max(fogMem*0.6, fogMem-0.004*float32(g.sim.Depth))
+		}
+	}
+	b := img.Bounds()
+	w, h := float64(b.Dx()), float64(b.Dy())
+	far := sh == 0 || math.Hypot(x-fs.lx, y-fs.ly) > (float64(r)+1.5)*math.Sqrt(3)
+	for k := range fs.vs {
+		u, v := float64(k&1), float64(k>>1)
+		px, py := left+u*w, top+v*h
+		var l float32
+		if !far {
+			l = sh * game.LightAt(fs.lx, fs.ly, x+(px-sx)/g.size, y+(py-sy)/g.size, r)
+		}
+		m := mem * (1 - l)
+		l *= 1 + lampBoost*l
+		vx := &fs.vs[k]
+		vx.DstX, vx.DstY = float32(px), float32(py)
+		vx.SrcX, vx.SrcY = float32(float64(b.Min.X)+u*w), float32(float64(b.Min.Y)+v*h)
+		vx.ColorR = cr * (fogTint[0]*m + lampTint[0]*l)
+		vx.ColorG = cg * (fogTint[1]*m + lampTint[1]*l)
+		vx.ColorB = cb * (fogTint[2]*m + lampTint[2]*l)
+		vx.ColorA = 1
+	}
+	dst.DrawTriangles(fs.vs[:], fs.is[:], img, nil)
+}
+
+// seeAt is how visible a point in pixel space is: 0 in the dark or
+// behind a wall, up to 1 in full light. Hidden things aren't drawn.
+func (g *Game) seeAt(x, y float64) float32 {
+	fs := &g.fog
+	f := g.sim.Floor
+	if fs.floor != f {
+		return 0
+	}
+	c := skill.FromPixel(x, y)
+	if !f.In(c) {
+		return 0
+	}
+	sh := fs.shade[f.Index(c)]
+	if sh == 0 {
+		return 0
+	}
+	return sh * game.LightAt(fs.lx, fs.ly, x, y, g.lampReach())
+}

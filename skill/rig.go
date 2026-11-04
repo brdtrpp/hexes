@@ -8,6 +8,7 @@ type Points struct {
 	Recharge   int // Power regained per second
 	Cooling    int // Heat vented per second
 	Processing int // hex nesting depth
+	Optics     int // light radius: how far the rig's lamp reaches
 }
 
 // SoftKnee is where every stat's soft cap starts biting.
@@ -25,6 +26,13 @@ func SoftCap(points int, knee float64) float64 {
 	return knee * (1 + math.Log(p/knee))
 }
 
+// Light radius tuning, in hexes: the base reach with no Optics points,
+// and what each effective (soft-capped) point adds. Placeholder balance.
+const (
+	LightBase = 6
+	LightPer  = 0.5
+)
+
 // Rig is a player's power and heat state.
 type Rig struct {
 	MaxPower, Power float32
@@ -32,6 +40,8 @@ type Rig struct {
 	MaxHeat, Heat   float32
 	CoolRate        float32
 	MaxDepth        int
+	// Light is the lamp's reach in hexes, from Optics points.
+	Light float32
 	// ShutdownLeft is seconds until an overheated rig can fire again.
 	ShutdownLeft float32
 }
@@ -48,6 +58,7 @@ func NewRig(p Points) Rig {
 		MaxHeat:      100,
 		CoolRate:     6 + 1.5*eff(p.Cooling),
 		MaxDepth:     int(SoftCap(p.Processing, SoftKnee) / 5),
+		Light:        LightBase + LightPer*eff(p.Optics),
 	}
 	r.Power = r.MaxPower
 	return r

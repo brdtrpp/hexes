@@ -909,7 +909,7 @@ func (g *Game) drawDrops(screen *ebiten.Image) {
 	for i, d := range g.sim.Stash.Drops {
 		x, y := d.At.Pixel()
 		sx, sy := g.toScreen(x, y)
-		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s {
+		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s || g.seeAt(x, y) < 0.2 {
 			continue
 		}
 		sx += float64(i%3-1) * s * 0.18
@@ -934,7 +934,7 @@ func (g *Game) drawDrops(screen *ebiten.Image) {
 	for _, d := range g.sim.Stash.Shapes {
 		x, y := d.At.Pixel()
 		sx, sy := g.toScreen(x, y)
-		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s {
+		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s || g.seeAt(x, y) < 0.2 {
 			continue
 		}
 		pulse := 1 + 0.15*math.Sin(float64(g.frame)*0.1)
@@ -961,7 +961,7 @@ func (g *Game) drawDrops(screen *ebiten.Image) {
 	for _, d := range g.sim.Stash.Tiles {
 		x, y := d.At.Pixel()
 		sx, sy := g.toScreen(x, y)
-		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s {
+		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s || g.seeAt(x, y) < 0.2 {
 			continue
 		}
 		r := s * 0.3

@@ -181,6 +181,9 @@ type Sim struct {
 
 	// Stash is loot: parts on the floor and in the inventory (loot.go).
 	Stash Stash
+	// Sight is the fog of war: what the lamp lights now and what's been
+	// explored on this floor (sight.go).
+	Sight Sight
 
 	occ      []skill.EntityID
 	dist, q  []int32
@@ -285,6 +288,7 @@ func (s *Sim) load(depth int, hpFrac float32) {
 			}
 		}
 	}
+	s.refreshSight()
 	s.Dirty = true
 }
 
@@ -345,6 +349,7 @@ func (s *Sim) Step(dt float32) {
 	s.advance(dt)
 	s.timers(dt)
 	s.pickup(dt)
+	s.refreshSight()
 
 	p := s.P()
 	if !p.U.Alive {

@@ -13,22 +13,21 @@ import (
 // The minimap is a small chart of the floor in the top right corner that
 // fills in as the player explores, so the bigger deep floors stay easy to
 // read. Each hex is a 2x2 pixel block with odd rows nudged half a block,
-// the same offset layout the floor uses. The chart image is only redrawn
-// when the player steps onto a new tile.
+// the same offset layout the floor uses. What counts as explored is the
+// sim's Sight (game/sight.go), the same record the fog draws from, so the
+// chart shows exactly the ground the lamp has lit. The chart image is only
+// redrawn when that record gains a hex.
 
 const (
-	mapReveal = 8 // hexes around the player that get charted
-	mapMaxW   = 128.0
-	mapMaxH   = 96.0
+	mapMaxW = 128.0
+	mapMaxH = 96.0
 )
 
 type minimap struct {
 	floor *dungeon.Floor
-	seen  []bool
-	last  skill.Coord
+	gen   int // Sight.Gen the chart was drawn at
 	img   *ebiten.Image
 	px    []byte
-	dirty bool
 }
 
 var (
@@ -38,23 +37,18 @@ var (
 	mapHazard = color.RGBA{0xc2, 0x4e, 0x12, 0xff}
 )
 
-// updateMinimap charts the tiles around the player. It resets on a new
-// floor and does nothing while the player stays on one tile.
+// updateMinimap redraws the chart when the explored record has grown. It
+// resets on a new floor.
 func (g *Game) updateMinimap() {
 	m := &g.mm
 	f := g.sim.Floor
-	if f == nil {
+	sight := &g.sim.Sight
+	if f == nil || len(sight.Seen) != f.W*f.H {
 		return
 	}
-	p := g.sim.P().At
 	if m.floor != f {
 		m.floor = f
-		n := f.W * f.H
-		if cap(m.seen) < n {
-			m.seen = make([]bool, n)
-		}
-		m.seen = m.seen[:n]
-		clear(m.seen)
+		m.gen = -1
 		iw, ih := 2*f.W+1, 2*f.H
 		if m.img == nil || m.img.Bounds().Dx() != iw || m.img.Bounds().Dy() != ih {
 			if m.img != nil {
@@ -63,30 +57,14 @@ func (g *Game) updateMinimap() {
 			m.img = ebiten.NewImage(iw, ih)
 			m.px = make([]byte, 4*iw*ih)
 		}
-		m.last = skill.Coord{Q: -1 << 20}
 	}
-	if p == m.last {
+	if m.gen == sight.Gen {
 		return
 	}
-	m.last = p
-	for dr := -mapReveal; dr <= mapReveal; dr++ {
-		for dq := max(-mapReveal, -dr-mapReveal); dq <= min(mapReveal, -dr+mapReveal); dq++ {
-			c := skill.Coord{Q: p.Q + dq, R: p.R + dr}
-			if f.In(c) {
-				if i := f.Index(c); !m.seen[i] {
-					m.seen[i] = true
-					m.dirty = true
-				}
-			}
-		}
-	}
-	if !m.dirty {
-		return
-	}
-	m.dirty = false
+	m.gen = sight.Gen
 	clear(m.px)
 	iw := 2*f.W + 1
-	for i, ok := range m.seen {
+	for i, ok := range sight.Seen {
 		if !ok {
 			continue
 		}
@@ -156,7 +134,7 @@ func (g *Game) drawMinimap(screen *ebiten.Image) {
 		x, y := at(c)
 		vector.DrawFilledCircle(screen, x, y, r, col, true)
 	}
-	if m.seen[f.Index(f.Exit)] { // a breathing ring so the stairs stand out
+	if g.sim.Sight.Seen[f.Index(f.Exit)] { // a breathing ring so the stairs stand out
 		x, y := at(f.Exit)
 		pulse := 0.6 + 0.4*float32(g.frame%40)/40
 		vector.StrokeCircle(screen, x, y, g.u(4)*pulse+g.u(1), g.u(1.5), colStairs, true)

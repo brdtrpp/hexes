@@ -310,7 +310,8 @@ func (g *Game) drawFloor(screen *ebiten.Image) {
 	t := float64(g.frame) / 60
 	pulse := float32(0.75 + 0.25*math.Sin(t*7.2))
 	zr, zg, zb := zoneTint(g.sim.Depth)
-	op := &ebiten.DrawImageOptions{}
+	g.beginFog()
+	reach := g.lampReach()
 	// Floors first, then walls in row order, so a wall's lifted top
 	// overlaps the floor behind it and its side faces the floor in front.
 	for pass := 0; pass < 2; pass++ {
@@ -339,24 +340,23 @@ func (g *Game) drawFloor(screen *ebiten.Image) {
 					}
 					img = g.look.floor[v]
 				}
-				op.GeoM.Reset()
-				op.ColorScale.Reset()
 				sx, sy := g.toScreen(x, y)
 				b := img.Bounds()
 				oy := float64(b.Dy()) / 2
 				if tile == dungeon.Wall {
 					oy = float64(b.Dy()) - (float64(b.Dy())-g.look.wallLift)/2
 				}
-				op.GeoM.Translate(sx-float64(b.Dx())/2, sy-oy)
+				cr, cg, cb := float32(1), float32(1), float32(1)
 				switch tile {
 				case dungeon.Hazard:
-					op.ColorScale.Scale(pulse, pulse, pulse, 1)
+					cr, cg, cb = pulse, pulse, pulse
 				case dungeon.Ground, dungeon.Wall:
 					v := 0.9 + 0.16*float32(h>>8&0xff)/255
-					op.ColorScale.Scale(v*zr, v*zg, v*zb, 1)
+					cr, cg, cb = v*zr, v*zg, v*zb
 				}
-				screen.DrawImage(img, op)
-				if tile == dungeon.Stairs {
+				i := f.Index(c)
+				g.drawLitTile(screen, img, tile, i, x, y, sx, sy, sx-float64(b.Dx())/2, sy-oy, cr, cg, cb, reach)
+				if tile == dungeon.Stairs && g.sim.Sight.Seen[i] {
 					g.drawStairs(screen, sx, sy, t)
 				}
 			}
@@ -422,6 +422,11 @@ func (g *Game) drawActors(screen *ebiten.Image) {
 		if sx < -s*2 || sy < -s*2 || sx > float64(g.w)+s*2 || sy > float64(g.h)+s*2 {
 			continue
 		}
+		if a.Kind != game.KindPlayer { // out of the light, out of sight (fog.go)
+			if alpha *= g.seeAt(x, y); alpha < 0.02 {
+				continue
+			}
+		}
 		fx0, fy0 := a.FaceVec()
 		ang := math.Atan2(fy0, fx0) + spin
 		if a.Kind == game.KindSkitter && a.U.Alive {
@@ -462,6 +467,7 @@ func (g *Game) drawActors(screen *ebiten.Image) {
 			if a.U.Frozen {
 				wa = max(wa, 0.25)
 			}
+			wa *= alpha
 			op.ColorScale.Reset()
 			op.ColorScale.Scale(wa, wa, wa, wa)
 			op.Blend = ebiten.BlendLighter
@@ -498,7 +504,7 @@ func (g *Game) drawActors(screen *ebiten.Image) {
 		// Elites (above the floor's level) get a turning dashed ring.
 		if a.U.Alive && a.Kind != game.KindPlayer && a.U.Level > sim.Depth {
 			g.ringPath(sx, sy, R*1.3, fx.RingStyle{Sides: 40, Dash: 0.6, Spin: 0.4}, t, 0, 0, 2*math.Pi, true)
-			g.strokePath(screen, colText, 0.7, g.u(1.6))
+			g.strokePath(screen, colText, 0.7*alpha, g.u(1.6))
 		}
 		if !a.U.Alive {
 			continue
@@ -514,7 +520,7 @@ func (g *Game) drawActors(screen *ebiten.Image) {
 			*tr = frac
 		}
 		*tr = max(frac, *tr-1.0/60*0.7)
-		if a.U.HP < a.U.MaxHP {
+		if a.U.HP < a.U.MaxHP && alpha > 0.5 {
 			bw := float32(s * 1.3)
 			bh := g.u(4)
 			bx0, by0 := float32(sx)-bw/2, float32(sy-R)-g.u(9)
@@ -590,7 +596,9 @@ func (g *Game) drawLight(screen *ebiten.Image) {
 	op.GeoM.Scale(sc, sc)
 	op.GeoM.Translate(px, py)
 	op.Filter = ebiten.FilterLinear
-	dark := float32(min(0.9, 0.66+0.015*float64(g.sim.Depth)))
+	// The fog (fog.go) does the darkness now; this only shades the far
+	// corners of the screen a touch, so the lit room still feels lamp-lit.
+	dark := float32(min(0.45, 0.3+0.01*float64(g.sim.Depth)))
 	op.ColorScale.Scale(0, 0, 0, dark)
 	screen.DrawImage(v, op)
 	if h := g.look.hurt; h > 0 {

@@ -116,6 +116,9 @@ func (g *Game) updateFX(dt float32) {
 		if sx, sy := g.toScreen(x, y); sx < -g.size*2 || sy < -g.size*2 || sx > float64(g.w)+g.size*2 || sy > float64(g.h)+g.size*2 {
 			continue
 		}
+		if a.Kind != game.KindPlayer && g.seeAt(x, y) < 0.2 {
+			continue // a glow in the dark would give a hidden foe away
+		}
 		g.auras(a, float32(x), float32(y), dt)
 	}
 	f.parts.Update(dt)

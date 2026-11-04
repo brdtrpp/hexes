@@ -130,6 +130,7 @@ type Game struct {
 	look      lookState  // world look: tiles, actors, light (look.go)
 	sndBtn    pill       // mute toggle
 	mm        minimap    // explored-floor chart (minimap.go)
+	fog       fogState   // what the lamp lights and what's remembered (fog.go)
 }
 
 func newGame() *Game {

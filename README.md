@@ -225,7 +225,7 @@ Every sprite is drawn with vector paths when the hex size changes, then drawn as
 
 - **Floor and walls.** Floor tiles have four panel variants (plain, inset seam, bolts, grate) picked by a coordinate hash, with a small brightness jitter. Walls are raised blocks: a lit top lifted above a dark side, drawn after the floor in row order so tops overlap what's behind them. The floor takes a color cast by depth band (steel, rust, moss, violet, ice, three floors each, blending on the last floor of a band). Stairs breathe a beacon with a rising hex ring.
 - **Actors.** Each kind has a body that faces where it's going (player hull with visor, grunt with prongs, skitter with legs and a wobble, brute with armor plates), a shadow, idle breathing, a squash and white flash when hit, a glowing eye or core (the player's core runs cyan to orange with Heat), a turning dashed ring on elites, and a segmented health bar with a trailing chunk for the last hit. Power and Heat show as arcs round the player.
-- **Light and feedback.** A falloff darkens the screen away from the player, a little more each floor; effects draw after it so they glow. Big hits, slams, falls and kills shake the screen; real hits on you add a red edge. Dust drifts and hazard vents throw embers. Particles get a faint halo, hits get a flash and a ring, and damage numbers have a dark outline.
+- **Light and feedback.** The fog of war (below) does the darkness; a light screen vignette shades the far corners a touch more each floor; effects draw after both so they glow. Big hits, slams, falls and kills shake the screen; real hits on you add a red edge. Dust drifts and hazard vents throw embers. Particles get a faint halo, hits get a flash and a ring, and damage numbers have a dark outline.
 
 Check it without a browser: `HEXES_SHOTS=dir xvfb-run go run ./cmd/hexes` plays itself and saves screenshots (`HEXES_COUNT`, `HEXES_EVERY`, `HEXES_EXAMPLE`, and `HEXES_WIN=420x860` for a phone shape).
 
@@ -274,6 +274,7 @@ Rig (soft cap per stat, as decided)
 - Effective points are one for one up to 10, then 10 x (1 + ln(points / 10)). 20 points is worth 16.9.
 - Max Power 100 + 8 per effective Capacity; Recharge 8 + 1.5 per point per second; Cooling 6 + 1.5; max Heat 100; overheat locks the rig for 3 s.
 - Max nesting depth is effective Processing / 5: 0 points none, 5 one level, 10 two, 20 three, 40 four.
+- Light radius is 6 hexes + 0.5 per effective Optics point: 0 points 6, 10 points 11, 20 points 14.5, 40 points 18. A locked rig (overheat or vent) browns the lamp out to 60%.
 
 ## Floor generator (`dungeon`)
 
@@ -297,7 +298,18 @@ Depth drives everything (`ParamsFor`). Every floor down is bigger: 4 more column
 | Pit clusters | 2 | 8 | 28 | 48 (cap) |
 | Hazard clusters | 0 | 4 | 20 | 40 (cap) |
 
-The minimap (top right, under the slots on a phone) charts every hex within 8 of where you've been, and marks the stairs with a ring once you've seen them, plus the salvage cache when it's on this floor. It only redraws when you step onto a new tile.
+The minimap (top right, under the slots on a phone) charts every hex you've explored (the fog's record, below), and marks the stairs with a ring once you've seen them, plus the salvage cache when it's on this floor. It only redraws when the record grows.
+
+## Fog of war (`game/sight.go`, `cmd/hexes/fog.go`)
+
+The rig carries a lamp. Its reach is the light radius (`Sim.LightRadius`): the rig's `Light`, set by Optics points through the usual soft cap (default 6 hexes), times 0.6 while the rig is locked, never under 2.
+
+- Line of sight: every hex within the radius whose hex line from the player has no wall between (walls themselves get lit). The line is walked twice, nudged to each side, and passes if either is clear, so light slips past a corner it only grazes. Pits and vents don't block.
+- Explored: a lit hex at least one hex inside the radius is remembered for the rest of the floor (`Sight.Seen`). That one record feeds both the dim floor and the minimap. `Sight.Gen` ticks when it grows.
+- Light falls off from full at half the radius (at least two hexes short of it) to nothing at the radius, with a smoothstep. Each floor hex is drawn as a quad whose corners are shaded by the light there, so the edge is a gradient, not a ring of steps.
+- Remembered ground is drawn at 20% in a cool tint (a little darker each floor, down to 12%), vents at 40% (pulsing), stairs at 50% with their beacon. Unexplored ground isn't drawn.
+- Enemies, their health bars and status glows, and loot on the floor are hidden outside the light and fade in at its edge. Hexes fade in and out of line of sight over about an eighth of a second. The salvage cache keeps its marker. Hit effects and damage numbers still show in the dark.
+- Cost: sight only recomputes when the player changes hex or the radius changes (0 allocs; about 0.1 ms at radius 16 on the 100x74 cap floor, far less at 6). Drawing is one quad per hex on screen, as before.
 
 ## Trigger dispatch (`skill/dispatch.go`)
 
