@@ -7,6 +7,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"hexes/game"
 	"hexes/skill"
 )
 
@@ -110,6 +111,9 @@ func (g *Game) condLayout() condLayout {
 
 // openCond opens the condition editor on the gate in hex's slot.
 func (g *Game) openCond(hex, slot int) bool {
+	if !g.sim.Has(game.UQuirks) {
+		return false // the condition builder comes with the last rung
+	}
 	sl := g.sim.Load.Hex(hex).Slots[slot]
 	if sl.Kind != skill.SlotPart {
 		return false

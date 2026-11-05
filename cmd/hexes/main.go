@@ -138,6 +138,7 @@ type Game struct {
 	sndBtn    pill       // mute toggle
 	mm        minimap    // explored-floor chart (minimap.go)
 	fog       fogState   // what the lamp lights and what's remembered (fog.go)
+	teach     teachState // new unlocks to pulse (teach.go)
 }
 
 func newGame() *Game {
@@ -191,6 +192,7 @@ func (g *Game) u(x float64) float32 { return float32(x * g.k) }
 
 func (g *Game) Update() error {
 	g.frame++
+	g.watchTeach()
 	g.autosave()
 	if g.updateMenu() {
 		return nil // paused while the menu is open
@@ -252,7 +254,7 @@ func (g *Game) Update() error {
 		}
 	}
 	onButton := func(x, y float64) bool {
-		return g.castButton(x, y) > 0 || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.menuBtn.hit(x, y) || g.hexBtn.hit(x, y) || g.sndBtn.hit(x, y)
+		return g.castButton(x, y) > 0 || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.menuBtn.hit(x, y) || (g.hexOn() && g.hexBtn.hit(x, y)) || g.sndBtn.hit(x, y)
 	}
 	press := func(id int, x, y float64) {
 		switch b := g.castButton(x, y); {
@@ -275,7 +277,7 @@ func (g *Game) Update() error {
 		case g.menuBtn.hit(x, y):
 			g.click(true)
 			g.openMenu()
-		case g.hexBtn.hit(x, y):
+		case g.hexOn() && g.hexBtn.hit(x, y):
 			g.click(true)
 			g.openEditor()
 		default:
@@ -369,6 +371,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.shakeCamera()
 	g.drawFloor(screen)
 	g.drawDrops(screen)
+	g.drawLesson(screen)
 	g.drawBenches(screen)
 	g.drawLenses(screen)
 	g.drawSalvage(screen)
@@ -474,6 +477,9 @@ func (g *Game) drawLabels(screen *ebiten.Image) {
 		case game.FXLens:
 			g.label(screen, g.face, fmt.Sprintf("LENS: OPTICS +%d", f.Slot), x, y-s*1.1-float64(k)*s*1.2, fade(colLens, a), true)
 			g.label(screen, g.small, fmt.Sprintf("light reaches %.1f hexes", f.Value), x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
+		case game.FXLesson:
+			name := game.Ladder[min(f.Slot, len(game.Ladder)-1)].Name
+			g.label(screen, g.face, "LEARNED "+name, x, y-s*1.1-float64(k)*s*1.2, fade(colLesson, a), true)
 		case game.FXFull:
 			g.label(screen, g.small, "PACK FULL", x, y-s*0.9-float64(k)*s, fade(colHot, a), true)
 		case game.FXNumber:
@@ -664,8 +670,9 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		cardW = min(u(190), (room-u(14))/game.MaxSlots-gap)
 		cx0, cy = u(14), H-cardH-u(14)
 	}
-	for i := 0; i < game.MaxSlots; i++ {
+	for i := 0; i < sim.HexesOpen(); i++ {
 		x := cx0 + float32(i)*(cardW+gap)
+		g.newPulse(screen, rect{float64(x), float64(cy), float64(cardW), float64(cardH)}, g.hudPulse(i))
 		vector.DrawFilledRect(screen, x, cy, cardW, cardH, colPanel, false)
 		edge := fade(slotCol[i], 0.45)
 		sub := g.slotKey(i)
@@ -761,17 +768,24 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		vector.DrawFilledCircle(screen, float32(kx), float32(ky), float32(st.Radius*0.42), fade(colPlayer, a*0.55), true)
 	}
 
-	// First-seconds hint.
-	if sim.Depth == 1 && sim.Time < 14 && sim.State == game.Playing {
+	// The lesson card sits under the bars (and the hex row on a phone).
+	cardTop := float64(by + u(60))
+	if narrow {
+		cardTop = float64(cy + cardH + u(8))
+	}
+	g.drawCard(screen, cardTop)
+
+	// First-seconds hint, once the first card has gone.
+	if sim.Depth == 1 && sim.Time < 20 && sim.CardT <= 0 && sim.State == game.Playing {
 		if narrow || g.touched {
 			walk := "hold anywhere to walk"
 			if g.stickMode {
 				walk = "drag on the left half to steer"
 			}
 			g.label(screen, g.small, walk+" · strikes are automatic", float64(W/2), float64(cy+cardH+u(18)), colDim, true)
-			g.label(screen, g.small, "1 casts the lance · VENT when hot · HEX at a bench", float64(W/2), float64(cy+cardH+u(36)), colDim, true)
+			g.label(screen, g.small, "1 casts · VENT when hot · walk over glowing pickups", float64(W/2), float64(cy+cardH+u(36)), colDim, true)
 		} else {
-			g.label(screen, g.small, "WASD / mouse: move    1-4 or SPACE: cast    R: vent    TAB at a bench: edit hexes    ▼ stairs",
+			g.label(screen, g.small, "WASD / mouse: move    1 or SPACE: cast    R: vent    walk over glowing pickups to learn    ▼ stairs",
 				float64(W/2), float64(cy-u(18)), colDim, true)
 		}
 	}

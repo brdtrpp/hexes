@@ -432,3 +432,82 @@ func (s *Sim) bringOnline(i int) {
 	}
 	hexes[i], names[i], blurbs[i] = ladderHex(s.Reg, i)
 }
+
+// PlainHelp is one plain sentence on what a part does, for the editor's
+// ? button: no numbers, no rules, just the idea.
+func PlainHelp(p skill.Part) string {
+	switch p.Kind {
+	case skill.KindTrigger:
+		switch p.Trigger {
+		case skill.OnCast:
+			return "A cast trigger fires the hex when you press its button."
+		case skill.OnHit:
+			return "An on-hit trigger fires the hex by itself every time you land a hit."
+		case skill.OnKill:
+			return "An on-kill trigger fires the hex by itself every time you finish a foe."
+		case skill.OnHurt:
+			return "An on-hurt trigger fires the hex by itself every time something hits you."
+		case skill.Periodic:
+			return "A periodic trigger fires the hex by itself every few seconds."
+		case skill.Channel:
+			return "A channel trigger keeps firing the hex for as long as you hold its button."
+		case skill.Watch:
+			return "A watch trigger fires the hex by itself the moment its test comes out true."
+		case skill.FromStealth:
+			return "This trigger fires the hex when you cast while hidden."
+		case skill.FromBehind:
+			return "This trigger fires the hex when you cast at a foe's back."
+		}
+		return "A trigger decides when the hex fires."
+	case skill.KindTarget:
+		switch p.Target {
+		case skill.TargetSelf:
+			return "This target points the slots after it at you."
+		case skill.TargetNearest:
+			return "This target points the slots after it at the closest foes."
+		case skill.TargetCone:
+			return "This target points the slots after it at every foe in a wedge in front of you."
+		case skill.TargetAdjacent:
+			return "This target points the slots after it at every foe close around the last one hit."
+		case skill.TargetChain:
+			return "This target jumps from foe to foe, hitting each one on the way."
+		}
+		return "A target picks who the slots after it hit."
+	case skill.KindEffect:
+		switch p.Effect {
+		case skill.EffectDamage:
+			return "This effect hurts whatever the hex is pointed at."
+		case skill.EffectPush:
+			return "This effect shoves whatever the hex is pointed at."
+		case skill.EffectStatus:
+			return "This effect leaves a lasting condition on whatever the hex is pointed at."
+		case skill.EffectMend:
+			return "Mend patches your hull every time the hex fires."
+		case skill.EffectShield:
+			return "Shield puts a soak on you that takes hits before your hull does."
+		case skill.EffectPurge:
+			return "Purge burns off the bad conditions stuck on you."
+		}
+		return "An effect is what the hex actually does."
+	case skill.KindMult:
+		return "A multiplier makes the slot right before it stronger, and costs a little more to fire."
+	case skill.KindGate:
+		switch p.Gate {
+		case skill.GateSpend:
+			return "A spend gate pays out its charge: when the count is high enough the hex goes YES and the count drops."
+		case skill.GateEmpty:
+			return "This gate goes YES only when its charge count is at zero."
+		case skill.GateCond:
+			return "A condition gate sends foes down YES or NO by a test you build yourself."
+		}
+		return "A gate splits the hex in two: what passes its test goes down YES, the rest down NO."
+	case skill.KindCharge:
+		return "A charge keeps a count that stays between firings, so the hex can remember."
+	case skill.KindCall:
+		if p.RunsNow() {
+			return "This call runs a docked hex right here, as if its parts were in this slot."
+		}
+		return "A call runs another of your hexes once this one finishes."
+	}
+	return "An empty slot: put a part here."
+}

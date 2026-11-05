@@ -61,6 +61,9 @@ type editor struct {
 	rack    bool
 	page    int
 	confirm int
+	// help is set while the ? is on: a picked part shows one plain
+	// sentence instead of its numbers.
+	help bool
 }
 
 type rect struct{ x, y, w, h float64 }
@@ -87,6 +90,8 @@ type edLayout struct {
 	bind rect
 	// opts are a picked run-now call's options, in the caption row.
 	opts [skill.MaxOpts]rect
+	// help is the ? at the end of the info bar.
+	help rect
 }
 
 func (g *Game) edLayout() edLayout {
@@ -128,6 +133,9 @@ func (g *Game) edLayout() edLayout {
 		l.bind = rect{tx + bw + gap, by, tw - 2*bw - 2*gap, bh}
 		l.info = rect{tx, by - 8*k - 64*k, tw, 64 * k}
 	}
+	hw := math.Min(44*k, l.info.h)
+	l.info.w -= hw + gap
+	l.help = rect{l.info.x + l.info.w + gap, l.info.y, hw, l.info.h}
 
 	top := l.tabs[0].y + l.tabs[0].h + 12*k
 	bot := math.Min(l.info.y, by) - 10*k
@@ -209,6 +217,15 @@ func (g *Game) openEditor() {
 	g.ed.on = true
 	g.ed.pick = pickNone
 	g.ed.confirm = -1
+	if !g.edTabOn(g.ed.hex) {
+		g.ed.hex = 0
+	}
+	if g.ed.board && !g.sim.Has(game.UBoard) {
+		g.ed.board = false
+	}
+	if g.ed.rack && !g.sim.Has(game.UFrames) {
+		g.ed.rack = false
+	}
 	g.cd.on, g.tm.on = false, false
 	g.stick.End() // a thumb on the stick shouldn't keep walking after
 
@@ -235,14 +252,14 @@ func (g *Game) updateEditor() bool {
 		return true
 	}
 	for i, key := range []ebiten.Key{ebiten.KeyDigit1, ebiten.KeyDigit2, ebiten.KeyDigit3, ebiten.KeyDigit4} {
-		if inpututil.IsKeyJustPressed(key) {
+		if inpututil.IsKeyJustPressed(key) && g.edTabOn(i) {
 			g.ed.hex, g.ed.pick, g.ed.board = i, pickNone, false
 		}
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyB) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyB) && g.sim.Has(game.UBoard) {
 		g.setBoard(!g.ed.board)
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyF) && !g.ed.board && !g.cd.on && !g.tm.on {
+	if inpututil.IsKeyJustPressed(ebiten.KeyF) && g.sim.Has(game.UFrames) && !g.ed.board && !g.cd.on && !g.tm.on {
 		g.edShowRack(!g.ed.rack)
 	}
 	if g.ed.board && !g.cd.on && !g.tm.on {
@@ -277,7 +294,7 @@ func (g *Game) edTap(x, y float64) {
 	confirm := e.confirm
 	e.confirm = -1
 	for i, t := range l.tabs {
-		if t.hit(x, y) {
+		if t.hit(x, y) && g.edTabOn(i) {
 			if i == game.MaxSlots {
 				g.setBoard(true)
 				return
@@ -290,7 +307,12 @@ func (g *Game) edTap(x, y float64) {
 		e.on = false
 		return
 	}
-	if l.bind.hit(x, y) && e.hex < game.MaxSlots {
+	if l.help.hit(x, y) {
+		e.help = !e.help
+		e.msg, e.bad = "", false
+		return
+	}
+	if l.bind.hit(x, y) && e.hex < game.MaxSlots && sim.Has(game.UTriggers) {
 		g.edBind()
 		return
 	}
@@ -298,7 +320,7 @@ func (g *Game) edTap(x, y float64) {
 		g.edShowRack(false)
 		return
 	}
-	if l.frames.hit(x, y) {
+	if l.frames.hit(x, y) && sim.Has(game.UFrames) {
 		g.edShowRack(true)
 		return
 	}
@@ -341,7 +363,7 @@ func (g *Game) edTap(x, y float64) {
 			return
 		}
 	}
-	if l.shape.hit(x, y) {
+	if l.shape.hit(x, y) && sim.Has(game.UShapes) {
 		sh, err := sim.CycleShape(e.hex)
 		e.pick, e.shape = pickNone, true
 		if err != nil {
@@ -764,6 +786,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		l.tabs[0].x, l.tabs[0].y-11*g.k, colDim, false)
 
 	for i, t := range l.tabs {
+		if !g.edTabOn(i) {
+			continue // not taught yet
+		}
+		g.newPulse(screen, t, g.teach.edNew(i))
 		if i == game.MaxSlots {
 			g.drawBoardTab(screen, t)
 			continue
@@ -817,8 +843,11 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 	}
 	// The SHAPE button and what the shape is.
-	g.drawRect(screen, l.shape, fade(colShape, 0.18), colShape)
-	g.label(screen, g.small, "SHAPE", l.shape.x+l.shape.w/2, l.shape.y+l.shape.h/2, colShape, true)
+	if sim.Has(game.UShapes) {
+		g.newPulse(screen, l.shape, g.teach.edNewU(game.UShapes))
+		g.drawRect(screen, l.shape, fade(colShape, 0.18), colShape)
+		g.label(screen, g.small, "SHAPE", l.shape.x+l.shape.w/2, l.shape.y+l.shape.h/2, colShape, true)
+	}
 	caption := fmt.Sprintf("%s  ·  %.0f pw %.0f ht", h.Shape, pw, ht)
 	for _, alt := range []string{h.Shape.String(), h.Shape.Name()} {
 		if text.Advance(caption, g.small) <= l.capW {
@@ -972,6 +1001,15 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	}
 	pf, pickedFrame := g.edPickedFrame()
 	switch {
+	case e.help && e.pick == pickCell && inv.Has[e.at]:
+		info, ic = game.PlainHelp(inv.Parts[e.at]), colText
+	case e.help && e.pick == pickSlot:
+		info, ic = game.PlainHelp(h.Slots[e.at].Part), colText
+		if h.Slots[e.at].Kind != skill.SlotPart {
+			info = "An empty slot: put a part here."
+		}
+	case e.help && !pickedFrame:
+		info, ic = "Tap any part to see what it does in plain words. Tap ? again for the numbers.", colText
 	case pickedFrame && e.msg != "":
 		info, ic = e.msg, colText
 		if e.bad {
@@ -1027,7 +1065,16 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 	}
 	g.wrapLabel(screen, info, l.info, ic)
-	g.drawBind(screen, l.bind)
+	if e.help {
+		g.drawRect(screen, l.help, fade(colText, 0.2), colText)
+	} else {
+		g.drawRect(screen, l.help, colPanel, fade(colDim, 0.7))
+	}
+	g.label(screen, g.face, "?", l.help.x+l.help.w/2, l.help.y+l.help.h/2, colText, true)
+	if sim.Has(game.UTriggers) {
+		g.newPulse(screen, l.bind, g.teach.edNewU(game.UTriggers))
+		g.drawBind(screen, l.bind)
+	}
 
 	g.drawRect(screen, l.scrap, colPanel, colHot)
 	g.label(screen, g.face, "SCRAP", l.scrap.x+l.scrap.w/2, l.scrap.y+l.scrap.h/2, colHot, true)
@@ -1416,6 +1463,11 @@ func (g *Game) drawGridTabs(dst *ebiten.Image, l *edLayout) {
 	}{
 		{l.pack, fmt.Sprintf("PACK %d/%d", g.sim.Stash.Inv.Count(), loot.InventorySize), !e.rack},
 		{l.frames, fmt.Sprintf("FRAMES %d", len(g.sim.Frames)), e.rack},
+	}
+	if !g.sim.Has(game.UFrames) {
+		tabs = tabs[:1]
+	} else {
+		g.newPulse(dst, l.frames, g.teach.edNewU(game.UFrames))
 	}
 	if e.rack && n > loot.InventorySize {
 		tabs[1].name = fmt.Sprintf("FRAMES %d/%d", e.page+1, (n+loot.InventorySize-1)/loot.InventorySize)

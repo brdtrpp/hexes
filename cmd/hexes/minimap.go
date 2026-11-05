@@ -139,8 +139,8 @@ func (g *Game) drawMinimap(screen *ebiten.Image) {
 		pulse := 0.6 + 0.4*float32(g.frame%40)/40
 		vector.StrokeCircle(screen, x, y, g.u(4)*pulse+g.u(1), g.u(1.5), colStairs, true)
 	}
-	for _, b := range g.sim.Benches {
-		if g.sim.Sight.Seen[f.Index(b)] {
+	for i, b := range g.sim.Benches {
+		if g.sim.BenchOn(i) && g.sim.Sight.Seen[f.Index(b)] {
 			x, y := at(b)
 			vector.DrawFilledRect(screen, x-g.u(2), y-g.u(2), g.u(4), g.u(4), colBench, false)
 		}

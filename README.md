@@ -3,7 +3,7 @@
 Hexes: a real-time, procedurally generated sci-fi dungeon crawler in Go and Ebitengine. This folder has the hex skill compiler, the floor generator, trigger dispatch, and a first playable slice.
 
 ```
-go test ./skill ./dungeon ./game ./fx ./sfx                       # unit tests (no graphics needed)
+go test ./skill ./dungeon ./game ./fx ./sfx ./loot                # unit tests (no graphics needed)
 go test ./skill ./dungeon ./game -run '^$' -bench . -benchmem     # benchmarks
 go run ./cmd/hexes                        # play (desktop window)
 go run ./cmd/hexmap -seed 7 -depth 6      # print a floor as text
@@ -165,7 +165,7 @@ A hex's shape is its control flow. The parts are the same in every shape; the sh
 - Names come from features: Chain, Fork (splits) or Hub (merges), with Short, Long or Grand for size, Looping, Branching (2+ splits), Forked (3+ splits) or Knotted (2+ merges). "Looping Chain", "Branching Fork", "Grand Knotted Hub". The old five are the families: a short chain is a Triangle's cousin, a long one a Ring's.
 - Quirks roll the same way: twin or surge on any slot but the trigger, one-way on any two-way link, or lean.
 
-**Learned.** Everyone has the plain Ring and Triangle. Generated shapes (and, on older saves, the fixed Hub, Fork, Loop and quirked Triangles and Rings found before generation) are found: rare drops from depth 5 down (0.6% a kill there, +0.2% a depth, capped at 4%, three times that from a foe above the floor's level), rolled on their own random stream so they never change which parts drop. The first time a save reaches depth 5 without one, a shape (a fork, hub or loop, never a plain chain) waits next to where you arrive, and keeps waiting until it's picked up. Walk over a shape to learn it: it's kept for good, like the rest of progress, and a death never takes it. Up to 32.
+**Learned.** Everyone has the plain Ring and Triangle. Generated shapes (and, on older saves, the fixed Hub, Fork, Loop and quirked Triangles and Rings found before generation) are found: rare drops from depth 5 down (0.6% a kill there, +0.2% a depth, capped at 4%, three times that from a foe above the floor's level), rolled on their own random stream so they never change which parts drop. The first one comes from the teaching ladder (a Fork, at depth 7; see Teaching ladder). Shape drops start once that lesson is taken. Walk over a shape to learn it: it's kept for good, like the rest of progress, and a death never takes it. Up to 32.
 
 **Quirks.** Every found copy rolls one, on a slot or edge, so two Hubs differ:
 
@@ -213,7 +213,7 @@ Every slot holds a frame. A frame rolls what the slot takes and one bend to the 
 
 **Narrowed frames.** A frame can roll narrower than its bend: cryo effects only, or rare parts only. Commons often do (50%), exotics seldom (10%). A frame's grade (its rarity) also cuts the extra Heat it adds (x1 to x1.6 cheaper, like part rarity). The editor refuses a part a frame won't take and says why ("that slot's Doubler frame takes cryo effects").
 
-**Loot.** Frames drop from foes on their own random stream (1.5% a kill at depth 1, +0.15% a depth, capped at 6%, four times that from a foe above the floor's level), and lie on the floor as an outlined hexagon in their grade's color. Walk over one to rack it. The first time a save reaches depth 2 without a frame, a Doubler or Kill-lock waits next to where you arrive. The rack holds 12; a full rack leaves frames lying there.
+**Loot.** Frames drop from foes on their own random stream (1.5% a kill at depth 1, +0.15% a depth, capped at 6%, four times that from a foe above the floor's level), and lie on the floor as an outlined hexagon in their grade's color. Walk over one to rack it. The first one is the teaching ladder's Doubler at depth 6; frame drops start once that lesson is taken. The rack holds 12; a full rack leaves frames lying there.
 
 **Kept, and swapped for a price.** Racked frames are kept for good, like shapes; a death never takes one. Fitting a frame from the rack into a slot is free, but the frame it replaces is scrapped, not returned, so every swap gives something up. In the editor a slot with a found frame asks for a second tap first. Reshaping a hex sends frames on slots the new shape doesn't have (or that the shape brings its own frame to) back to the rack, and is refused if the rack can't hold them. Parts move with SHAPE only into slots whose frames take them.
 
@@ -243,13 +243,13 @@ Three effect parts keep a build going instead of hurting things. You keep yourse
 
 **Multipliers.** A damage or all-verb multiplier scales Mend, Shield and Purge numbers. Push, duration, count and radius boosters don't fit them. Relay doesn't fit them, and typed frames (cryo-only and so on) and Prism don't take them.
 
-**Loot.** They roll as effect parts at uncommon and rare only (weights Mend 6, Purge 6, Shield 6 alongside the damage types). Values: Mend 6 to 12% of hull, Shield 10 to 18%, Purge 10 to 20 Heat, before rarity scaling. Exotics skip them: an exotic always carries a quirk and no quirk fits a sustain part yet. None of the four preset hexes has one. Until a save has picked up a sustain part, an uncommon Mend waits next to where you arrive on each floor, from depth 1 on (`Save.SustainGiven` remembers once you take one). The first frame still waits on depth 2.
+**Loot.** They roll as effect parts at uncommon and rare only (weights Mend 6, Purge 6, Shield 6 alongside the damage types). Values: Mend 6 to 12% of hull, Shield 10 to 18%, Purge 10 to 20 Heat, before rarity scaling. Exotics skip them: an exotic always carries a quirk and no quirk fits a sustain part yet. None of the four preset hexes has one. The first Mend is the teaching ladder's depth 5 lesson; sustain parts only roll once it's taken.
 
 **Try it.** At the workbench where you arrive, HEX > TEST > Field Medic: Leech mends you on every kill, Lifeline shields you when you're hurt above 40% hull and mends you below it, and Coolant purges 20 Heat every 2 s once the rig is half hot.
 
 **Look and sound.** Mend pulls green nanite motes in and steams them off with a stitch mark and a "+N"; Shield snaps a hex shell on with a rising hum; a soak rings hollow; Purge jets coolant out sideways with a cold hiss and a falling chime.
 
-**Under the hood.** New ops `OpMend`, `OpShield`, `OpPurge`; `Unit` gained `Shield`, `ShieldLeft`, `MendStrain`, `ShieldStrain` (ticked by `Unit.TickSustain`); `Result` reports `Mended`, `Shielded`, `Purged`; `skill.SustainObserver` tells the sim where each landed. Still zero allocations per run (`TestSustainRunDoesNotAllocate`). Old saves load and get the depth 1 Mend.
+**Under the hood.** New ops `OpMend`, `OpShield`, `OpPurge`; `Unit` gained `Shield`, `ShieldLeft`, `MendStrain`, `ShieldStrain` (ticked by `Unit.TickSustain`); `Result` reports `Mended`, `Shielded`, `Purged`; `skill.SustainObserver` tells the sim where each landed. Still zero allocations per run (`TestSustainRunDoesNotAllocate`). 
 
 ## Docking board (`skill/dock.go`, `game/board.go`, `cmd/hexes/board.go`)
 
@@ -268,6 +268,29 @@ Hexes connect. Every hex sits on a cell of a small honeycomb, the board: your fo
 **In the editor.** HEX, then the BOARD tab (or B). Tap a hex to pick it, tap it again or ROTATE to turn it, tap an open cell to move it there. Drag to pan and pinch to zoom on a phone; arrows or WASD pan, + and - zoom, R turns, Enter edits on a keyboard; the mouse drags and wheel zooms. Each hex shows as a little map of its shape with green (in) and orange (out) triangles on its sides; docked ports and links turn blue. The hex view marks ports on their slots too.
 
 **Saves.** `Save.Mods` and `Save.Board` (a spot and turn per hex). A save from before the board has neither and loads with the hexes on the first four cells, each turned so nothing docks: it plays exactly as it did.
+
+## Teaching ladder (`game/teach.go`, `cmd/hexes/teach.go`)
+
+A fresh save starts with one hex and is taught the rest one idea per floor, so the game never shows a thing it hasn't explained. Each lesson is a glowing pickup with a beacon (an arrow at the screen's edge while it's out of view) next to where you arrive, from its depth on, every visit, until you walk over it. Taking it puts its parts in your pack, shows a one-line card written as what it does for you, and unlocks the idea for good: loot starts rolling it and the HUD and workbench start showing it, with one pulse on whatever is new. Lessons come in order; one you skip waits on the next floor. A death that drops you back floors never takes an unlock back.
+
+| Depth | Lesson | You get | Unlocks |
+| --- | --- | --- | --- |
+| 1 | CASTING | Spark: a Triangle with a cast trigger on button 1, plasma, and an empty slot | casting, Power, Heat, VENT |
+| 1, by the stairs | EFFECTS | a cryo effect | the workbench (and the bench where you arrive) |
+| 2 | TARGETS | an adjacent target | target drops |
+| 3 | TRIGGERS | hex 2 (Jolt: on-hit kinetic) | trigger drops, cast buttons past 1 |
+| 4 | MULTIPLIERS | a x1.5 damage multiplier; Triangles grow to Rings to fit it | multiplier drops |
+| 5 | SUSTAIN | a Mend | Mend, Shield and Purge drops |
+| 6 | FRAMES | a Doubler frame on the rack | frame drops, the FRAMES tab |
+| 7 | SHAPES | a Fork, and hex 3 (Frost Ring) | shape drops, the SHAPE button |
+| 9 | GATES | a hull gate | gate drops |
+| 11 | CHARGES | a charge part and a spend gate | charges, spend and empty gates |
+| 13 | CALLS | a Call part, hex 4 (Swarm), the docking board | calls, the BOARD tab |
+| 15 | EVERYTHING | a rare plasma with a quirk | quirks, exotics, channel and watch triggers, logic tiles, the condition builder |
+
+Lessons with a trial (targets, triggers, multipliers, gates, charges, calls) pull the three nearest foes into one pack so the new idea gets used at once. Hexes not taught yet sit offline: inert, hidden, and off the board, so nothing can dock into them. A ? at the end of the editor's info bar switches a picked part's numbers for one plain sentence on what it does.
+
+TEST (the editor's test switch) unlocks the whole ladder at once for trying things; turning it off puts it back. Save version 2 adds `Save.Taught`; a save from before the ladder doesn't load, so the run starts fresh at depth 1, and the game says so. Tests build a veteran sim (`game.NewVeteran`) with the whole ladder taught; `game/teach_test.go` walks a fresh run down to depth 16 and checks each lesson lands on its floor and loot never rolls what isn't taught.
 
 ## Effects (`fx`, `game/form.go`, `cmd/hexes/fxdraw.go`)
 
@@ -399,7 +422,7 @@ Events go into a fixed ring buffer and run in order. A program's hits and kills 
 
 ## The playable slice (`game`, `cmd/hexes`)
 
-One generated floor at a time. The floor is hexes, but your rig moves freely in any direction (360 degrees, not snapped to the six hex directions), strikes whatever is in a neighboring hex, and carries a fixed loadout with one hex per trigger kind:
+One generated floor at a time. The floor is hexes, but your rig moves freely in any direction (360 degrees, not snapped to the six hex directions), strikes whatever is in a neighboring hex, and, once the teaching ladder is done (or with TEST on, or in tests via `game.NewVeteran`), carries this loadout with one hex per trigger kind. A fresh save starts with just Spark instead (see Teaching ladder):
 
 | Slot | Hex | Trigger | What it does |
 | --- | --- | --- | --- |
@@ -496,7 +519,7 @@ Slice tuning
 
 ## Loot (`loot`, `game/loot.go`, `cmd/hexes/editor.go`)
 
-Enemies drop parts when they die. The drop is seeded by the floor and the enemy, so a run drops the same parts whatever order things die in. Parts lie on the floor as diamonds in their rarity color and go into the pack when you walk over them. The four hexes start as the preset below and keep your edits for the whole run; the pack carries over between floors. Both reset on a new run.
+Enemies drop parts when they die. The drop is seeded by the floor and the enemy, so a run drops the same parts whatever order things die in. Parts lie on the floor as diamonds in their rarity color and go into the pack when you walk over them. A fresh save's hexes come from the teaching ladder (the preset below is the finished build used by tests) and keep your edits for the whole run; the pack carries over between floors. Both reset on a new run.
 
 Rarity (common, uncommon, rare, exotic) is weighted by depth. Rarity scales a part's numbers (x1, 1.15, 1.35, 1.6), and rare and exotic parts can bend a hex rule:
 

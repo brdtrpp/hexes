@@ -40,6 +40,7 @@ func (g *Game) loadSave() {
 	}
 	if err := g.sim.LoadSave([]byte(s)); err != nil {
 		log.Printf("hexes: save not loaded: %v", err)
+		g.showHint("This version teaches the game a floor at a time,\nso your run starts fresh")
 		return
 	}
 	g.camX, g.camY = g.sim.P().Pos()
@@ -139,6 +140,7 @@ func (g *Game) updateMenu() bool {
 			g.menu = menuConfirm
 		case l.left.hit(t[0], t[1]) && g.menu == menuConfirm:
 			g.sim.NewRun(uint64(time.Now().UnixNano()))
+			g.resetTeach()
 			g.camX, g.camY = g.sim.P().Pos()
 			g.menu = menuClosed
 		case l.right.hit(t[0], t[1]) && g.menu == menuConfirm:

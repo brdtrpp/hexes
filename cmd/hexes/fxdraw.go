@@ -228,6 +228,10 @@ func (g *Game) spawn(e *game.FX) {
 		p.Soak(x, y, x-fx0, y-fy0, e.Mag)
 	case game.FXPurge:
 		p.Purge(x, y, e.Value)
+	case game.FXLesson:
+		r, gg, b := colorF(colLesson)
+		p.Wave(x, y, 1.5, fx.Shot{Sig: fx.Sig{R: r, G: gg, B: b}, Mag: 1})
+		p.Cast(x, y, 40, 0)
 	}
 }
 

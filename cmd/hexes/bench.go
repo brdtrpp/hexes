@@ -21,6 +21,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"hexes/fx"
+	"hexes/game"
 	"hexes/skill"
 )
 
@@ -126,6 +127,9 @@ func (g *Game) roundButton(screen *ebiten.Image, b button, c color.RGBA) {
 
 // drawHexButton draws HEX: lit and pulsing at a bench, grey elsewhere.
 func (g *Game) drawHexButton(screen *ebiten.Image) {
+	if !g.hexOn() {
+		return
+	}
 	b := g.hexBtn
 	if g.sim.AtBench() {
 		pulse := float32(0.75 + 0.25*math.Sin(float64(g.frame)*0.12))
@@ -143,7 +147,10 @@ func (g *Game) drawHexButton(screen *ebiten.Image) {
 func (g *Game) drawBenches(screen *ebiten.Image) {
 	s := g.size
 	at, near := g.sim.NearBench()
-	for _, b := range g.sim.Benches {
+	for i, b := range g.sim.Benches {
+		if !g.sim.BenchOn(i) {
+			continue // the arrival bench is taught on the first floor
+		}
 		x, y := b.Pixel()
 		sx, sy := g.toScreen(x, y)
 		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s {
@@ -188,3 +195,7 @@ func (g *Game) drawHint(screen *ebiten.Image) {
 		y += float64(g.u(20))
 	}
 }
+
+// hexOn reports whether the HEX button shows: once the workbench is
+// taught, or standing at one before then.
+func (g *Game) hexOn() bool { return g.sim.Has(game.UBench) || g.sim.AtBench() }
