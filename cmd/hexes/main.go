@@ -6,11 +6,13 @@
 //	go run ./cmd/hexes             # desktop
 //	GOOS=js GOARCH=wasm go build -o web/hexes.wasm ./cmd/hexes   # browser
 //
-// Desktop: WASD or arrows (or hold the mouse) to move, Space or 1 to cast
-// every on-cast hex, R or Shift to vent heat, Tab or E to open the hex
-// editor, Enter to redeploy after dying, Esc or M for the menu.
+// Desktop: WASD or arrows (or hold the mouse) to move, 1 to 4 to press
+// cast buttons (Space is button 1), R or Shift to vent heat, Tab or E
+// at a workbench to open the hex editor, Enter to redeploy after dying,
+// Esc or M for the menu.
 // Touch: hold anywhere to walk that way, or switch MOVE to STICK (top
-// right) for a thumb joystick on the left half; tap CAST, VENT and HEX.
+// right) for a thumb joystick on the left half; tap the numbered cast
+// buttons, VENT, and HEX at a workbench.
 // The choice is remembered in the browser.
 // Strikes on adjacent foes are automatic; walking over loot picks it up.
 package main
@@ -32,7 +34,6 @@ import (
 	"golang.org/x/image/font/gofont/gobold"
 
 	"hexes/dungeon"
-	"hexes/fx"
 	"hexes/game"
 	"hexes/loot"
 	"hexes/skill"
@@ -112,7 +113,10 @@ type Game struct {
 	small      *text.GoTextFace
 	big        *text.GoTextFace
 	camX, camY float64
-	cast, vent button
+	casts      [game.Buttons]button // cast buttons 1 to 4 (bench.go)
+	vent       button
+	hint       string  // a line of help over the play field
+	hintT      float64 // seconds the hint has left
 	modeBtn    pill
 	menuBtn    pill
 	menu       menuState
@@ -172,13 +176,11 @@ func (g *Game) Layout(ow, oh int) (int, int) {
 		short := math.Min(float64(ow), float64(oh))
 		g.size = k * math.Max(13, math.Min(28, short/20))
 		r := k * math.Max(34, math.Min(56, short/9))
-		g.cast = button{float64(w) - r - 24*k, float64(h) - r - 30*k, r, "CAST"}
-		g.vent = button{g.cast.x - r*1.9, float64(h) - r*0.65 - 24*k, r * 0.65, "VENT"}
+		g.layoutButtons(w, h, r)
 		g.modeBtn = pill{float64(w) - 128*k, 10 * k, 116 * k, 26 * k}
 		g.menuBtn = pill{g.modeBtn.x - 80*k, 10 * k, 70 * k, 26 * k}
 		g.sndBtn = pill{g.menuBtn.x - 52*k, 10 * k, 42 * k, 26 * k}
 		g.stick.Radius = k * math.Max(44, math.Min(64, short/7))
-		g.hexBtn = button{g.cast.x, g.cast.y - r*1.85, r * 0.6, "HEX"}
 		g.face.Size, g.small.Size, g.big.Size = 15*k, 12*k, 30*k
 	}
 	return w, h
@@ -217,9 +219,19 @@ func (g *Game) Update() error {
 		ky++
 	}
 	in.MoveX, in.MoveY = kx, ky
-	if inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyDigit1) || inpututil.IsKeyJustPressed(ebiten.KeyJ) {
-		g.castAll(&in)
-		in.Restart = true
+	if g.hintT > 0 {
+		g.hintT -= 1.0 / float64(ebiten.TPS())
+	}
+	for i, keys := range keyButtons {
+		for _, key := range keys {
+			if inpututil.IsKeyJustPressed(key) {
+				g.sim.Load.Press(i+1, &in)
+				in.Restart = true
+			}
+			if ebiten.IsKeyPressed(key) && g.sim.Load.Holds(i+1) {
+				in.Hold = true
+			}
+		}
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyR) || inpututil.IsKeyJustPressed(ebiten.KeyShiftLeft) || inpututil.IsKeyJustPressed(ebiten.KeyK) {
 		in.Vent = true
@@ -240,13 +252,13 @@ func (g *Game) Update() error {
 		}
 	}
 	onButton := func(x, y float64) bool {
-		return g.cast.hit(x, y) || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.menuBtn.hit(x, y) || g.hexBtn.hit(x, y) || g.sndBtn.hit(x, y)
+		return g.castButton(x, y) > 0 || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.menuBtn.hit(x, y) || g.hexBtn.hit(x, y) || g.sndBtn.hit(x, y)
 	}
 	press := func(id int, x, y float64) {
-		switch {
-		case g.cast.hit(x, y):
+		switch b := g.castButton(x, y); {
+		case b > 0:
 			in.Restart = true
-			g.castAll(&in)
+			g.sim.Load.Press(b, &in)
 		case g.vent.hit(x, y):
 			in.Vent = true
 		case g.modeBtn.hit(x, y):
@@ -279,11 +291,10 @@ func (g *Game) Update() error {
 		press(int(id), float64(x), float64(y))
 	}
 	held := false
-	in.Hold = ebiten.IsKeyPressed(ebiten.KeySpace) || ebiten.IsKeyPressed(ebiten.KeyJ)
 	for _, id := range ebiten.AppendTouchIDs(nil) {
 		x, y := ebiten.TouchPosition(id)
 		fx, fy := float64(x), float64(y)
-		if g.cast.hit(fx, fy) {
+		if b := g.castButton(fx, fy); b > 0 && g.sim.Load.Holds(b) {
 			in.Hold = true
 		}
 		switch {
@@ -300,7 +311,7 @@ func (g *Game) Update() error {
 		press(mouseID, fmx, fmy)
 	}
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		if g.cast.hit(fmx, fmy) {
+		if b := g.castButton(fmx, fmy); b > 0 && g.sim.Load.Holds(b) {
 			in.Hold = true
 		}
 		switch {
@@ -358,6 +369,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.shakeCamera()
 	g.drawFloor(screen)
 	g.drawDrops(screen)
+	g.drawBenches(screen)
 	g.drawLenses(screen)
 	g.drawSalvage(screen)
 	g.drawActors(screen)
@@ -648,7 +660,7 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		cx0, cy = u(14), by+u(60)
 		cardW = (W - u(28) - 3*gap) / game.MaxSlots
 	} else {
-		room := W - float32(g.cast.r*2+g.vent.r*2) - u(70)
+		room := float32(g.vent.x-g.vent.r) - u(30)
 		cardW = min(u(190), (room-u(14))/game.MaxSlots-gap)
 		cx0, cy = u(14), H-cardH-u(14)
 	}
@@ -697,38 +709,18 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	}
 
 	// Touch buttons (they work with the mouse too).
-	for _, b := range []button{g.cast, g.vent, g.hexBtn} {
-		c := slotCol[0]
-		if b.label == "HEX" {
-			c = color.RGBA{0xe0, 0x5c, 0xff, 0xff}
+	g.drawCastButtons(screen)
+	{
+		b := g.vent
+		c := color.RGBA{0xd8, 0xf4, 0xff, 0xff}
+		if rig.Heat > rig.MaxHeat*0.75 && g.frame/10%2 == 0 {
+			c = colHot
 		}
-		if b.label == "VENT" {
-			c = color.RGBA{0xd8, 0xf4, 0xff, 0xff}
-			if rig.Heat > rig.MaxHeat*0.75 && g.frame/10%2 == 0 {
-				c = colHot
-			}
-		}
-		cr, cg, cb := colorF(c)
-		g.glow(screen, b.x, b.y, b.r*1.5, cr, cg, cb, 0.22)
-		vector.DrawFilledCircle(screen, float32(b.x), float32(b.y), float32(b.r), color.RGBA{0x0c, 0x0f, 0x18, 0xe8}, true)
-		vector.DrawFilledCircle(screen, float32(b.x), float32(b.y), float32(b.r), fade(c, 0.2), true)
-		vector.DrawFilledCircle(screen, float32(b.x), float32(b.y-b.r*0.12), float32(b.r*0.82), fade(c, 0.1), true)
-		vector.StrokeCircle(screen, float32(b.x), float32(b.y), float32(b.r*0.86), u(1), fade(c, 0.45), true)
-		vector.StrokeCircle(screen, float32(b.x), float32(b.y), float32(b.r), u(2.5), c, true)
-		if b.label == "CAST" {
-			// Heat wraps the cast button, so you see it where your thumb is.
-			hf := float64(rig.Heat / rig.MaxHeat)
-			if hf > 0.01 {
-				hc := colHeat
-				if hf > 0.75 {
-					hc = colHot
-				}
-				g.ringPath(b.x, b.y, b.r+float64(u(5)), fx.RingStyle{Sides: 48}, 0, 0, -math.Pi/2, -math.Pi/2+2*math.Pi*hf, false)
-				g.strokePath(screen, hc, 0.9, u(3.5))
-			}
-		}
+		g.roundButton(screen, b, c)
 		g.outlined(screen, g.face, b.label, b.x, b.y, colText, 1)
 	}
+	g.drawHexButton(screen)
+	g.drawHint(screen)
 
 	// Sound, menu and movement mode toggles, and the stick itself.
 	g.drawSoundButton(screen)
@@ -777,9 +769,9 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 				walk = "drag on the left half to steer"
 			}
 			g.label(screen, g.small, walk+" · strikes are automatic", float64(W/2), float64(cy+cardH+u(18)), colDim, true)
-			g.label(screen, g.small, "CAST the lance · VENT before you overheat · HEX to slot loot", float64(W/2), float64(cy+cardH+u(36)), colDim, true)
+			g.label(screen, g.small, "1 casts the lance · VENT when hot · HEX at a bench", float64(W/2), float64(cy+cardH+u(36)), colDim, true)
 		} else {
-			g.label(screen, g.small, "WASD / arrows / hold mouse: move    SPACE: cast    R: vent    TAB: edit hexes    walk over loot to grab it    find the ▼ stairs",
+			g.label(screen, g.small, "WASD / mouse: move    1-4 or SPACE: cast    R: vent    TAB at a bench: edit hexes    ▼ stairs",
 				float64(W/2), float64(cy-u(18)), colDim, true)
 		}
 	}

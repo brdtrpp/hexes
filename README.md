@@ -32,11 +32,11 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 
 ## Controls
 
-- Desktop: WASD or arrows to move (or hold the mouse button and point), Space casts every on-cast hex, R or Shift vents heat, Tab or E opens the hex editor (1 to 4 pick a hex, Esc closes), Enter redeploys after dying, Esc or M opens the menu.
-- Touch: hold anywhere to walk toward your finger, tap CAST, VENT and HEX, and MENU (top right) for your record and the start-fresh button. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
+- Desktop: WASD or arrows to move (or hold the mouse button and point), 1 to 4 press the cast buttons (Space and J are button 1), R or Shift vents heat, Tab or E at a workbench opens the hex editor (1 to 4 pick a hex in there, Esc closes), Enter redeploys after dying, Esc or M opens the menu.
+- Touch: hold anywhere to walk toward your finger, tap the numbered cast buttons, VENT, and HEX at a workbench, and MENU (top right) for your record and the start-fresh button. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
 - Sound: the speaker button left of MENU mutes and unmutes; the menu has the volume (- and +, tap the middle to mute). Both are saved. Browsers start sound on your first tap or key.
 - Strikes on an adjacent foe are automatic. Walk over a dropped part to pick it up. Walk onto the stairs to go down a level.
-- Hex editor (game paused): tap a part, then tap where it goes. Pack to slot swaps loot in, slot to slot rewires the hex, slot to an empty pack cell takes a part out, SCRAP throws away the picked pack part. The hex recompiles on every tap; a refused edit says why.
+- Hex editor (only at a workbench, game paused): tap a part, then tap where it goes. Pack to slot swaps loot in, slot to slot rewires the hex, slot to an empty pack cell takes a part out, SCRAP throws away the picked pack part. The hex recompiles on every tap; a refused edit says why.
 
 ## What's here
 
@@ -304,6 +304,17 @@ No recorded files. Every sound is synthesized while it plays from oscillators (s
 
 Speed and mix: one Ebitengine player pulls 32-bit float stereo from one mixer (`sfx.Mixer`, an endless `io.Reader`) with a 20-voice cap; a new voice takes over the quietest. Pitch and filter sweeps update every 32 samples. `sfx.Director` keeps fights readable: the same sound can't retrigger within 40 to 70 ms, a game step starts at most 5 sounds, sounds pan with position and fade with distance, and far-off ones are dropped. A full 20 voices mix in about 1% of a desktop core (`go test ./sfx -bench .`). Muted, the player pauses and the synth costs nothing. Settings live under `hexes.volume` and `hexes.mute`.
 
+## Cast buttons and workbenches (`game/bench.go`, `cmd/hexes/bench.go`)
+
+Cast buttons: every hex whose trigger is on cast or hold gets a cast button, 1 to 4. A hex that becomes castable (a CAST trigger swapped in) takes the lowest free button, so two cast hexes are two buttons, not one press that fires both. At a workbench the editor's BUTTON switch moves the hex on show to the next button; two hexes on the same button make a combo, one press fires both in slot order. Hexes with any other trigger (on hit, on kill, every N s, watch) have no button: the trigger part decides whether a hex is cast by hand, the button only decides where. Nothing auto-casts.
+
+- Touch: button 1 is big in the bottom right corner, 2 to its left, 3 on the diagonal, 4 above, each showing its number and its hex's name in the hex's color ("+1" for a combo). Only buttons with a hex on them show (1 always does). VENT sits left of the arc, HEX above it. Heat wraps button 1.
+- Keyboard: keys 1 to 4; Space and J are button 1. A hold hex channels while its button or key is held.
+- The HUD cards say each hex's button (KEY 2 or BUTTON 2).
+- Buttons save with the build (`Keys` in the save). Saves from before buttons hand them out in slot order. Loading an example hands them out fresh; MY BUILD brings yours back.
+
+Workbenches: hexes are only rewired at a workbench, a purple console on the floor. Every floor has two, on open ground beside where you arrive and beside the stairs, picked by a fixed direction order so a floor's benches never move. Standing on one or any hex touching it lights the HEX button and opens the editor (Tab or HEX); anywhere else HEX is grey and says where the benches are. So you set up on the way in, rework with the floor's loot on the way out, and fight with the build you walked in with. Benches show on the minimap once seen. You arrive beside one after stairs, a reload or a death, so HEX > TEST still works right away.
+
 ## Defaults I picked
 
 None of these are decided. All are one constant or one JSON field to change.
@@ -503,7 +514,7 @@ Defaults picked (all constants):
 - Part kinds: effects 40, targets 22, multipliers 22, triggers 16, gates 10 (relative weights). Damage per type: plasma 18, cryo 15, kinetic 10, nanite 28, drone 14, cloak 16, rolled x0.8 to 1.25. Multipliers x1.25 to 2 (all-verb x1.15 to 1.55). Periodic triggers every 2.5 to 5.5 s.
 - Part values don't grow with depth; the level scaling that already grows hex damage does that, so depth buys rarity, not bigger base numbers.
 - Pack: 12 cells. A full pack leaves parts on the floor and says PACK FULL. Parts left on a floor are gone when you go down. At most 96 parts lie on one floor.
-- The CAST button and Space fire every on-cast hex, so a trigger swapped into any slot has a button.
+- Each on-cast hex has its own cast button (see Cast buttons and workbenches), so a trigger swapped into any slot gets a button of its own.
 - The trigger stays in the top slot: triggers only fit there and it can't be emptied.
 
 Drop rolls and pickup run inside the sim step with no allocations. Recompiling on a swap allocates (the compiler builds a fresh program) but only runs from the paused editor.

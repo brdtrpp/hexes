@@ -83,6 +83,8 @@ type edLayout struct {
 	pack, frames rect // the PACK and FRAMES tabs over the grid
 	close, scrap rect
 	info         rect
+	// bind is the hex's cast button: tap it to move the hex to the next.
+	bind rect
 	// opts are a picked run-now call's options, in the caption row.
 	opts [skill.MaxOpts]rect
 }
@@ -111,10 +113,19 @@ func (g *Game) edLayout() edLayout {
 	bh := 50 * k
 	bw := math.Min(150*k, tw/2-gap)
 	by := H - pad - bh
+	// The BUTTON switch sits beside RESUME on a wide screen and between
+	// SCRAP and RESUME on a narrow one.
+	if !wide {
+		bw = math.Min(150*k, (tw-2*gap)/3)
+	}
 	l.scrap = rect{tx, by, bw, bh}
 	l.close = rect{tx + tw - bw, by, bw, bh}
-	l.info = rect{tx + bw + gap, by, tw - 2*bw - 2*gap, bh}
-	if !wide {
+	if wide {
+		kw := bw * 0.85
+		l.bind = rect{l.close.x - gap - kw, by, kw, bh}
+		l.info = rect{tx + bw + gap, by, l.bind.x - gap - (tx + bw + gap), bh}
+	} else {
+		l.bind = rect{tx + bw + gap, by, tw - 2*bw - 2*gap, bh}
 		l.info = rect{tx, by - 8*k - 64*k, tw, 64 * k}
 	}
 
@@ -189,6 +200,10 @@ func (g *Game) edLayout() edLayout {
 
 func (g *Game) openEditor() {
 	if g.sim.State != game.Playing {
+		return
+	}
+	if !g.sim.AtBench() {
+		g.showHint("Hexes are rewired at a workbench:\none where you arrive, one by the stairs")
 		return
 	}
 	g.ed.on = true
@@ -273,6 +288,10 @@ func (g *Game) edTap(x, y float64) {
 	}
 	if l.close.hit(x, y) {
 		e.on = false
+		return
+	}
+	if l.bind.hit(x, y) && e.hex < game.MaxSlots {
+		g.edBind()
 		return
 	}
 	if l.pack.hit(x, y) {
@@ -1008,6 +1027,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 	}
 	g.wrapLabel(screen, info, l.info, ic)
+	g.drawBind(screen, l.bind)
 
 	g.drawRect(screen, l.scrap, colPanel, colHot)
 	g.label(screen, g.face, "SCRAP", l.scrap.x+l.scrap.w/2, l.scrap.y+l.scrap.h/2, colHot, true)
@@ -1195,7 +1215,8 @@ func (g *Game) drawDrops(screen *ebiten.Image) {
 	}
 }
 
-// slotKey is the second line of a HUD card: how the hex fires.
+// slotKey is the second line of a HUD card: how the hex fires, and on
+// which cast button.
 func (g *Game) slotKey(i int) string {
 	p := g.sim.Load.Progs[i]
 	if p.Inert {
@@ -1203,27 +1224,62 @@ func (g *Game) slotKey(i int) string {
 	}
 	switch p.Trigger {
 	case skill.OnCast:
-		if g.touched || float64(g.w) < 700*g.k {
-			return "CAST"
-		}
-		return "SPACE"
+		return g.keyName(int(g.sim.Load.Keys[i]))
 	case skill.Channel:
-		if g.touched || float64(g.w) < 700*g.k {
-			return "HOLD CAST"
-		}
-		return "HOLD SPACE"
+		return "HOLD " + g.keyName(int(g.sim.Load.Keys[i]))
 	}
 	return triggerName(p)
 }
 
-// castAll presses every on-cast hex: the CAST button fires them all, so a
-// trigger swapped into any slot has a button.
+// keyName is a cast button as the player presses it: KEY 1 at a
+// keyboard, BUTTON 1 on a phone.
+func (g *Game) keyName(b int) string {
+	if g.touched || float64(g.w) < 700*g.k {
+		return fmt.Sprintf("BUTTON %d", b)
+	}
+	return fmt.Sprintf("KEY %d", b)
+}
+
+// castAll presses every cast button (the screenshot autopilot uses it).
 func (g *Game) castAll(in *game.Input) {
-	for i, p := range g.sim.Load.Progs {
-		if p != nil && p.Trigger == skill.OnCast {
-			in.Cast[i] = true
+	for b := 1; b <= game.Buttons; b++ {
+		g.sim.Load.Press(b, in)
+	}
+}
+
+// edBind moves the hex on show to the next cast button, or says why it
+// has none.
+func (g *Game) edBind() {
+	e, sim := &g.ed, g.sim
+	b, ok := sim.CycleKey(e.hex)
+	e.pick, e.shape = pickNone, false
+	if !ok {
+		e.msg, e.bad = "Only on-cast and hold hexes take a button. Swap a CAST or HOLD trigger into this hex to give it one.", true
+		return
+	}
+	e.msg, e.bad = fmt.Sprintf("%s is on %s.", sim.Load.Names[e.hex], g.keyName(b)), false
+	for j := range sim.Load.Keys {
+		if j != e.hex && sim.Load.OnButton(j, b) {
+			e.msg += fmt.Sprintf(" %s is there too: one press fires both.", sim.Load.Names[j])
 		}
 	}
+}
+
+// drawBind draws the BUTTON switch for the hex on show.
+func (g *Game) drawBind(dst *ebiten.Image, r rect) {
+	sim := g.sim
+	i := g.ed.hex
+	if i >= game.MaxSlots {
+		return
+	}
+	c := slotCol[i]
+	top, sub := g.keyName(int(sim.Load.Keys[i])), "tap: next button"
+	if !sim.Load.Castable(i) {
+		c, top, sub = colDim, "NO BUTTON", triggerName(sim.Load.Progs[i])
+	}
+	g.drawRect(dst, r, colPanel, c)
+	g.label(dst, g.face, top, r.x+r.w/2, r.y+r.h*0.38, c, true)
+	g.label(dst, g.small, sub, r.x+r.w/2, r.y+r.h*0.74, colDim, true)
 }
 
 var (

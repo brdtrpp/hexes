@@ -194,6 +194,9 @@ type Sim struct {
 	// Sight is the fog of war: what the lamp lights now and what's been
 	// explored on this floor (sight.go).
 	Sight Sight
+	// Benches are this floor's workbenches, the only places hexes can be
+	// edited (bench.go).
+	Benches [NumBenches]skill.Coord
 
 	occ      []skill.EntityID
 	dist, q  []int32
@@ -252,6 +255,7 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	}
 	s.Floor = s.Gen.Generate(s.floorSeed(depth), depth)
 	f := s.Floor
+	s.placeBenches()
 	n := f.W * f.H
 	s.occ = make([]skill.EntityID, n)
 	for i := range s.occ {

@@ -35,6 +35,7 @@ type MyBuild struct {
 	Edited [MaxSlots]bool
 	Mods   []*skill.Hex `json:",omitempty"`
 	Spots  []Spot       `json:",omitempty"`
+	Keys   [MaxSlots]uint8
 }
 
 // exHex builds an example hex: its parts by slot (Center for a Fork's
@@ -236,7 +237,7 @@ func (s *Sim) LoadExample(i int) error {
 	for k, eh := range e.Hexes {
 		l.Hexes[k], l.Names[k], l.Blurb[k], l.Edited[k] = eh.Hex, eh.Name, eh.Blurb, false
 	}
-	l.Mods, l.Spots = e.Mods, nil
+	l.Mods, l.Spots, l.Keys = e.Mods, nil, [MaxSlots]uint8{}
 	l.FixSpots()
 	if err := s.rebuildAll(-1); err != nil {
 		s.Load = old
@@ -259,7 +260,7 @@ func (s *Sim) RestoreBuild() error {
 	old := s.Load
 	l := &s.Load
 	l.Hexes, l.Names, l.Blurb, l.Edited = m.Hexes, m.Names, m.Blurb, m.Edited
-	l.Mods, l.Spots = m.Mods, m.Spots
+	l.Mods, l.Spots, l.Keys = m.Mods, m.Spots, m.Keys
 	l.FixSpots()
 	if err := s.rebuildAll(-1); err != nil {
 		s.Load = old
@@ -272,7 +273,7 @@ func (s *Sim) RestoreBuild() error {
 
 func (s *Sim) snapshotBuild() (*MyBuild, error) {
 	l := &s.Load
-	return copyBuild(&MyBuild{Hexes: l.Hexes, Names: l.Names, Blurb: l.Blurb, Edited: l.Edited, Mods: l.Mods, Spots: l.Spots})
+	return copyBuild(&MyBuild{Hexes: l.Hexes, Names: l.Names, Blurb: l.Blurb, Edited: l.Edited, Mods: l.Mods, Spots: l.Spots, Keys: l.Keys})
 }
 
 // copyBuild deep-copies a build through JSON, the same way a save does.
