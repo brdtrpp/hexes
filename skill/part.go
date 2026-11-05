@@ -116,11 +116,45 @@ const (
 	EffectDamage EffectKind = iota
 	EffectPush
 	EffectStatus
+	// EffectMend restores hull: Value of the max hull of whoever it lands
+	// on, less for each recent Mend (see Unit.Mend). With no target part
+	// beside it, it lands on the caster.
+	EffectMend
+	// EffectPurge takes Value Heat off the caster's rig. It ignores
+	// targets and pays for itself in Power, not Heat.
+	EffectPurge
+	// EffectShield puts a hull buffer worth Value of max hull on whoever
+	// it lands on (the caster with no target beside it), soaking hits
+	// until it runs out or ShieldTime passes (see Unit.AddShield).
+	EffectShield
 )
 
-var effectNames = [...]string{"damage", "push", "status"}
+// NumEffects is how many effect kinds exist.
+const NumEffects = 6
+
+var effectNames = [...]string{"damage", "push", "status", "mend", "purge", "shield"}
 
 func (e EffectKind) String() string { return effectNames[e] }
+
+// Sustain reports whether the effect keeps you going (mend, purge,
+// shield) rather than acting on foes.
+func (e EffectKind) Sustain() bool { return e == EffectMend || e == EffectPurge || e == EffectShield }
+
+// Typed reports whether the effect carries a damage type: damage and
+// status effects do; push and the sustain effects don't.
+func (e EffectKind) Typed() bool { return e == EffectDamage || e == EffectStatus }
+
+// Verb is the multiplier that scales the effect's number. Damage
+// multipliers scale the sustain effects' amounts too.
+func (e EffectKind) Verb() Verb {
+	switch e {
+	case EffectPush:
+		return VerbPush
+	case EffectStatus:
+		return VerbDuration
+	}
+	return VerbDamage
+}
 
 // Verb is the number a multiplier scales.
 type Verb uint8
@@ -320,7 +354,7 @@ func (q Quirk) Fits(p Part) bool {
 	case QuirkRadiant:
 		return p.Kind == KindMult
 	case QuirkRelay:
-		return p.Kind == KindEffect && p.Effect != EffectPush
+		return p.Kind == KindEffect && p.Effect.Typed()
 	case QuirkEcho:
 		return p.Kind == KindTrigger
 	}
@@ -545,6 +579,53 @@ func NewPush(hexes float32) Part {
 func NewStatus(t TypeID, seconds float32) Part {
 	return Part{Kind: KindEffect, Effect: EffectStatus, Type: t, Value: seconds,
 		Power: 2 + seconds, Heat: 1}
+}
+
+// Sustain tuning. A Mend or Shield amount is a share of the max hull of
+// whoever it lands on; a Purge amount is Heat.
+const (
+	DefaultMend   = 0.10
+	DefaultShield = 0.15
+	DefaultPurge  = 15
+	// MendCap and ShieldCap: one Mend never restores more than this share
+	// of max hull, and a shield never holds more than this share.
+	MendCap   = 0.5
+	ShieldCap = 0.6
+	// ShieldTime is how long a shield lasts after its last top-up.
+	ShieldTime = 4
+	// StrainHalfLife is how fast strain fades. Each Mend (or Shield) that
+	// lands on a unit adds 1 to its mend (or shield) strain, strain halves
+	// every StrainHalfLife seconds, and an amount is divided by 1 + strain.
+	// However fast one fires, it tops out near 70% of its amount a second.
+	StrainHalfLife = 1
+)
+
+// NewMend makes a Mend: restores frac of max hull (zero means
+// DefaultMend).
+func NewMend(frac float32) Part {
+	if frac <= 0 {
+		frac = DefaultMend
+	}
+	return Part{Kind: KindEffect, Effect: EffectMend, Value: frac, Power: 4 + 40*frac, Heat: 1 + 20*frac}
+}
+
+// NewShield makes a Shield: a buffer of frac of max hull (zero means
+// DefaultShield).
+func NewShield(frac float32) Part {
+	if frac <= 0 {
+		frac = DefaultShield
+	}
+	return Part{Kind: KindEffect, Effect: EffectShield, Value: frac, Power: 3 + 30*frac, Heat: 1 + 12*frac}
+}
+
+// NewPurge makes a Purge: takes heat off the rig (zero means
+// DefaultPurge). It costs a Power for every Heat it removes, plus one,
+// and adds no Heat.
+func NewPurge(heat float32) Part {
+	if heat <= 0 {
+		heat = DefaultPurge
+	}
+	return Part{Kind: KindEffect, Effect: EffectPurge, Value: heat, Power: 1 + heat}
 }
 
 // NewMult makes a multiplier. Bigger factors run hotter.

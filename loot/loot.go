@@ -157,7 +157,20 @@ var targetWeights = [...]float32{
 	skill.TargetAdjacent: 26, skill.TargetChain: 24,
 }
 
-var effectWeights = [...]float32{skill.EffectDamage: 62, skill.EffectPush: 14, skill.EffectStatus: 24}
+var effectWeights = [skill.NumEffects]float32{skill.EffectDamage: 62, skill.EffectPush: 14, skill.EffectStatus: 24}
+
+// sustainWeights join the effect roll at uncommon and rare: Mend, Purge
+// and Shield never drop common, so you can't count on one. Exotics always
+// bend a rule and no quirk fits a sustain part, so they skip it.
+var sustainWeights = [skill.NumEffects]float32{skill.EffectMend: 6, skill.EffectPurge: 6, skill.EffectShield: 6}
+
+// Sustain rolls: Mend and Shield take 6 to 12% and 10 to 18% of max
+// hull, Purge 10 to 20 Heat, all before rarity scales them.
+const (
+	MendMin, MendMax     = 0.06, 0.12
+	ShieldMin, ShieldMax = 0.10, 0.18
+	PurgeMin, PurgeMax   = 10, 20
+)
 
 var verbWeights = [...]float32{
 	skill.VerbDamage: 34, skill.VerbPush: 10, skill.VerbDuration: 12,
@@ -191,7 +204,7 @@ func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
 	case skill.KindTarget:
 		p = t.target(r)
 	case skill.KindEffect:
-		p = t.effect(r, rar == skill.Exotic)
+		p = t.effect(r, rar)
 	case skill.KindGate:
 		p = t.gate(r)
 	case skill.KindCharge:
@@ -250,13 +263,24 @@ func (t *Table) target(r *RNG) skill.Part {
 	}
 }
 
-func (t *Table) effect(r *RNG, noPush bool) skill.Part {
+func (t *Table) effect(r *RNG, rar skill.Rarity) skill.Part {
 	w := effectWeights
-	if noPush {
+	if rar == skill.Exotic {
 		w[skill.EffectPush] = 0
+	}
+	if rar == skill.Uncommon || rar == skill.Rare {
+		for k, v := range sustainWeights {
+			w[k] += v
+		}
 	}
 	ty := skill.TypeID(r.Intn(t.Reg.Len()))
 	switch skill.EffectKind(r.pick(w[:])) {
+	case skill.EffectMend:
+		return skill.NewMend(hundredth(r.Range(MendMin, MendMax)))
+	case skill.EffectShield:
+		return skill.NewShield(hundredth(r.Range(ShieldMin, ShieldMax)))
+	case skill.EffectPurge:
+		return skill.NewPurge(float32(int(r.Range(PurgeMin, PurgeMax) + 0.5)))
 	case skill.EffectPush:
 		return skill.NewPush(float32(1 + r.Intn(3)))
 	case skill.EffectStatus:
@@ -321,6 +345,9 @@ func rollBank(r *RNG) uint8 {
 	}
 	return 0
 }
+
+// hundredth rounds to the nearest 1%.
+func hundredth(x float32) float32 { return float32(int(x*100+0.5)) / 100 }
 
 // twentieth rounds to the nearest 5%.
 func twentieth(x float32) float32 { return float32(int(x*20+0.5)) / 20 }

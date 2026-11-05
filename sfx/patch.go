@@ -381,3 +381,48 @@ func Click(on bool) Sound {
 	s.Gain = 1
 	return s
 }
+
+// Mend is hull knitting back: a soft rising pair of glassy notes over a
+// shimmer of nanite chatter, brighter the more it restored.
+func Mend(mag float32) Sound {
+	var s Sound
+	m := float32(math.Sqrt(float64(min(max(mag, 0.15), 3))))
+	s.Add(Layer{Wave: FM, F0: 523, F1: 659, Glide: 0.08, FMRatio: 2, FMIndex: 0.6, Attack: 0.02, Decay: 0.45, Gain: 0.18 + 0.06*m})
+	s.Add(Layer{Wave: FM, F0: 784, FMRatio: 2, FMIndex: 0.5, Delay: 0.09, Attack: 0.02, Decay: 0.55, Gain: 0.14 + 0.05*m})
+	s.Add(Layer{Wave: Noise, Attack: 0.05, Decay: 0.35, HP: 4000, LP0: 7000, LP1: 5000, Trem: 0.8, TremRate: 28, Gain: 0.08})
+	s.Gain = 1
+	return s
+}
+
+// Shield is a field snapping on: a quick upward hum that locks into a
+// steady fifth.
+func Shield(mag float32) Sound {
+	var s Sound
+	m := float32(math.Sqrt(float64(min(max(mag, 0.15), 3))))
+	s.Add(Layer{Wave: Saw, F0: 110, F1: 220, Glide: 0.05, Attack: 0.005, Decay: 0.4, LP0: 600, LP1: 1800, Res: 0.5, Gain: 0.2 + 0.05*m})
+	s.Add(Layer{Wave: Sine, F0: 330, Attack: 0.03, Decay: 0.5, Trem: 0.3, TremRate: 12, Gain: 0.16})
+	s.Add(Layer{Wave: Noise, Attack: 0.001, Decay: 0.03, HP: 3000, Gain: 0.15})
+	s.Gain = 1
+	return s
+}
+
+// Soak is a hit breaking on a shield: a hollow ring instead of a thud.
+func Soak(mag float32) Sound {
+	var s Sound
+	s.Add(Layer{Wave: FM, F0: 440, F1: 330, Glide: 0.06, FMRatio: 1.41, FMIndex: 1.6, Attack: 0.001, Decay: 0.22, Gain: 0.22})
+	s.Add(Layer{Wave: Noise, Attack: 0.001, Decay: 0.04, HP: 1800, LP0: 5000, LP1: 2000, Gain: 0.2})
+	s.Gain = 0.6 + 0.3*min(mag, 1)
+	return s
+}
+
+// Purge is coolant flushing the rig: a sharp hiss that drops cold, with
+// a falling chime. More Heat purged, a longer flush.
+func Purge(heat float32) Sound {
+	var s Sound
+	h := min(max(heat, 0), 40)
+	s.Add(Layer{Wave: Noise, Attack: 0.005, Decay: 0.35 + h/80, HP: 2200, LP0: 7000, LP1: 1200, Gain: 0.35})
+	s.Add(Layer{Wave: FM, F0: 1760, F1: 880, Glide: 0.15, FMRatio: 3.51, FMIndex: 1.2, Attack: 0.002, Decay: 0.4, Gain: 0.12})
+	s.Add(Layer{Wave: Noise, Attack: 0.08, Decay: 0.5, LP0: 1200, LP1: 400, Gain: 0.12})
+	s.Gain = 1
+	return s
+}

@@ -56,7 +56,7 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 | File | What it does |
 | --- | --- |
 | `damage.go`, `default_types.json` | Damage types as data. The six seed types live in the JSON; adding one is a new row, not code. |
-| `part.go` | Loot parts: triggers, targets, effects, multipliers, with rarity and Power/Heat costs. |
+| `part.go` | Loot parts: triggers, targets, effects (damage, push, status, Mend, Shield, Purge), multipliers, with rarity and Power/Heat costs. |
 | `hex.go` | Templates, sockets, `Learn` (seeded layout roll), slotting parts and nesting hexes. |
 | `shape.go` | Shapes: Triangle, Ring, Hub, Fork, Loop and generated ones as control flow, their quirks, names, Heat and who feeds whom. |
 | `graph.go` | A shape's graph: cells, links, flow order, validity, and the fixed five as graphs. |
@@ -65,7 +65,7 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 | `frame.go` | Slot frames: what a slot takes and how it bends the part in it, their text and their loot roll. |
 | `compile.go`, `program.go` | Compiles a hex tree into a flat `[]Step` with all multipliers baked in, plus a disassembler. |
 | `eval.go` | Runs a program against a `World`. Fixed arrays only: zero allocations per run. |
-| `combat.go` | Units, per-hit cap by level gap, adaptive resistance, damage over time. |
+| `combat.go` | Units, per-hit cap by level gap, adaptive resistance, damage over time, shields and mend strain. |
 | `arena.go` | A small reference `World` on a hex grid, for tests and benchmarks. |
 | `rig.go` | Power, Heat, overheat shutdown, manual vent, and the per-stat soft cap. |
 | `dispatch.go` | Trigger dispatch: events in, hexes fire, Power and Heat paid. |
@@ -225,6 +225,32 @@ Every slot holds a frame. A frame rolls what the slot takes and one bend to the 
 
 **Saves.** `Hex.Frames` saves only when a slot isn't plain; the rack saves in `Save.Frames`. A broken or test frame in a save is dropped on load.
 
+## Sustain parts (`skill/part.go`, `skill/combat.go`, `skill/eval.go`, `game/sustain.go`)
+
+Three effect parts keep a build going instead of hurting things. You keep yourself alive with hexes you built, not a potion button.
+
+| Part | What it does | Cost |
+| --- | --- | --- |
+| Mend | Restores a share of max hull (default 10%) to whoever it lands on. | Power 4 + 40 x share, Heat 1 + 20 x share |
+| Shield | Adds a buffer (default 15% of max hull) that soaks hits before hull. It caps at 60% of max hull and drops 4 s after its last top-up. | Power 3 + 30 x share, Heat 1 + 12 x share |
+| Purge | Takes Heat off your rig (default 15) once per firing. It's paid in Power: 1 + the Heat it purges. It makes no Heat. | Power only |
+
+**Where it lands.** Mend and Shield follow the usual landing rule with one change: with no target feeding them they land on the caster, not the trigger's subject. So an on-kill Mend is lifesteal, an on-hurt Shield guards you, and Mend inside a gate branch mends you when that branch is taken. Put a target beside one and it lands on those targets instead (foes included, so mind the wiring; minions will use this). Purge ignores targets and always cools your own rig, so it works with no foe in sight.
+
+**Diminishing returns.** Each Mend that lands on a unit adds 1 to its mend strain; each Shield adds 1 to its shield strain. Strain halves every second. A Mend or Shield is divided by 1 + strain when it lands. Fire one Mend a second and the second one does half; rest a second and the strain halves again. However fast a hex fires, Mend tops out near 70% of its amount a second (`TestFastMendCantOutheal`), so a 0.05 s periodic Mend can't make you immortal. Shield strains the same way and also can't stack past 60% of max hull.
+
+**Shields.** A shield soaks hex damage, damage over time and claws. Walls and pits go straight to hull. The HUD shows it as a blue strip along the top of the hull bar ("HULL 80 / 100 +15 shield"), held shields shed blue bits round the unit, and a soaked hit lights the shell and shows the soaked amount in brackets.
+
+**Multipliers.** A damage or all-verb multiplier scales Mend, Shield and Purge numbers. Push, duration, count and radius boosters don't fit them. Relay doesn't fit them, and typed frames (cryo-only and so on) and Prism don't take them.
+
+**Loot.** They roll as effect parts at uncommon and rare only (weights Mend 6, Purge 6, Shield 6 alongside the damage types). Values: Mend 6 to 12% of hull, Shield 10 to 18%, Purge 10 to 20 Heat, before rarity scaling. Exotics skip them: an exotic always carries a quirk and no quirk fits a sustain part yet. None of the four preset hexes has one. Until a save has picked up a sustain part, an uncommon Mend waits next to where you arrive on each floor, from depth 1 on (`Save.SustainGiven` remembers once you take one). The first frame still waits on depth 2.
+
+**Try it.** HEX > TEST > Field Medic: Leech mends you on every kill, Lifeline shields you when you're hurt above 40% hull and mends you below it, and Coolant purges 20 Heat every 2 s once the rig is half hot.
+
+**Look and sound.** Mend pulls green nanite motes in and steams them off with a stitch mark and a "+N"; Shield snaps a hex shell on with a rising hum; a soak rings hollow; Purge jets coolant out sideways with a cold hiss and a falling chime.
+
+**Under the hood.** New ops `OpMend`, `OpShield`, `OpPurge`; `Unit` gained `Shield`, `ShieldLeft`, `MendStrain`, `ShieldStrain` (ticked by `Unit.TickSustain`); `Result` reports `Mended`, `Shielded`, `Purged`; `skill.SustainObserver` tells the sim where each landed. Still zero allocations per run (`TestSustainRunDoesNotAllocate`). Old saves load and get the depth 1 Mend.
+
 ## Docking board (`skill/dock.go`, `game/board.go`, `cmd/hexes/board.go`)
 
 Hexes connect. Every hex sits on a cell of a small honeycomb, the board: your four equipped hexes, plus modules, hexes with no trigger that only run when something docks into them.
@@ -251,7 +277,8 @@ Nothing is canned. Every effect is worked out from numbers the game already has:
 - **Magnitude sets size.** Damage dealt against the target's max health (`fx.MagOf`, 0.15 to 3) scales particle count, speed, size and line weight. Hits over about a third of a foe's health get a big shaking number.
 - **The area sets the form.** `Sim.Select` notes each target pick; hits and statuses that land mark it; when the firing ends, landed picks become `FXWave` (a ring the size of the area), `FXCone` (a sweeping wedge with ripples) or `FXChain` (crackling arcs hop to hop). Hits inside an area draw no line back to the caster. Status-only hexes show their area too (`skill.StatusObserver`).
 - **Cost shows at the cast.** The Power a hex spent streams in to the caster as cyan streaks; the Heat it added vents out as sparks (or, below zero, falls away as frost). The cast ring's weight follows Power and its flare follows Heat.
-- **Statuses linger.** Burning foes shed embers, toxin orbits, chill glints, frozen foes shard, marks close in, stuns circle, cloak shimmers.
+- **Statuses linger.** Burning foes shed embers, toxin orbits, chill glints, frozen foes shard, marks close in, stuns circle, cloak shimmers, shields shed blue bits.
+- **Sustain has its own colors.** Mend is nanite green, Shield field blue, Purge coolant white (`fx.Pool.Mend`, `Shield`, `Soak`, `Purge`).
 
 Speed: particles live in one fixed array (1200), spawns thin out as it fills (`Pool.LOD`), nothing allocates per frame, and the renderer draws them all in one additive `DrawTriangles` call from a four-sprite atlas built at start. A full pool updates in about 50 µs on a desktop core. `go run ./tools/fxsheet out.png` renders a contact sheet of every type's impact, wave, cone and cast without a browser.
 
@@ -273,7 +300,7 @@ No recorded files. Every sound is synthesized while it plays from oscillators (s
 - **Magnitude sets weight.** Harder hits are louder, longer and a little lower; hits over 1.6 add a low boom.
 - **Areas and chains.** A wave whooshes open wider the bigger it is, a cone sweeps up, a chain zaps hop by hop, climbing as it goes. Hits inside an area play quieter, since the area carries them.
 - **Cost at the cast.** Power pulled in rises in pitch (more Power, a longer, higher climb); Heat added hisses, Heat vented sighs cold. VENT is a long falling hiss.
-- **The rest.** Status ticks, kills (your own death is long and low), getting hurt, claws, shoves, slams, pits, loot (rarer climbs higher), a full pack, salvage, new shapes and tiles, the stairs, and UI taps (a low one when an edit is refused).
+- **The rest.** Status ticks, kills (your own death is long and low), getting hurt, claws, shoves, slams, pits, loot (rarer climbs higher), a full pack, salvage, new shapes and tiles, Mend, Shield, a shield soaking a hit, Purge, the stairs, and UI taps (a low one when an edit is refused).
 
 Speed and mix: one Ebitengine player pulls 32-bit float stereo from one mixer (`sfx.Mixer`, an endless `io.Reader`) with a 20-voice cap; a new voice takes over the quietest. Pitch and filter sweeps update every 32 samples. `sfx.Director` keeps fights readable: the same sound can't retrigger within 40 to 70 ms, a game step starts at most 5 sounds, sounds pan with position and fade with distance, and far-off ones are dropped. A full 20 voices mix in about 1% of a desktop core (`go test ./sfx -bench .`). Muted, the player pauses and the synth costs nothing. Settings live under `hexes.volume` and `hexes.mute`.
 

@@ -56,6 +56,9 @@ var (
 	colDim     = color.RGBA{0x8c, 0x95, 0xab, 0xff}
 	colPanel   = color.RGBA{0x14, 0x18, 0x24, 0xe0}
 	colSalvage = color.RGBA{0xff, 0xc8, 0x3d, 0xff}
+	colMend    = color.RGBA{0x5a, 0xff, 0x9e, 0xff}
+	colShield  = color.RGBA{0x6b, 0xc7, 0xff, 0xff}
+	colPurge   = color.RGBA{0xc6, 0xf7, 0xff, 0xff}
 
 	enemyCol = map[game.Kind]color.RGBA{
 		game.KindGrunt:   {0xe5, 0x48, 0x4d, 0xff},
@@ -487,6 +490,22 @@ func (g *Game) drawLabels(screen *ebiten.Image) {
 				rise = easeOut(float64(k)) * s * 1.8
 			}
 			g.outlined(screen, face, fmt.Sprintf("%.0f", f.Value), x+jx, y-s*0.6-rise, fade(c, a), a)
+		case game.FXMend:
+			if f.Value >= 0.5 {
+				g.outlined(screen, g.face, fmt.Sprintf("+%.0f", f.Value), x, y-s*0.7-float64(k)*s*1.2, fade(colMend, a), a)
+			}
+		case game.FXShield:
+			if f.Value >= 0.5 {
+				g.outlined(screen, g.small, fmt.Sprintf("SHIELD +%.0f", f.Value), x, y-s*0.9-float64(k)*s, fade(colShield, a), a)
+			}
+		case game.FXSoak:
+			if f.Value >= 0.5 {
+				g.outlined(screen, g.small, fmt.Sprintf("(%.0f)", f.Value), x+s*0.35, y-s*0.5-float64(k)*s, fade(colShield, a), a)
+			}
+		case game.FXPurge:
+			if f.Value >= 0.5 {
+				g.outlined(screen, g.small, fmt.Sprintf("HEAT -%.0f", f.Value), x, y-s*0.9-float64(k)*s, fade(colPurge, a), a)
+			}
 		}
 	})
 }
@@ -588,7 +607,18 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	if narrow {
 		bx, by, bw = u(14), u(56), W-u(28)
 	}
-	g.bar(screen, bx, by, bw, u(14), p.U.HP/p.U.MaxHP, colHP, fmt.Sprintf("HULL %.0f / %.0f", p.U.HP, p.U.MaxHP))
+	hull := fmt.Sprintf("HULL %.0f / %.0f", p.U.HP, p.U.MaxHP)
+	if p.U.Shield >= 0.5 {
+		hull += fmt.Sprintf("  +%.0f shield", p.U.Shield)
+	}
+	g.bar(screen, bx, by, bw, u(14), p.U.HP/p.U.MaxHP, colHP, hull)
+	if p.U.Shield > 0 {
+		// The shield rides along the top of the hull bar, fading as its
+		// last few seconds run out.
+		sw := bw * min(1, p.U.Shield/p.U.MaxHP)
+		sa := min(1, p.U.ShieldLeft/1.5)
+		vector.DrawFilledRect(screen, bx, by, sw, u(4), fade(colShield, 0.9*sa), false)
+	}
 	g.bar(screen, bx, by+u(20), bw, u(12), rig.Power/rig.MaxPower, colPower, fmt.Sprintf("POWER %.0f", rig.Power))
 	heatCol := colHeat
 	heatLabel := fmt.Sprintf("HEAT %.0f", rig.Heat)

@@ -1,6 +1,7 @@
 package loot
 
 import (
+	"strings"
 	"testing"
 
 	"hexes/skill"
@@ -174,5 +175,39 @@ func BenchmarkRoll(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		tab.Roll(&r, 1+i%60)
+	}
+}
+
+func TestSustainDropsUncommonAndRare(t *testing.T) {
+	tab := NewTable(reg)
+	r := NewRNG(42)
+	var got [skill.NumRarities][skill.NumEffects]int
+	for i := 0; i < 20000; i++ {
+		rar := skill.Rarity(i % skill.NumRarities)
+		p := tab.RollAt(&r, rar)
+		if p.Kind == skill.KindEffect {
+			got[rar][p.Effect]++
+		}
+	}
+	for _, e := range []skill.EffectKind{skill.EffectMend, skill.EffectPurge, skill.EffectShield} {
+		if got[skill.Common][e]+got[skill.Exotic][e] != 0 {
+			t.Fatalf("%s dropped common or exotic", e)
+		}
+		if got[skill.Uncommon][e] == 0 || got[skill.Rare][e] == 0 {
+			t.Fatalf("%s never dropped: %v", e, got)
+		}
+	}
+	for i := 0; i < 2000; i++ {
+		p := tab.RollAt(&r, skill.Rare)
+		if p.Kind != skill.KindEffect || !p.Effect.Sustain() {
+			continue
+		}
+		title, detail := Label(p, reg)
+		if title == "" || detail == "" || !strings.Contains(Describe(p, reg), "Power") && !strings.Contains(Describe(p, reg), "power") {
+			t.Fatalf("label %q %q", title, detail)
+		}
+		if p.Quirk != skill.QuirkNone {
+			t.Fatalf("sustain part rolled quirk %v", p.Quirk)
+		}
 	}
 }

@@ -172,6 +172,9 @@ type Sim struct {
 	Frames     []skill.Frame
 	FrameGiven bool
 	LastFrame  skill.Frame
+	// SustainGiven is set once a sustain part (Mend, Purge, Shield) has
+	// been picked up; until then a Mend waits by the stairs (sustain.go).
+	SustainGiven bool
 	// Tiles are the logic tiles found so far, one bit each (see
 	// tiles.go); the starter set is always known on top. LastTile is
 	// the latest, for the HUD.
@@ -223,6 +226,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.CallGiven = true // the preset Arc Lance carries it
 	s.Shapes, s.ShapeGiven, s.LastShape = nil, false, skill.Shape{}
 	s.Frames, s.FrameGiven, s.LastFrame = nil, false, skill.Frame{}
+	s.SustainGiven = false
 	s.Tiles, s.LastTile = 0, 0
 	s.resetStash()
 	s.load(1, 1)
@@ -516,13 +520,20 @@ func (s *Sim) enemies(dt float32) {
 func (s *Sim) claw(attacker skill.EntityID, raw float32) {
 	p := s.P()
 	a := &s.Actors[attacker]
-	dealt := min(raw, s.Rules.HitCap(a.U.Level, p.U.Level, p.U.MaxHP), p.U.HP)
+	hit := min(raw, s.Rules.HitCap(a.U.Level, p.U.Level, p.U.MaxHP))
+	left := p.U.Soak(hit) // a shield takes it first
+	dealt := min(left, p.U.HP)
 	p.U.HP -= dealt
 	p.Flash = 0.2
 	if p.U.HP <= 0 {
 		p.U.HP, p.U.Alive = 0, false
 	}
-	s.addFX(FX{Kind: FXNumber, At: p.At, Value: dealt, Hurt: true, Life: 0.8})
+	if soaked := hit - left; soaked > 0 {
+		s.addFX(FX{Kind: FXSoak, At: p.At, From: a.At, Value: soaked, Hurt: true, Mag: magOf(soaked, p.U.MaxHP), Life: 0.45})
+	}
+	if dealt > 0 {
+		s.addFX(FX{Kind: FXNumber, At: p.At, Value: dealt, Hurt: true, Life: 0.8})
+	}
 	s.addFX(FX{Kind: FXClaw, At: p.At, From: a.At, Life: 0.25})
 	if p.U.Alive {
 		s.Disp.Hurt(s.Player, attacker)
@@ -544,6 +555,7 @@ func (s *Sim) timers(dt float32) {
 		u.StunLeft = max(0, u.StunLeft-dt)
 		u.MarkLeft = max(0, u.MarkLeft-dt)
 		u.Stealth = max(0, u.Stealth-dt)
+		u.TickSustain(dt)
 		if u.StunLeft == 0 && u.Frozen {
 			u.Frozen, u.Chill = false, 0
 		}

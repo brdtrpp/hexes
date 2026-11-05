@@ -70,6 +70,7 @@ func TestEverySoundPlays(t *testing.T) {
 		"tick": Tick(tm, 1), "kill": Kill(tm, false), "death": Kill(tm, true), "hurt": Hurt(1),
 		"claw": Claw(), "push": Push(), "slam": Slam(), "fall": Fall(), "loot": Loot(3), "full": Full(),
 		"salvage": Salvage(), "learn": Learn(), "floor": Floor(), "click": Click(true),
+		"mend": Mend(1), "shield": Shield(1), "soak": Soak(1), "purge": Purge(20),
 	}
 	for name, s := range sounds {
 		out := render(s, 2.5)
@@ -236,7 +237,10 @@ func TestDirectorThinsBursts(t *testing.T) {
 // trouble, and the ones that should make noise do.
 func TestDirectorHearsEveryKind(t *testing.T) {
 	reg := skill.DefaultRegistry()
-	for k := game.FXNumber; k <= game.FXChain; k++ {
+	for k := game.FXNumber; k <= game.FXSoak; k++ {
+		if k == game.FXSalvage || k == game.FXLens {
+			continue // the salvage chime is a test of its own; lenses are silent
+		}
 		m := NewMixer()
 		d := NewDirector(reg, m)
 		d.Step(1)

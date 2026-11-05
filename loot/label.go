@@ -69,6 +69,12 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			return "PUSH", fmt.Sprintf("%.1f hex", p.Value*sc)
 		case skill.EffectStatus:
 			return strings.ToUpper(reg.Get(p.Type).Status.String()), fmt.Sprintf("%.1fs", p.Value*sc)
+		case skill.EffectMend:
+			return "MEND", fmt.Sprintf("%.0f%% hull", 100*p.Value*sc)
+		case skill.EffectShield:
+			return "SHIELD", fmt.Sprintf("%.0f%% hull", 100*p.Value*sc)
+		case skill.EffectPurge:
+			return "PURGE", fmt.Sprintf("-%.0f heat", p.Value*sc)
 		}
 	case skill.KindMult:
 		return fmt.Sprintf("x%.2f", 1+(p.Value-1)*sc), p.Verb.String()
@@ -146,6 +152,12 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 		fmt.Fprintf(&b, ". Tests: %s. Next slot clockwise hits the ones that pass, the slot after it the rest. Tap it again in a hex to edit the condition", p.Cond.Text(reg))
 	case p.Kind == skill.KindGate:
 		b.WriteString(". Next slot clockwise hits the ones that pass, the slot after it the rest. Tap it again in a hex to edit it as a condition")
+	case p.Kind == skill.KindEffect && p.Effect == skill.EffectMend:
+		fmt.Fprintf(&b, ". Restores hull to you, or to the targets beside it. Each Mend that lands adds strain, which halves every %g s, and divides the next one by 1 + strain", float32(skill.StrainHalfLife))
+	case p.Kind == skill.KindEffect && p.Effect == skill.EffectShield:
+		fmt.Fprintf(&b, ". A buffer on you, or the targets beside it, that soaks hits for %g s, up to %.0f%% of max hull. Strains like Mend", float32(skill.ShieldTime), 100*float32(skill.ShieldCap))
+	case p.Kind == skill.KindEffect && p.Effect == skill.EffectPurge:
+		b.WriteString(". Takes Heat off your rig, paid in Power, whoever it sits beside")
 	case p.Kind == skill.KindCharge:
 		fmt.Fprintf(&b, ". Bank %s keeps its count between firings", skill.BankName(p.Bank))
 	case p.RunsNow():

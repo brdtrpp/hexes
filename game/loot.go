@@ -86,6 +86,7 @@ func (s *Sim) loadLoot(level int) {
 	s.Stash.Lenses = s.Stash.Lenses[:0]
 	s.Stash.Frames = s.Stash.Frames[:0]
 	s.Stash.fullShow = false
+	defer s.placeFirstSustain() // after the shape and frame, to keep off their tiles
 	defer s.placeFirstFrame()
 	defer s.placeFirstShape()
 	if s.Load.Hexes[0] == nil {
@@ -170,6 +171,9 @@ func (s *Sim) pickup(dt float32) {
 		}
 		s.Stash.Picked++
 		s.Stash.Fresh[cell] = true
+		if IsSustain(d[i].Part) {
+			s.SustainGiven = true
+		}
 		s.Dirty = true
 		s.addFX(FX{Kind: FXLoot, At: at, Slot: int(d[i].Part.Rarity), Life: 1.0})
 		d[i] = d[len(d)-1]

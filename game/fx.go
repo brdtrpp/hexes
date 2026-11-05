@@ -26,6 +26,10 @@ const (
 	FXChain                 // a hex chained through Pts, in hop order
 	FXLens                  // picked up a lens at At; Slot is Optics points gained, Value the new light radius
 	FXFrame                 // racked a frame at At; Slot is its bend
+	FXMend                  // a Mend restored Value hull at At; Mag is how much of max hull
+	FXShield                // a Shield added Value buffer at At; Mag is how much of max hull
+	FXPurge                 // a Purge took Value Heat off the rig at At
+	FXSoak                  // a shield at At soaked Value of a hit; Hurt if it's the player's
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).

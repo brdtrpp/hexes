@@ -336,3 +336,107 @@ func (p *Pool) Aura(k AuraKind, x, y, rad, r, g, b, dt float32) {
 		p.Add(q)
 	}
 }
+
+// Sustain colors: nanite green for Mend, field blue for Shield, coolant
+// white-cyan for Purge.
+var (
+	MendR, MendG, MendB       = float32(0.35), float32(1), float32(0.62)
+	ShieldR, ShieldG, ShieldB = float32(0.42), float32(0.78), float32(1)
+	PurgeR, PurgeG, PurgeB    = float32(0.78), float32(0.97), float32(1)
+)
+
+// Mend is hull knitting back at x, y: green nanite motes that gather in
+// from round the unit, then rise off it like steam. mag is fx.MagOf's
+// 0.15 to 3 on the amount restored.
+func (p *Pool) Mend(x, y, mag float32) {
+	m := float32(math.Sqrt(float64(max(mag, 0.15))))
+	n := p.Count(6 + 8*m)
+	for i := 0; i < n; i++ {
+		a := p.rr(-math.Pi, math.Pi)
+		sn, cs := sincos(a)
+		r := p.rr(0.7, 1.1)
+		t := p.rr(0.25, 0.4)
+		p.Add(P{X: x + cs*r, Y: y + sn*r, VX: -cs * r / t, VY: -sn * r / t, Life: t, Swirl: 2,
+			Size0: 0.04, Size1: 0.08, A: 0.9, Seed: p.rand(),
+			R0: MendR, G0: MendG, B0: MendB, R1: 0.85, G1: 1, B1: 0.9})
+	}
+	k := p.Count(4 + 5*m)
+	for i := 0; i < k; i++ {
+		p.Add(P{X: x + p.rr(-0.3, 0.3), Y: y + p.rr(-0.2, 0.2), VX: p.rr(-0.2, 0.2), VY: p.rr(-1.3, -0.7),
+			Life: p.rr(0.6, 1), Drag: 0.8, Wobble: 0.4, Size0: 0.07, Size1: 0.02, A: 0.8, Seed: p.rand(),
+			Sprite: SpriteSquare, R0: 0.85, G0: 1, B0: 0.9, R1: MendR, G1: MendG, B1: MendB})
+	}
+}
+
+// Shield is a buffer field snapping on round x, y: hard blue bits that fly
+// out to the field's edge and hang there.
+func (p *Pool) Shield(x, y, mag float32) {
+	m := float32(math.Sqrt(float64(max(mag, 0.15))))
+	n := p.Count(8 + 6*m)
+	for i := 0; i < n; i++ {
+		a := p.rr(-math.Pi, math.Pi)
+		sn, cs := sincos(a)
+		const drag = 6
+		v := 0.75 * drag * p.rr(0.85, 1)
+		p.Add(P{X: x + cs*0.2, Y: y + sn*0.2, VX: cs * v, VY: sn * v, Drag: drag, Life: p.rr(0.45, 0.7),
+			Size0: 0.05, Size1: 0.04, A: 0.9, Flicker: 0.4, Seed: p.rand(), Sprite: SpriteSquare,
+			R0: 1, G0: 1, B0: 1, R1: ShieldR, G1: ShieldG, B1: ShieldB})
+	}
+}
+
+// Soak is a hit breaking on a shield at x, y, coming along dx, dy: blue
+// chips glance off the field's face.
+func (p *Pool) Soak(x, y, dx, dy, mag float32) {
+	a0 := angle(-dx, -dy)
+	if dx == 0 && dy == 0 {
+		a0 = -math.Pi / 2
+	}
+	n := p.Count(5 + 4*float32(math.Sqrt(float64(max(mag, 0.15)))))
+	for i := 0; i < n; i++ {
+		a := a0 + p.rr(-1.1, 1.1)
+		sn, cs := sincos(a)
+		v := p.rr(2, 3.5)
+		p.Add(P{X: x - cs*0.45, Y: y - sn*0.45, VX: cs * v, VY: sn * v, Drag: 5, Life: p.rr(0.2, 0.35),
+			Size0: 0.03, Size1: 0.08, A: 0.9, Stretch: 0.05, Seed: p.rand(), Sprite: SpriteShard,
+			R0: 1, G0: 1, B0: 1, R1: ShieldR, G1: ShieldG, B1: ShieldB})
+	}
+}
+
+// Purge is the rig flushing coolant at x, y: white-cyan plumes jet out
+// sideways from the vents and roll upward, more for more Heat purged.
+func (p *Pool) Purge(x, y, heat float32) {
+	n := p.Count(min(max(heat/1.5, 6), 18))
+	for i := 0; i < n; i++ {
+		side := float32(1)
+		if i%2 == 1 {
+			side = -1
+		}
+		v := p.rr(1.6, 2.6)
+		p.Add(P{X: x + side*0.25, Y: y + p.rr(-0.1, 0.15), VX: side * v, VY: p.rr(-0.6, 0.1), Drag: 2.2, Grav: -1.2,
+			Life: p.rr(0.6, 1), Size0: 0.1, Size1: 0.32, A: 0.4, Wobble: 0.3, Seed: p.rand(),
+			R0: 1, G0: 1, B0: 1, R1: PurgeR, G1: PurgeG, B1: PurgeB})
+	}
+	// A few cold glints spat out with it.
+	k := p.Count(min(heat/4, 6) + 2)
+	for i := 0; i < k; i++ {
+		a := p.rr(-math.Pi, 0)
+		sn, cs := sincos(a)
+		p.Add(P{X: x, Y: y, VX: cs * 2.5, VY: sn * 2.5, Drag: 3, Grav: 2, Life: p.rr(0.35, 0.55),
+			Size0: 0.03, Size1: 0.07, A: 0.9, Stretch: 0.1, Seed: p.rand(), Sprite: SpriteShard,
+			R0: 1, G0: 1, B0: 1, R1: PurgeR, G1: PurgeG, B1: PurgeB})
+	}
+}
+
+// ShieldAura is a held shield on a unit at x, y: now and then a blue bit
+// drifts round the field's edge. share is the shield as a share of max
+// hull (0 to 0.6); a fuller shield sheds more.
+func (p *Pool) ShieldAura(x, y, rad, share, dt float32) {
+	n := p.Count((2 + 10*share) * dt)
+	for i := 0; i < n; i++ {
+		a := p.rr(-math.Pi, math.Pi)
+		sn, cs := sincos(a)
+		p.Add(P{X: x + cs*rad*1.25, Y: y + sn*rad*1.25, VX: -sn * 0.9, VY: cs * 0.9, Swirl: 1.6,
+			Life: p.rr(0.4, 0.6), Size0: 0.04, Size1: 0.02, A: 0.7, Seed: p.rand(), Sprite: SpriteSquare,
+			R0: ShieldR, G0: ShieldG, B0: ShieldB, R1: ShieldR, G1: ShieldG, B1: ShieldB})
+	}
+}

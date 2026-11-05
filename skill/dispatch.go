@@ -353,6 +353,14 @@ func (d *Dispatcher) Hit(caster, target EntityID, dealt float32, t TypeID, terra
 	}
 }
 
+// Sustained implements SustainObserver, passing Mend, Shield and Purge
+// on to a Listener that wants them.
+func (d *Dispatcher) Sustained(caster, target EntityID, kind EffectKind, amount float32) {
+	if so, ok := d.Listener.(SustainObserver); ok {
+		so.Sustained(caster, target, kind, amount)
+	}
+}
+
 // Statused implements StatusObserver, passing statuses on to a Listener
 // that wants them.
 func (d *Dispatcher) Statused(caster, target EntityID, t TypeID) {

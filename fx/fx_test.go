@@ -145,6 +145,11 @@ func TestNoAllocs(t *testing.T) {
 		p.Wedge(0, 0, 1, 0, 0.6, 4, Shot{Sig: s["nanite"], Mag: 1})
 		p.Cast(0, 0, 12, 8)
 		p.Aura(AuraBurn, 0, 0, 0.5, 1, 0.5, 0.2, 1.0/60)
+		p.Mend(0, 0, 1)
+		p.Shield(0, 0, 1)
+		p.Soak(0, 0, 1, 0, 1)
+		p.Purge(0, 0, 20)
+		p.ShieldAura(0, 0, 0.5, 0.3, 1.0/60)
 		p.Update(1.0 / 60)
 		for i := 0; i < p.N; i++ {
 			_ = p.P[i].Look()
@@ -163,6 +168,29 @@ func BenchmarkBusyFrame(b *testing.B) {
 		p.Update(1.0 / 60)
 		for j := 0; j < p.N; j++ {
 			_ = p.P[j].Look()
+		}
+	}
+}
+
+// Each sustain effect spawns particles in its own color family.
+func TestSustainEffectsSpawn(t *testing.T) {
+	for name, f := range map[string]func(p *Pool){
+		"mend":   func(p *Pool) { p.Mend(0, 0, 1) },
+		"shield": func(p *Pool) { p.Shield(0, 0, 1) },
+		"soak":   func(p *Pool) { p.Soak(0, 0, 1, 0, 1) },
+		"purge":  func(p *Pool) { p.Purge(0, 0, 20) },
+	} {
+		p := NewPool(3)
+		f(p)
+		if p.N < 5 {
+			t.Errorf("%s spawned %d particles", name, p.N)
+		}
+	}
+	p := NewPool(3)
+	p.Mend(0, 0, 1)
+	for i := 0; i < p.N; i++ {
+		if q := p.P[i]; q.G0 < q.R0 && q.G1 < q.R1 {
+			t.Fatalf("mend particle %d is not green: %+v", i, q)
 		}
 	}
 }

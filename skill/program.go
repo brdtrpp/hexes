@@ -43,9 +43,19 @@ const (
 	// OpIfKill runs the next Span steps only if this hex's run has killed
 	// something by now (a Kill-lock frame's second firing).
 	OpIfKill
+	// OpMend restores hull to every entity in Src: Value of each one's
+	// max hull, less for recent mends (Unit.Mend). It only runs while
+	// guard register Src2 holds someone.
+	OpMend
+	// OpShield puts a Value share of max hull as a shield on every entity
+	// in Src, guarded by Src2 like OpMend.
+	OpShield
+	// OpPurge takes Value Heat off the caster's rig, once, while guard
+	// register Src2 holds someone.
+	OpPurge
 )
 
-var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge", "call", "ifkill"}
+var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge", "call", "ifkill", "mend", "shield", "purge"}
 
 // Step flags: runtime bends a frame puts on one step.
 const (
@@ -192,6 +202,12 @@ func (p *Program) String() string {
 			fmt.Fprintf(&b, "bank %s %+g if r%d", BankName(s.Bank), s.Value, s.Src2)
 		case OpCall:
 			fmt.Fprintf(&b, "call %s on r%d heat x%.2f", CallName(s.Count), s.Src, s.Value)
+		case OpMend:
+			fmt.Fprintf(&b, "mend r%d share=%.3f if r%d", s.Src, s.Value, s.Src2)
+		case OpShield:
+			fmt.Fprintf(&b, "shield r%d share=%.3f if r%d", s.Src, s.Value, s.Src2)
+		case OpPurge:
+			fmt.Fprintf(&b, "purge heat=%.2f if r%d", s.Value, s.Src2)
 		case OpIfKill:
 			fmt.Fprintf(&b, "if killed (%d steps)", s.Span)
 			ends = append(ends, i+1+int(s.Span))

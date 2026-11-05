@@ -43,6 +43,13 @@ type StatusObserver interface {
 	Statused(caster, target EntityID, t TypeID)
 }
 
+// SustainObserver is an Observer that also hears Mend, Shield and Purge
+// landing, so the game can show and sound them. It's optional. kind is
+// the effect; amount is hull restored, shield added or Heat removed.
+type SustainObserver interface {
+	Sustained(caster, target EntityID, kind EffectKind, amount float32)
+}
+
 // Ctx is the moment a program fires.
 type Ctx struct {
 	Caster EntityID
@@ -77,6 +84,9 @@ const MaxCharge = 1 << 30
 type Result struct {
 	Hits, Kills, Capped, Raised, Statuses, Dots int
 	Damage                                      float32
+	// Mended is hull restored, Shielded shield added and Purged Heat
+	// taken off by sustain effects.
+	Mended, Shielded, Purged float32
 	// Calls is how many called hexes ran. Called has bit n-1 set for each
 	// equipped hex n a call ran, for the HUD. Dropped counts calls lost to
 	// a full queue.
@@ -348,6 +358,43 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			}
 			b := e.bankAt(ctx, s.Bank)
 			*b = uint32(min(max(int64(*b)+int64(s.Value), 0), MaxCharge))
+		case OpMend, OpShield:
+			if e.n[s.Src2] == 0 {
+				continue // in a gate branch nobody took
+			}
+			kind := EffectMend
+			if s.Op == OpShield {
+				kind = EffectShield
+			}
+			so, _ := e.Obs.(SustainObserver)
+			for i := 0; i < int(e.n[s.Src]); i++ {
+				u := w.Unit(e.regs[s.Src][i])
+				if u == nil || !u.Alive {
+					continue
+				}
+				var got float32
+				if kind == EffectMend {
+					got = u.Mend(s.Value)
+					res.Mended += got
+				} else {
+					got = u.AddShield(s.Value)
+					res.Shielded += got
+				}
+				if so != nil {
+					so.Sustained(ctx.Caster, u.ID, kind, got)
+				}
+			}
+		case OpPurge:
+			r := ctx.Rig
+			if e.n[s.Src2] == 0 || r == nil {
+				continue
+			}
+			got := min(r.Heat, s.Value)
+			r.Heat -= got
+			res.Purged += got
+			if so, ok := e.Obs.(SustainObserver); ok {
+				so.Sustained(ctx.Caster, ctx.Caster, EffectPurge, got)
+			}
 		case OpForEach:
 			body := steps[pc+1 : pc+1+int(s.Span)]
 			for i := 0; i < int(e.n[s.Src]); i++ {

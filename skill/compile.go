@@ -204,7 +204,7 @@ func (c *compiler) useBank(p Part) {
 func (c *compiler) cost(p Part, depth int) {
 	f := float32(1 + NestCostPerDepth*float64(depth))
 	heat := p.Heat
-	if p.Kind == KindEffect && p.Effect != EffectPush {
+	if p.Kind == KindEffect && p.Effect.Typed() {
 		heat += c.reg.Get(p.Type).HeatOffset
 	}
 	power := p.Power
@@ -428,6 +428,28 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			// while the guard register holds someone. Outside a branch the
 			// guard is the caster, who is always there.
 			st := Step{Src: src, Src2: guard, Type: p.Type, Value: p.Value * p.Rarity.Scale()}
+			if p.Effect.Sustain() {
+				// Mend and Shield land on the targets beside them, or the
+				// caster with none; in a branch, on the caster when the
+				// branch holds anyone. Purge only ever cools the rig.
+				if guard != RegCaster || src == landing || p.Effect == EffectPurge {
+					st.Src = RegCaster
+				}
+				st.Type = 0
+				switch p.Effect {
+				case EffectMend:
+					st.Op = OpMend
+				case EffectShield:
+					st.Op = OpShield
+				default:
+					st.Op = OpPurge
+				}
+				i := c.emit(st)
+				fed[s] = span{i, i + 1, true}
+				carry[s] = int(src)
+				c.cost(p, depth)
+				break
+			}
 			switch p.Effect {
 			case EffectDamage:
 				st.Op = OpDamage
@@ -770,7 +792,7 @@ func (c *compiler) watch(h *Hex, trig int, t Part, seen map[*Hex]bool) (uint8, e
 func acts(steps []Step) bool {
 	for _, s := range steps {
 		switch s.Op {
-		case OpDamage, OpPush, OpStatus, OpCharge, OpCall:
+		case OpDamage, OpPush, OpStatus, OpCharge, OpCall, OpMend, OpShield, OpPurge:
 			return true
 		}
 	}
@@ -858,7 +880,7 @@ func (c *compiler) scale(f span, v Verb, x float32) {
 	for i := f.lo; i < f.hi; i++ {
 		st := &c.p.Steps[i]
 		switch st.Op {
-		case OpDamage:
+		case OpDamage, OpMend, OpShield, OpPurge:
 			if all || v == VerbDamage {
 				st.Value *= x
 			}

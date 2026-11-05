@@ -40,6 +40,77 @@ type Unit struct {
 	MarkOwner EntityID
 	Stealth   float32 // seconds of stealth left
 	Dots      [MaxDots]Dot
+
+	// Shield is hull buffer that soaks hits before hull does; it lasts
+	// ShieldLeft more seconds. MendStrain and ShieldStrain are how many
+	// recent Mends and Shields landed (fading, see StrainHalfLife).
+	Shield       float32
+	ShieldLeft   float32
+	MendStrain   float32
+	ShieldStrain float32
+}
+
+// Mend restores share of max hull, divided by 1 + mend strain, then adds
+// 1 strain. It returns the hull restored. Dead units can't be mended.
+func (u *Unit) Mend(share float32) float32 {
+	if !u.Alive || share <= 0 {
+		return 0
+	}
+	amt := min(share, MendCap) * u.MaxHP / (1 + u.MendStrain)
+	u.MendStrain++
+	amt = min(amt, u.MaxHP-u.HP)
+	u.HP += amt
+	return amt
+}
+
+// AddShield tops the shield up by share of max hull, divided by 1 +
+// shield strain, to at most ShieldCap of max hull, and resets its timer.
+// It returns the buffer added.
+func (u *Unit) AddShield(share float32) float32 {
+	if !u.Alive || share <= 0 {
+		return 0
+	}
+	amt := share * u.MaxHP / (1 + u.ShieldStrain)
+	u.ShieldStrain++
+	amt = min(amt, ShieldCap*u.MaxHP-u.Shield)
+	amt = max(amt, 0)
+	u.Shield += amt
+	u.ShieldLeft = ShieldTime
+	return amt
+}
+
+// Soak runs damage through the shield and returns what's left for hull.
+func (u *Unit) Soak(d float32) float32 {
+	if u.Shield <= 0 || d <= 0 {
+		return d
+	}
+	s := min(u.Shield, d)
+	u.Shield -= s
+	if u.Shield <= 0 {
+		u.Shield, u.ShieldLeft = 0, 0
+	}
+	return d - s
+}
+
+// TickSustain fades strain and runs down the shield's timer.
+func (u *Unit) TickSustain(dt float32) {
+	if u.MendStrain > 0 || u.ShieldStrain > 0 {
+		k := float32(math.Exp2(-float64(dt) / StrainHalfLife))
+		u.MendStrain *= k
+		u.ShieldStrain *= k
+		if u.MendStrain < 0.01 {
+			u.MendStrain = 0
+		}
+		if u.ShieldStrain < 0.01 {
+			u.ShieldStrain = 0
+		}
+	}
+	if u.ShieldLeft > 0 {
+		u.ShieldLeft -= dt
+		if u.ShieldLeft <= 0 {
+			u.Shield, u.ShieldLeft = 0, 0
+		}
+	}
 }
 
 // AddDot queues damage over time, replacing the weakest slot when full.
@@ -138,6 +209,7 @@ func (r *Rules) resolve(u *Unit, raw float32, t TypeID, attacker int, terrain bo
 			dealt, capped = lim, true
 		}
 		r.adapt(u, t, adaptW)
+		dealt = u.Soak(dealt) // shields soak hits, not walls and pits
 	}
 	if dealt > u.HP {
 		dealt = u.HP

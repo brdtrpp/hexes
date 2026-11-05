@@ -166,6 +166,9 @@ func (g *Game) auras(a *game.Actor, x, y, dt float32) {
 	if u.Stealth > 0 {
 		p.Aura(fx.AuraCloak, x, y, rad, 0.75, 0.8, 0.9, dt)
 	}
+	if u.Shield > 0 && u.MaxHP > 0 {
+		p.ShieldAura(x, y, rad, u.Shield/u.MaxHP, dt)
+	}
 }
 
 // spawn bursts a new effect's particles.
@@ -217,6 +220,14 @@ func (g *Game) spawn(e *game.FX) {
 		p.Cast(x, y, 0, -60)
 	case game.FXFall:
 		p.Wave(x, y, -0.8, fx.Shot{Sig: fx.Sig{R: 0.54, G: 0.17, B: 0.25}, Mag: 1})
+	case game.FXMend:
+		p.Mend(x, y, e.Mag)
+	case game.FXShield:
+		p.Shield(x, y, e.Mag)
+	case game.FXSoak:
+		p.Soak(x, y, x-fx0, y-fy0, e.Mag)
+	case game.FXPurge:
+		p.Purge(x, y, e.Value)
 	}
 }
 
@@ -565,6 +576,45 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 		case game.FXPush:
 			fx0, fy0 := g.toScreen(e.FromX, e.FromY)
 			vector.StrokeLine(screen, float32(fx0), float32(fy0), float32(x), float32(y), float32(s*0.5*float64(a)), fade(color.RGBA{0xf0, 0xf0, 0xf0, 0xff}, a*0.3), true)
+		case game.FXMend:
+			// A green glow and a ring that pulls in tight round the unit,
+			// with a stitch of crossed lines at its heart.
+			m := math.Sqrt(float64(e.Mag))
+			g.glow(screen, x, y, s*(0.9+0.5*m), fx.MendR, fx.MendG, fx.MendB, a*0.6)
+			r := s * (1.3 - 0.8*easeOut(k))
+			g.ringPath(x, y, r, fx.RingStyle{Sides: 6, Dash: 0.5, Spin: 0.6}, t, seed, 0, 2*math.Pi, true)
+			g.strokePath(screen, colMend, a, g.u(2+1.5*m))
+			if k < 0.6 {
+				l := float32(s * 0.22 * (1 - k/0.6*0.4))
+				ca := fade(colMend, float32(1-k/0.6))
+				vector.StrokeLine(screen, float32(x)-l, float32(y), float32(x)+l, float32(y), g.u(2.5), ca, true)
+				vector.StrokeLine(screen, float32(x), float32(y)-l, float32(x), float32(y)+l, g.u(2.5), ca, true)
+			}
+		case game.FXShield:
+			// The field snaps out to a hex shell and settles.
+			m := math.Sqrt(float64(e.Mag))
+			r := s * (0.4 + 0.5*easeOut(math.Min(1, k/0.35)))
+			if k < 0.4 {
+				g.glow(screen, x, y, s*1.1, fx.ShieldR, fx.ShieldG, fx.ShieldB, float32(1-k/0.4)*0.6)
+			}
+			g.ringPath(x, y, r, fx.RingStyle{Sides: 6}, t, seed, 0, 2*math.Pi, true)
+			g.fillPath(screen, colShield, a*0.15)
+			g.ringPath(x, y, r, fx.RingStyle{Sides: 6}, t, seed, 0, 2*math.Pi, true)
+			g.strokePath(screen, colShield, a, g.u(1.5+2*m))
+		case game.FXSoak:
+			// The shell lights up where the hit broke on it.
+			r := s * 0.9
+			g.ringPath(x, y, r, fx.RingStyle{Sides: 6}, t, seed, 0, 2*math.Pi, true)
+			g.strokePath(screen, colShield, a*0.9, g.u(3*float64(a)+1))
+			g.glow(screen, x, y, s*0.9, fx.ShieldR, fx.ShieldG, fx.ShieldB, a*0.35)
+		case game.FXPurge:
+			// A cold flash and a low, flat ring blowing out at deck level.
+			if k < 0.3 {
+				g.glow(screen, x, y, s*1.3, fx.PurgeR, fx.PurgeG, fx.PurgeB, float32(1-k/0.3)*0.7)
+			}
+			r := s * (0.6 + 2.2*easeOut(k))
+			g.ringPath(x, y, r, fx.RingStyle{Sides: 40, Wobble: 0.06}, t, seed, 0, 2*math.Pi, true)
+			g.strokePath(screen, colPurge, a*0.8, g.u(4*float64(a)+0.8))
 		}
 	})
 }

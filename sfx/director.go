@@ -192,5 +192,21 @@ func (d *Director) Hear(e *game.FX, lx, ly float64) {
 		if d.ready(e.Kind, 0, gapOther) {
 			d.play(Learn(), x, y, lx, ly)
 		}
+	case game.FXMend:
+		if d.ready(e.Kind, 0, 0.15) {
+			d.play(Mend(e.Mag), x, y, lx, ly)
+		}
+	case game.FXShield:
+		if d.ready(e.Kind, 0, 0.15) {
+			d.play(Shield(e.Mag), x, y, lx, ly)
+		}
+	case game.FXSoak:
+		if d.ready(e.Kind, 0, gapOther) {
+			d.play(Soak(e.Mag), x, y, lx, ly)
+		}
+	case game.FXPurge:
+		if d.ready(e.Kind, 0, 0.3) {
+			d.play(Purge(e.Value), x, y, lx, ly)
+		}
 	}
 }

@@ -191,7 +191,7 @@ func (f Frame) Accepts(p Part, reg *Registry) (bool, string) {
 		ok = false
 	}
 	if ok && f.Typed {
-		ok = p.Kind == KindEffect && p.Effect != EffectPush && p.Type == f.Type
+		ok = p.Kind == KindEffect && p.Effect.Typed() && p.Type == f.Type
 	}
 	if ok && f.Ranked {
 		ok = p.Rarity == f.Rank
@@ -483,7 +483,7 @@ func prism(h *Hex, order []int) (types [Slots]TypeID, set [Slots]bool) {
 	last, have := TypeID(0), false
 	for _, s := range order {
 		sl := h.Slots[s]
-		if sl.Kind != SlotPart || sl.Part.Kind != KindEffect || sl.Part.Effect == EffectPush {
+		if sl.Kind != SlotPart || sl.Part.Kind != KindEffect || !sl.Part.Effect.Typed() {
 			continue
 		}
 		t := sl.Part.Type

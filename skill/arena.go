@@ -278,6 +278,7 @@ func (a *Arena) Step(dt float32) float32 {
 		u.StunLeft = max(0, u.StunLeft-dt)
 		u.MarkLeft = max(0, u.MarkLeft-dt)
 		u.Stealth = max(0, u.Stealth-dt)
+		u.TickSustain(dt)
 		a.Rules.Decay(u, dt)
 	}
 	var total float32

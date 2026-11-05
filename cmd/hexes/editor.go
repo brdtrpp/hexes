@@ -673,8 +673,15 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 			tc = slotCol[to]
 		}
 	case skill.KindEffect:
-		if p.Effect != skill.EffectPush {
+		switch {
+		case p.Effect.Typed():
 			tc = typeColor(p.Type)
+		case p.Effect == skill.EffectMend:
+			tc = colMend
+		case p.Effect == skill.EffectShield:
+			tc = colShield
+		case p.Effect == skill.EffectPurge:
+			tc = colPurge
 		}
 	}
 	g.label(dst, g.small, title, x, y-r*0.2, tc, true)

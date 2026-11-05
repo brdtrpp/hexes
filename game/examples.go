@@ -8,7 +8,8 @@ import (
 	"hexes/skill"
 )
 
-// The nine example skills from the examples doc, built as real hexes so
+// The nine example skills from the examples doc, plus Field Medic for
+// the sustain parts, built as real hexes so
 // they can be played. Loading one (with the test switch on) puts its
 // hexes in the first equipped slots and its library hexes on the board;
 // the player's own build waits in Mine until they ask for it back.
@@ -63,7 +64,7 @@ func condGate(ts ...skill.Tile) skill.Part {
 	return skill.NewGate(skill.GateHull, 0.5).WithCond(tiles(ts...))
 }
 
-// Examples builds the nine examples for a type registry.
+// Examples builds the examples for a type registry.
 func Examples(reg *skill.Registry) []Example {
 	ty := reg.MustID
 	ring := skill.Shape{Kind: skill.ShapeRing}
@@ -186,6 +187,26 @@ func Examples(reg *skill.Registry) []Example {
 				{tripwire(), "Tripwire", "chills and shoves packs by itself"},
 			},
 			Mods: []*skill.Hex{frostbite(), pack()}},
+		{Name: "Field Medic", Blurb: "Mend, Shield and Purge keeping you going",
+			Hexes: []ExampleHex{
+				{exHex("Leech", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnKill),
+					1: skill.NewMend(0.08),
+				}), "Leech", "every kill mends you"},
+				{exHex("Lifeline", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnHurt),
+					1: skill.NewTarget(skill.TargetSelf, 0, 0),
+					2: skill.NewGate(skill.GateHull, 0.4),
+					3: skill.NewMend(0.15),
+					4: skill.NewShield(0.15),
+				}), "Lifeline", "hurt: mend under 40% hull, else shield"},
+				{exHex("Coolant", ring, false, map[int]skill.Part{
+					0: skill.NewPeriodic(2),
+					1: skill.NewTarget(skill.TargetSelf, 0, 0),
+					2: skill.NewGate(skill.GateHeat, 0.5),
+					3: skill.NewPurge(20),
+				}), "Coolant", "every 2s, purge 20 Heat over half"},
+			}},
 	}
 }
 

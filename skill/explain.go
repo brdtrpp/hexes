@@ -42,6 +42,9 @@ func (h *Hex) Use(s int) (what string, ok bool) {
 	case KindTarget:
 		return h.targetUse(s, routes)
 	case KindEffect:
+		if p.Effect.Sustain() {
+			return h.sustainUse(s, p, routes), true
+		}
 		return fmt.Sprintf("%s %s", effectVerb(p), h.whom(s, routes)), true
 	case KindCall:
 		if p.RunsNow() {
@@ -109,6 +112,8 @@ func (h *Hex) readsTargets(b, from int, routes [Slots]Route) bool {
 	}
 	isPart := func(k PartKind) bool { return sl.Kind == SlotPart && sl.Part.Kind == k }
 	switch {
+	case isPart(KindEffect) && sl.Part.Effect == EffectPurge:
+		return false // a purge only cools the rig
 	case sl.Kind == SlotNested, isPart(KindEffect), isPart(KindCall):
 		return true // they land on everything that feeds them
 	case isPart(KindGate):
@@ -213,8 +218,7 @@ func multFits(v Verb, q Part) string {
 	case KindGate, KindCharge, KindCall:
 		return fmt.Sprintf("can't boost a %s", q.Kind)
 	case KindEffect:
-		want := map[EffectKind]Verb{EffectDamage: VerbDamage, EffectPush: VerbPush, EffectStatus: VerbDuration}[q.Effect]
-		if v != VerbAll && v != want {
+		if want := q.Effect.Verb(); v != VerbAll && v != want {
 			return fmt.Sprintf("a %s booster does nothing to %s", verbWord(v), q.Effect)
 		}
 	case KindTarget:
@@ -314,6 +318,29 @@ func (h *Hex) subject() string {
 		}
 	}
 	return "whoever docks in"
+}
+
+// sustainUse is what a Mend, Shield or Purge does where it sits.
+func (h *Hex) sustainUse(s int, p Part, routes [Slots]Route) string {
+	verb := map[EffectKind]string{EffectMend: "mends", EffectShield: "shields"}[p.Effect]
+	who := "you"
+	if r := routes[s]; r.Gate < 0 && p.Effect != EffectPurge {
+		order, n := h.Flow(h.TriggerSlot())
+		for _, a := range order[:n] {
+			if h.Feeds(a, s) && h.isTarget(a) {
+				who = h.whom(s, routes)
+				break
+			}
+		}
+	}
+	w := verb + " " + who
+	if p.Effect == EffectPurge {
+		w = "cools your rig"
+	}
+	if r := routes[s]; r.Gate >= 0 {
+		w += fmt.Sprintf(", when someone %s slot %s", branchWord(r.Branch), h.SlotName(int(r.Gate)))
+	}
+	return w
 }
 
 func effectVerb(p Part) string {

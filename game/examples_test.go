@@ -3,6 +3,8 @@ package game
 import (
 	"encoding/json"
 	"testing"
+
+	"hexes/skill"
 )
 
 func TestExamplesLoad(t *testing.T) {
@@ -40,7 +42,8 @@ func TestExamplesLoad(t *testing.T) {
 	if err := s2.Restore(back); err != nil {
 		t.Fatal(err)
 	}
-	if s2.Mine == nil || s2.Example != "Deep Freeze" {
+	ex := Examples(s.Reg)
+	if s2.Mine == nil || s2.Example != ex[len(ex)-1].Name {
 		t.Fatalf("stash lost on reload: %v %q", s2.Mine != nil, s2.Example)
 	}
 	if err := s2.RestoreBuild(); err != nil {
@@ -52,5 +55,31 @@ func TestExamplesLoad(t *testing.T) {
 	}
 	if s2.Mine != nil || s2.RestoreBuild() == nil {
 		t.Fatal("stash should be gone")
+	}
+}
+
+func TestFieldMedicSustains(t *testing.T) {
+	s := New(5)
+	if err := s.SetTestShapes(true); err != nil {
+		t.Fatal(err)
+	}
+	ex := Examples(s.Reg)
+	i := len(ex) - 1
+	if ex[i].Name != "Field Medic" {
+		t.Fatalf("last example %q", ex[i].Name)
+	}
+	if err := s.LoadExample(i); err != nil {
+		t.Fatal(err)
+	}
+	ops := map[skill.Op]bool{}
+	for k := 0; k < 3; k++ {
+		for _, st := range s.Load.Progs[k].Steps {
+			ops[st.Op] = true
+		}
+	}
+	for _, op := range []skill.Op{skill.OpMend, skill.OpShield, skill.OpPurge} {
+		if !ops[op] {
+			t.Fatalf("Field Medic has no %s", op)
+		}
 	}
 }

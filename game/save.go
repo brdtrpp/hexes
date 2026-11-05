@@ -197,6 +197,10 @@ type Save struct {
 	// found. Saves from before frames have neither, and every slot plain.
 	Frames     []skill.Frame `json:",omitempty"`
 	FrameGiven bool          `json:",omitempty"`
+	// SustainGiven is set once a sustain part has been picked up. Saves
+	// from before sustain parts don't have it, so the first Mend waits by
+	// the stairs on their next floor.
+	SustainGiven bool `json:",omitempty"`
 	// Mods and Board are the docking board's modules and where every hex
 	// sits. Saves from before the board have neither and load with the
 	// hexes laid out so nothing docks.
@@ -223,10 +227,11 @@ func (s *Sim) Snapshot() Save {
 		Shapes:    append([]skill.Shape(nil), s.Shapes...), ShapeGiven: s.ShapeGiven,
 		TestShapes: s.TestShapes,
 		Frames:     append([]skill.Frame(nil), s.Frames...), FrameGiven: s.FrameGiven,
-		Mods:  append([]*skill.Hex(nil), s.Load.Mods...),
-		Board: append([]Spot(nil), s.Load.Spots...),
-		Tiles: s.Tiles,
-		Mine:  s.Mine, Example: s.Example,
+		SustainGiven: s.SustainGiven,
+		Mods:         append([]*skill.Hex(nil), s.Load.Mods...),
+		Board:        append([]Spot(nil), s.Load.Spots...),
+		Tiles:        s.Tiles,
+		Mine:         s.Mine, Example: s.Example,
 	}
 	switch s.State {
 	case Dead:
@@ -322,6 +327,7 @@ func (s *Sim) Restore(sv Save) error {
 	s.Shapes, s.ShapeGiven = shapes, sv.ShapeGiven || len(shapes) > 0
 	s.TestShapes = sv.TestShapes
 	s.Frames, s.FrameGiven = frames, sv.FrameGiven || len(frames) > 0
+	s.SustainGiven = sv.SustainGiven
 	s.Tiles = sv.Tiles & skill.AllTiles
 	s.Mine, s.Example = nil, ""
 	if sv.Mine != nil {

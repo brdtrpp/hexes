@@ -262,6 +262,24 @@ func (s *Sim) Statused(caster, target skill.EntityID, t skill.TypeID) {
 	}
 }
 
+// Sustained implements skill.SustainObserver: a Mend, Shield or Purge
+// landing shows on whoever it landed on.
+func (s *Sim) Sustained(caster, target skill.EntityID, kind skill.EffectKind, amount float32) {
+	if target < 0 || int(target) >= len(s.Actors) {
+		return
+	}
+	a := &s.Actors[target]
+	mag := magOf(amount, a.U.MaxHP)
+	switch kind {
+	case skill.EffectMend:
+		s.addFX(FX{Kind: FXMend, At: a.At, Value: amount, Mag: mag, Life: 0.9})
+	case skill.EffectShield:
+		s.addFX(FX{Kind: FXShield, At: a.At, Value: amount, Mag: mag, Life: 0.7})
+	case skill.EffectPurge:
+		s.addFX(FX{Kind: FXPurge, At: a.At, Value: amount, Life: 0.8})
+	}
+}
+
 // Killed implements skill.Listener.
 func (s *Sim) Killed(caster, target skill.EntityID) {
 	s.died(target)
