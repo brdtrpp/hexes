@@ -245,7 +245,7 @@ Three effect parts keep a build going instead of hurting things. You keep yourse
 
 **Loot.** They roll as effect parts at uncommon and rare only (weights Mend 6, Purge 6, Shield 6 alongside the damage types). Values: Mend 6 to 12% of hull, Shield 10 to 18%, Purge 10 to 20 Heat, before rarity scaling. Exotics skip them: an exotic always carries a quirk and no quirk fits a sustain part yet. None of the four preset hexes has one. Until a save has picked up a sustain part, an uncommon Mend waits next to where you arrive on each floor, from depth 1 on (`Save.SustainGiven` remembers once you take one). The first frame still waits on depth 2.
 
-**Try it.** HEX > TEST > Field Medic: Leech mends you on every kill, Lifeline shields you when you're hurt above 40% hull and mends you below it, and Coolant purges 20 Heat every 2 s once the rig is half hot.
+**Try it.** At the workbench where you arrive, HEX > TEST > Field Medic: Leech mends you on every kill, Lifeline shields you when you're hurt above 40% hull and mends you below it, and Coolant purges 20 Heat every 2 s once the rig is half hot.
 
 **Look and sound.** Mend pulls green nanite motes in and steams them off with a stitch mark and a "+N"; Shield snaps a hex shell on with a rising hum; a soak rings hollow; Purge jets coolant out sideways with a cold hiss and a falling chime.
 

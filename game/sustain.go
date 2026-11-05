@@ -19,7 +19,7 @@ func FirstSustain() skill.Part {
 // placeFirstSustain lays a Mend next to where you arrive the first time a
 // save reaches SustainFirstDepth without having picked up a sustain part.
 // It comes back every visit until it's picked up, and never sits on the
-// tile the first shape or frame took.
+// tile the first shape or frame or a workbench took.
 func (s *Sim) placeFirstSustain() {
 	if s.SustainGiven || s.Depth < SustainFirstDepth || len(s.Stash.Drops) == cap(s.Stash.Drops) {
 		return
@@ -38,8 +38,13 @@ func (s *Sim) placeFirstSustain() {
 	s.Stash.Drops = append(s.Stash.Drops, Drop{At: at, Part: FirstSustain()})
 }
 
-// takenBySpecial reports whether a shape or frame lies at c.
+// takenBySpecial reports whether a shape, frame or workbench is at c.
 func (s *Sim) takenBySpecial(c skill.Coord) bool {
+	for _, b := range s.Benches {
+		if b == c {
+			return true
+		}
+	}
 	for _, d := range s.Stash.Shapes {
 		if d.At == c {
 			return true

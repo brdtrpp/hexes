@@ -26,6 +26,15 @@ func TestFirstMendWaitsByTheStairs(t *testing.T) {
 	if !s.Floor.At(d.At).Walkable() || skill.Dist(d.At, s.Floor.Start) != 1 {
 		t.Fatalf("first mend at %v, start %v", d.At, s.Floor.Start)
 	}
+	for seed := uint64(1); seed <= 40; seed++ {
+		s := New(seed)
+		d, _ := sustainDrop(s)
+		for _, b := range s.Benches {
+			if d.At == b {
+				t.Fatalf("seed %d: first mend on a workbench", seed)
+			}
+		}
+	}
 	// Not picked up: it comes back on the next floor.
 	s.load(2, 1)
 	if _, ok := sustainDrop(s); !ok {
