@@ -28,6 +28,9 @@ type Loadout struct {
 	// ones first, then the modules.
 	Mods  []*skill.Hex
 	Spots []Spot
+	// Keys is each hex's cast button, 1 to Buttons, 0 for none yet (see
+	// bench.go). Only on-cast and hold hexes answer a button.
+	Keys [MaxSlots]uint8
 }
 
 // StarterCallTarget is the hex the starting Call points at: Nanite Swarm.
@@ -155,6 +158,7 @@ func (l *Loadout) Rebuild(reg *skill.Registry, level, maxDepth, edited int) erro
 		progs[i] = p
 	}
 	l.Strike, l.Progs = s, progs
+	l.FixKeys()
 	for i := range l.Hexes {
 		if l.Edited[i] {
 			l.Blurb[i] = loot.Summary(l.Hexes[i], reg)

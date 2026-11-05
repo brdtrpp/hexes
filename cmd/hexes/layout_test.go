@@ -73,7 +73,7 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 						t.Errorf("%s %s: slots %d and %d overlap", sc.name, k, i, j)
 					}
 				}
-				for _, r := range append([]rect{l.info, l.scrap, l.close, l.pack, l.frames, l.cells[0], l.cells[len(l.cells)-1]}, l.tabs[:]...) {
+				for _, r := range append([]rect{l.info, l.scrap, l.close, l.bind, l.pack, l.frames, l.cells[0], l.cells[len(l.cells)-1]}, l.tabs[:]...) {
 					if c[0]+l.slotR > r.x && c[0]-l.slotR < r.x+r.w && c[1]+inr > r.y && c[1]-inr < r.y+r.h {
 						t.Errorf("%s %s: slot %d overlaps a control", sc.name, k, i)
 					}
@@ -201,6 +201,72 @@ func TestTestMenuFits(t *testing.T) {
 		for _, e := range game.Examples(g.sim.Reg) {
 			if need := float64(len(e.Blurb))*7*sc.k + 20*sc.k; need > l.rows[0].w {
 				t.Errorf("%s: %s blurb too wide", sc.name, e.Name)
+			}
+		}
+	}
+}
+
+// The BUTTON switch in the editor sits on screen beside SCRAP and RESUME
+// without touching them or the info bar, wide enough for its label.
+func TestBindSwitchFits(t *testing.T) {
+	for _, sc := range []struct {
+		name    string
+		w, h, k float64
+	}{
+		{"phone portrait", 390, 844, 3},
+		{"small phone", 360, 640, 2},
+		{"phone landscape", 844, 390, 3},
+		{"desktop", 1280, 800, 1},
+	} {
+		g := &Game{sim: game.New(1), w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
+		l := g.edLayout()
+		if l.bind.w/sc.k < 96 || l.bind.h/sc.k < 44 {
+			t.Errorf("%s: BUTTON switch %.0fx%.0f css px", sc.name, l.bind.w/sc.k, l.bind.h/sc.k)
+		}
+		if l.bind.x < 0 || l.bind.x+l.bind.w > float64(g.w) || l.bind.y+l.bind.h > float64(g.h) {
+			t.Errorf("%s: BUTTON switch off screen", sc.name)
+		}
+		for _, r := range []rect{l.scrap, l.close, l.info, l.cells[len(l.cells)-1]} {
+			if overlaps(l.bind, r) {
+				t.Errorf("%s: BUTTON switch overlaps %+v", sc.name, r)
+			}
+		}
+	}
+}
+
+// The four cast buttons, VENT and HEX sit on screen in the bottom right,
+// none overlapping (with the thumb slop hit() allows), the small ones
+// still big enough for a thumb, and clear of the minimap.
+func TestCastButtonsFit(t *testing.T) {
+	for _, sc := range []struct {
+		name    string
+		w, h, k float64
+	}{
+		{"phone portrait", 390, 844, 3},
+		{"small phone", 360, 640, 2},
+		{"phone landscape", 844, 390, 3},
+		{"desktop", 1280, 800, 1},
+	} {
+		g := &Game{sim: game.New(1)}
+		g.w, g.h, g.k = int(sc.w*sc.k), int(sc.h*sc.k), sc.k
+		short := math.Min(sc.w, sc.h)
+		r := sc.k * math.Max(34, math.Min(56, short/9))
+		g.layoutButtons(g.w, g.h, r)
+		bs := append(g.casts[:], g.vent, g.hexBtn)
+		for i, b := range bs {
+			if b.x-b.r < 0 || b.x+b.r > float64(g.w) || b.y-b.r < 0 || b.y+b.r > float64(g.h) {
+				t.Errorf("%s: button %s off screen", sc.name, b.label)
+			}
+			if b.r/sc.k < 21 {
+				t.Errorf("%s: button %s only %.0f css px across", sc.name, b.label, 2*b.r/sc.k)
+			}
+			if b.x < float64(g.w)*0.4 {
+				t.Errorf("%s: button %s is out of right-thumb reach", sc.name, b.label)
+			}
+			for _, q := range bs[i+1:] {
+				if math.Hypot(b.x-q.x, b.y-q.y) < (b.r+q.r)*1.1 {
+					t.Errorf("%s: buttons %s and %s overlap", sc.name, b.label, q.label)
+				}
 			}
 		}
 	}

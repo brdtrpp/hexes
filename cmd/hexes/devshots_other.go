@@ -9,7 +9,10 @@ package main
 // (default 12) from frame 90, HEXES_COUNT of them (default 24), and quits.
 // HEXES_EXAMPLE=<n> loads example build n first. HEXES_FRAMES=editor fits
 // a few test frames and opens the editor on the frame rack with one
-// picked; HEXES_FRAMES=floor lays a frame of each grade by the player.
+// picked; HEXES_FRAMES=floor lays a frame of each grade by the player;
+// HEXES_FRAMES=buttons puts cast triggers in hexes 2 and 4, so three cast
+// buttons show; HEXES_FRAMES=bind does that and opens the editor;
+// HEXES_FRAMES=bench stands still beside the start bench.
 // Without HEXES_SHOTS it does nothing.
 
 import (
@@ -31,6 +34,7 @@ type devState struct {
 	every, count int
 	taken        int
 	ready        bool
+	still        bool // stand at the start bench, don't fight
 }
 
 func envInt(k string, d int) int {
@@ -52,9 +56,10 @@ func (g *Game) devInput(in *game.Input) {
 				_ = g.sim.LoadExample(n)
 			}
 			g.devFrames(os.Getenv("HEXES_FRAMES"))
+			d.still = os.Getenv("HEXES_FRAMES") == "bench"
 		}
 	}
-	if d.dir == "" {
+	if d.dir == "" || d.still {
 		return
 	}
 	s := g.sim
@@ -131,6 +136,16 @@ func (g *Game) devFrames(mode string) {
 		g.openEditor()
 		g.edShowRack(true)
 		g.ed.pick, g.ed.at = pickFrame, len(s.Frames)+4 // the test Prism
+	case "buttons", "bind":
+		for _, i := range []int{1, 3} {
+			cell := s.Stash.Inv.Add(skill.NewTrigger(skill.OnCast))
+			_ = s.SwapIn(i, 0, cell)
+		}
+		if mode == "bind" {
+			g.openEditor()
+			g.ed.hex = 1
+			g.edBind()
+		}
 	case "floor":
 		p := s.P()
 		for i, f := range game.TestFrameSet[:4] {

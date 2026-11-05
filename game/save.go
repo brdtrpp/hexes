@@ -175,8 +175,11 @@ type Save struct {
 	Names  [MaxSlots]string
 	Blurb  [MaxSlots]string
 	Edited [MaxSlots]bool
-	Inv    loot.Inventory
-	Fresh  [loot.InventorySize]bool
+	// Keys are the cast buttons (bench.go). Saves from before buttons
+	// have none and hand them out in slot order.
+	Keys  [MaxSlots]uint8 `json:",omitempty"`
+	Inv   loot.Inventory
+	Fresh [loot.InventorySize]bool
 
 	Cache       Cache
 	Deaths      int
@@ -216,7 +219,7 @@ func (s *Sim) Snapshot() Save {
 	sv := Save{
 		Version: SaveVersion, RunSeed: s.RunSeed, Depth: s.Depth, Best: s.Best,
 		HPFrac: 1, Kills: s.Kills, Picked: s.Stash.Picked, Visits: s.Visits, Points: s.Points,
-		Hexes: s.Load.Hexes, Names: s.Load.Names, Blurb: s.Load.Blurb, Edited: s.Load.Edited,
+		Hexes: s.Load.Hexes, Names: s.Load.Names, Blurb: s.Load.Blurb, Edited: s.Load.Edited, Keys: s.Load.Keys,
 		Inv: s.Stash.Inv, Fresh: s.Stash.Fresh,
 		Cache: s.Cache, Deaths: s.Deaths, LastDeathAt: s.LastDeathAt, PlayTime: s.Time,
 		CallGiven: s.CallGiven,
@@ -292,7 +295,7 @@ func (s *Sim) Restore(sv Save) error {
 			cleanFrames(m, sv.TestShapes)
 		}
 	}
-	l := Loadout{Hexes: sv.Hexes, Names: sv.Names, Blurb: sv.Blurb, Edited: sv.Edited, Spots: sv.Board}
+	l := Loadout{Hexes: sv.Hexes, Names: sv.Names, Blurb: sv.Blurb, Edited: sv.Edited, Spots: sv.Board, Keys: sv.Keys}
 	for i, h := range l.Hexes {
 		if h == nil {
 			return fmt.Errorf("save is missing hex %d", i+1)
