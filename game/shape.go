@@ -207,6 +207,10 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 		nh.Sockets = ModuleSockets()
 	}
 	nh.Slots = [skill.Slots]skill.Slot{}
+	// Frames stay on their slots where they can; the rest go back on the
+	// rack. Parts then only go where the frames take them.
+	back := settleFrames(&old, &nh)
+	takes := func(i int, p skill.Part) bool { ok, _ := nh.Fits(i, p, s.Reg); return ok }
 	var extra []skill.Part
 	trig := sh.Entry()
 	for i, sl := range old.Slots {
@@ -220,7 +224,7 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 		switch {
 		case p.Kind == skill.KindTrigger:
 			nh.Slots[trig] = sl
-		case sh.Has(i) && i != trig && nh.Sockets[i].Accepts(p.Kind):
+		case sh.Has(i) && i != trig && takes(i, p):
 			nh.Slots[i] = sl
 		default:
 			extra = append(extra, p)
@@ -231,7 +235,7 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	for _, p := range extra {
 		placed := false
 		for _, i := range order[:n] {
-			if nh.Slots[i].Kind == skill.SlotEmpty && nh.Sockets[i].Accepts(p.Kind) {
+			if nh.Slots[i].Kind == skill.SlotEmpty && takes(i, p) {
 				nh.Slots[i] = skill.Slot{Kind: skill.SlotPart, Part: p}
 				placed = true
 				break
@@ -245,6 +249,9 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	if free := loot.InventorySize - inv.Count(); free < len(pack) {
 		return fmt.Errorf("a %s has room for fewer parts: free %d pack cells first", sh.Name(), len(pack)-free)
 	}
+	if room := MaxFrames - len(s.Frames); room < len(back) {
+		return fmt.Errorf("a %s has fewer slots for frames: scrap %d from the rack first", sh.Name(), len(back)-room)
+	}
 	*h = nh
 	if err := s.recompile(hex); err != nil {
 		*h = old
@@ -252,6 +259,10 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	}
 	for _, p := range pack {
 		inv.Add(p) // came out of a hex, so already safe from death
+	}
+	if len(back) > 0 {
+		s.Frames = append(s.Frames, back...)
+		s.Dirty = true
 	}
 	return nil
 }
@@ -272,7 +283,8 @@ func (s *Sim) hasShape(sh skill.Shape) bool {
 	return false
 }
 
-// The test switch. With it on, every kind of shape is unlocked without
+// The test switch. With it on, every kind of shape (and every frame, see
+// frames.go) is unlocked without
 // finding it: one test copy of each original found shape, each with a
 // different quirk so all four show, then a spread of generated ones from
 // small to the full nine slots, covering every family. Test copies are
@@ -346,6 +358,11 @@ func (s *Sim) SetTestShapes(on bool) error {
 			if err := s.SetShape(i, skill.Shape{Kind: skill.ShapeRing}); err != nil {
 				return fmt.Errorf("%s: %w", s.Load.Name(i), err)
 			}
+		}
+		// Test frames go too; the parts under them stay.
+		s.stripTestFrames()
+		if err := s.rebuildAll(-1); err != nil {
+			return err
 		}
 	}
 	s.TestShapes = on

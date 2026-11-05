@@ -42,6 +42,8 @@ type Stash struct {
 	Tiles []TileDrop
 	// Lenses are Optics upgrades lying on the floor (lens.go).
 	Lenses []LensDrop
+	// Frames are slot frames lying on the floor (frames.go).
+	Frames []FrameDrop
 	// Picked counts parts ever picked up.
 	Picked int
 	// Fresh marks pack cells holding a part picked up since the last
@@ -61,8 +63,10 @@ func (s *Sim) resetStash() {
 		s.Stash.Shapes = make([]ShapeDrop, 0, MaxShapeDrops)
 		s.Stash.Tiles = make([]TileDrop, 0, MaxTileDrops)
 		s.Stash.Lenses = make([]LensDrop, 0, MaxLensDrops)
+		s.Stash.Frames = make([]FrameDrop, 0, MaxFrameDrops+1)
 	}
 	s.Stash.Lenses = s.Stash.Lenses[:0]
+	s.Stash.Frames = s.Stash.Frames[:0]
 	s.Stash.Shapes = s.Stash.Shapes[:0]
 	s.Stash.Tiles = s.Stash.Tiles[:0]
 	s.Stash.Inv.Clear()
@@ -80,7 +84,9 @@ func (s *Sim) loadLoot(level int) {
 	s.Stash.Shapes = s.Stash.Shapes[:0]
 	s.Stash.Tiles = s.Stash.Tiles[:0]
 	s.Stash.Lenses = s.Stash.Lenses[:0]
+	s.Stash.Frames = s.Stash.Frames[:0]
 	s.Stash.fullShow = false
+	defer s.placeFirstFrame()
 	defer s.placeFirstShape()
 	if s.Load.Hexes[0] == nil {
 		s.Load = BuildLoadout(s.Reg, level, s.Rig.MaxDepth)
@@ -110,6 +116,7 @@ func (s *Sim) dropLoot(id skill.EntityID) {
 		s.rollShapeDrop(id, at, elite)
 		s.rollTileDrop(id, at, elite)
 		s.rollLensDrop(id, at, elite)
+		s.rollFrameDrop(id, at, elite)
 	}
 	r := loot.NewRNG(loot.Seed(s.Floor.Seed^hash(uint64(s.Visits)), int(id)))
 	p, ok := s.Stash.table.Drop(&r, s.Depth, chance)
@@ -174,6 +181,7 @@ func (s *Sim) pickup(dt float32) {
 		s.pickupShapes(at, dt)
 		s.pickupTiles(at, dt)
 		s.pickupLenses(at, dt)
+		s.pickupFrames(at, dt)
 	}
 }
 
@@ -203,7 +211,7 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 		return nil
 	}
 	if has {
-		if err := fits(h, slot, in, s.Load.IsMod(hex)); err != nil {
+		if err := fits(h, slot, in, s.Load.IsMod(hex), s.Reg); err != nil {
 			return err
 		}
 		if what, ok := s.PreviewIn(hex, slot, cell); !ok {
@@ -248,12 +256,12 @@ func (s *Sim) SwapSlots(hex, a, b int) error {
 		return errors.New("that slot holds a nested hex")
 	}
 	if sa.Kind == skill.SlotPart {
-		if err := fits(h, b, sa.Part, s.Load.IsMod(hex)); err != nil {
+		if err := fits(h, b, sa.Part, s.Load.IsMod(hex), s.Reg); err != nil {
 			return err
 		}
 	}
 	if sb.Kind == skill.SlotPart {
-		if err := fits(h, a, sb.Part, s.Load.IsMod(hex)); err != nil {
+		if err := fits(h, a, sb.Part, s.Load.IsMod(hex), s.Reg); err != nil {
 			return err
 		}
 	}
@@ -284,7 +292,7 @@ func (s *Sim) PreviewIn(hex, slot, cell int) (what string, ok bool) {
 	if !h.Shape.Has(slot) || h.Slots[slot].Kind == skill.SlotNested {
 		return "no slot there", false
 	}
-	if err := fits(h, slot, p, s.Load.IsMod(hex)); err != nil {
+	if err := fits(h, slot, p, s.Load.IsMod(hex), s.Reg); err != nil {
 		return err.Error(), false
 	}
 	cp := *h
@@ -304,12 +312,12 @@ func (s *Sim) PreviewSwap(hex, a, b int) (what string, ok bool) {
 	}
 	sa, sb := h.Slots[a], h.Slots[b]
 	if sa.Kind == skill.SlotPart {
-		if err := fits(h, b, sa.Part, s.Load.IsMod(hex)); err != nil {
+		if err := fits(h, b, sa.Part, s.Load.IsMod(hex), s.Reg); err != nil {
 			return err.Error(), false
 		}
 	}
 	if sb.Kind == skill.SlotPart {
-		if err := fits(h, a, sb.Part, s.Load.IsMod(hex)); err != nil {
+		if err := fits(h, a, sb.Part, s.Load.IsMod(hex), s.Reg); err != nil {
 			return err.Error(), false
 		}
 	}
@@ -470,11 +478,15 @@ func (s *Sim) Scrap(cell int) bool {
 	return ok
 }
 
-func fits(h *skill.Hex, slot int, p skill.Part, mod bool) error {
+func fits(h *skill.Hex, slot int, p skill.Part, mod bool, reg *skill.Registry) error {
 	if mod && p.Kind == skill.KindTrigger {
 		return errors.New("a module has no trigger: it runs when a hex docks into it")
 	}
 	if h.Sockets[slot].Accepts(p.Kind) {
+		// The slot's frame has its say too (frames.go).
+		if ok, why := h.Fits(slot, p, reg); !ok {
+			return errors.New("that slot's" + why[len("its"):])
+		}
 		return nil
 	}
 	where := "top"

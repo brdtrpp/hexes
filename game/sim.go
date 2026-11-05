@@ -163,8 +163,15 @@ type Sim struct {
 	ShapeGiven bool
 	LastShape  skill.Shape
 	// TestShapes is the test switch: every shape unlocked for trying out
-	// (see shape.go). A setting, so a new run keeps it.
+	// (see shape.go), and every frame (frames.go). A setting, so a new
+	// run keeps it.
 	TestShapes bool
+	// Frames is the frame rack: frames found and not yet fitted, kept for
+	// good (see frames.go). FrameGiven is set once the first is found.
+	// LastFrame is the latest, for the HUD.
+	Frames     []skill.Frame
+	FrameGiven bool
+	LastFrame  skill.Frame
 	// Tiles are the logic tiles found so far, one bit each (see
 	// tiles.go); the starter set is always known on top. LastTile is
 	// the latest, for the HUD.
@@ -215,6 +222,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.Load = Loadout{}
 	s.CallGiven = true // the preset Arc Lance carries it
 	s.Shapes, s.ShapeGiven, s.LastShape = nil, false, skill.Shape{}
+	s.Frames, s.FrameGiven, s.LastFrame = nil, false, skill.Frame{}
 	s.Tiles, s.LastTile = 0, 0
 	s.resetStash()
 	s.load(1, 1)

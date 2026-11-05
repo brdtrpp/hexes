@@ -25,6 +25,7 @@ const (
 	FXCone                  // a hex swept a cone from X, Y along DX, DY, Value hexes long
 	FXChain                 // a hex chained through Pts, in hop order
 	FXLens                  // picked up a lens at At; Slot is Optics points gained, Value the new light radius
+	FXFrame                 // racked a frame at At; Slot is its bend
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).

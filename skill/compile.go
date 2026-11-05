@@ -100,6 +100,14 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	if t.Trigger == Periodic && c.p.Period <= 0 {
 		c.p.Period = DefaultPeriod
 	}
+	hair := h.Frame(trig).Bend == BendHair
+	if hair {
+		// A Hair trigger frame: faster procs and periods, a hotter hex.
+		c.p.Haste = 1 / HairHaste
+		if t.Trigger == Periodic {
+			c.p.Period /= HairHaste
+		}
+	}
 	seen := map[*Hex]bool{h: true}
 	landing := uint8(RegSubject)
 	if t.Trigger == Watch {
@@ -132,8 +140,14 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 		if shape.Quirk == ShapeLean {
 			c.p.Heat *= LeanHeat
 		}
+		if hair {
+			c.p.Heat *= HairHeat
+		}
 	}
 	c.p.Heat += c.dockHeat
+	if c.overflow {
+		c.p.LockExtra = OverflowLock
+	}
 	c.p.Inert = !acts(c.p.Steps[c.p.WatchSteps:])
 	c.p.Docked = uint8(c.docked)
 	c.p.Shape = shape.Kind
@@ -160,6 +174,8 @@ type compiler struct {
 	// ret is what the hex level just compiled carries out (see level).
 	calling int
 	ret     uint8
+	// overflow is set once an Overflow frame is compiled in.
+	overflow bool
 }
 
 func (c *compiler) alloc() (uint8, error) {
@@ -215,9 +231,13 @@ type span struct {
 // beside them land on the entities in landing. In a nested hex both are
 // the entity it runs on.
 func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen map[*Hex]bool) error {
+	h = echoes(h, start) // Echo frames run a copy of the slot that feeds them
 	order, n := h.Flow(start)
-	shape := h.Shape
-	twin, surge := shape.Twin(), shape.Surge()
+	var frames [Slots]Frame
+	for _, s := range order[:n] {
+		frames[s] = h.Frame(s)
+	}
+	ptype, prismed := prism(h, order[:n])
 	var tgt [Slots]int
 	for i := range tgt {
 		tgt[i] = -1
@@ -258,6 +278,8 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			continue
 		}
 		p := sl.Part
+		fr := frames[s]
+		pw, ht := c.p.Power, c.p.Heat
 		r, err := c.alloc()
 		if err != nil {
 			return err
@@ -266,20 +288,29 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		if p.Target == TargetSelf {
 			src = RegCaster
 		}
-		i := c.emit(Step{Op: OpSelect, Target: p.Target, Src: src, Dst: r,
-			Count: clampCount(int(p.Count)), Value: p.Value})
+		st := Step{Op: OpSelect, Target: p.Target, Src: src, Dst: r,
+			Count: clampCount(int(p.Count)), Value: p.Value}
+		if fr.Bend == BendCrowd && (p.Target == TargetNearest || p.Target == TargetChain) {
+			st.Flag |= FlagCrowd
+		}
+		i := c.emit(st)
 		tgt[s] = int(r)
 		carry[s] = int(r)
 		fed[s] = span{i, i + 1, true}
 		c.cost(p, depth)
-		if s == surge {
+		if fr.Bend == BendSurge {
 			c.scale(fed[s], VerbAll, SurgeScale)
 		}
+		c.frameCost(fr, pw, ht)
 	}
 
 	// Pass 2: effects, gates, charges, calls and nested hexes, in flow.
 	for _, s := range order[:n] {
 		sl := h.Slots[s]
+		fr := frames[s]
+		if prismed[s] {
+			sl.Part.Type = ptype[s]
+		}
 		at := len(c.p.Steps)
 		pw, ht, dh := c.p.Power, c.p.Heat, c.dockHeat
 		switch {
@@ -411,6 +442,15 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			case EffectStatus:
 				st.Op = OpStatus
 			}
+			switch fr.Bend {
+			case BendLeech:
+				if st.Op == OpDamage {
+					st.Value *= 1 - LeechCut
+					st.Flag |= FlagLeech
+				}
+			case BendLonely:
+				st.Flag |= FlagLonely
+			}
 			i := c.emit(st)
 			if p.Quirk == QuirkRelay && p.Effect != EffectPush {
 				if err := c.relay(st); err != nil {
@@ -450,7 +490,8 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		if !fed[s].ok || fed[s].lo < at {
 			continue // targets (pass 1) and empty slots
 		}
-		if s == twin {
+		switch fr.Bend {
+		case BendTwin:
 			// Fires twice: the slot's steps again, right after, and its
 			// cost again. Spans inside are relative, so a copy works.
 			lo := fed[s].lo
@@ -459,10 +500,27 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			c.p.Power += c.p.Power - pw
 			c.p.Heat += c.p.Heat - ht
 			c.dockHeat += c.dockHeat - dh
-		}
-		if s == surge {
+		case BendDoubler:
+			// Twice, but the Power once: only the Heat is paid again.
+			lo := fed[s].lo
+			c.p.Steps = append(c.p.Steps, c.p.Steps[lo:]...)
+			fed[s].hi = len(c.p.Steps)
+			c.p.Heat += c.p.Heat - ht
+			c.dockHeat += c.dockHeat - dh
+		case BendKillLock:
+			// The copy waits behind a check: only a run that has killed
+			// by now gets it. No extra cost.
+			lo, hi := fed[s].lo, len(c.p.Steps)
+			if hi-lo > 0xffff {
+				return errors.New("kill-lock part too large")
+			}
+			c.emit(Step{Op: OpIfKill, Span: uint16(hi - lo)})
+			c.p.Steps = append(c.p.Steps, c.p.Steps[lo:hi]...)
+			fed[s].hi = len(c.p.Steps)
+		case BendSurge:
 			c.scale(fed[s], VerbAll, SurgeScale)
 		}
+		c.frameCost(fr, pw, ht)
 	}
 
 	// Pass 3: multipliers patch the steps of the part before them.
@@ -481,18 +539,23 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			continue
 		}
 		p := sl.Part
+		fr := frames[s]
 		times := 1
-		if s == twin {
+		if fr.Bend == BendTwin {
 			times = 2
 		}
 		bonus := (p.Value - 1) * p.Rarity.Scale()
-		if s == surge {
+		if fr.Bend == BendSurge {
 			bonus *= SurgeScale
 		}
 		x := 1 + bonus
+		pw, ht := c.p.Power, c.p.Heat
 		for range times {
 			c.cost(p, depth)
 		}
+		c.frameCost(fr, pw, ht)
+		over := fr.Bend == BendOverflow
+		c.overflow = c.overflow || over
 		if p.Quirk == QuirkRadiant {
 			// Bends the "part just before it" rule: the whole ring.
 			f := span{first, len(c.p.Steps), len(c.p.Steps) > first}
@@ -501,6 +564,9 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				if f.ok {
 					c.scale(f, p.Verb, x)
 				}
+			}
+			if over && f.ok {
+				c.flag(f, p.Verb, FlagOverflow)
 			}
 			continue
 		}
@@ -528,6 +594,9 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 					for range times {
 						c.scale(span{i, i + 1, true}, p.Verb, x)
 					}
+					if over {
+						c.flag(span{i, i + 1, true}, p.Verb, FlagOverflow)
+					}
 				}
 				lo, hi = min(lo, f.lo), max(hi, f.hi)
 			}
@@ -545,6 +614,9 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		mult[s] = f
 		for range times {
 			c.scale(f, p.Verb, x)
+		}
+		if over {
+			c.flag(f, p.Verb, FlagOverflow)
 		}
 	}
 
@@ -805,6 +877,39 @@ func (c *compiler) scale(f span, v Verb, x float32) {
 			if (all || v == VerbRadius) && st.Target != TargetSelf && st.Target != TargetNearest {
 				st.Value *= x
 			}
+		}
+	}
+}
+
+// flag sets a run-time bend on the steps in f a multiplier of verb v
+// scales: damage, push and status numbers (not target counts or radii).
+func (c *compiler) flag(f span, v Verb, fl uint8) {
+	all := v == VerbAll
+	for i := f.lo; i < f.hi; i++ {
+		st := &c.p.Steps[i]
+		switch {
+		case st.Op == OpDamage && (all || v == VerbDamage),
+			st.Op == OpPush && (all || v == VerbPush),
+			st.Op == OpStatus && (all || v == VerbDuration):
+			st.Flag |= fl
+		}
+	}
+}
+
+// frameCost adds what a slot's frame costs on top of its part, given the
+// program's Power and Heat from before the part was paid for: a Siphon
+// takes the part's Power back and adds Heat, a Prism or a loot Surge
+// adds a little Heat. The frame's grade cuts the Heat.
+func (c *compiler) frameCost(f Frame, pw, ht float32) {
+	switch f.Bend {
+	case BendSiphon:
+		c.p.Power = pw
+		c.p.Heat += SiphonHeat * f.Cut()
+	case BendPrism:
+		c.p.Heat += PrismHeat * f.Cut()
+	case BendSurge:
+		if !f.Shaped {
+			c.p.Heat += SurgeHeat * f.Cut()
 		}
 	}
 }

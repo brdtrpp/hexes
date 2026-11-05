@@ -191,8 +191,12 @@ type Save struct {
 	// load with every hex a Ring.
 	Shapes     []skill.Shape `json:",omitempty"`
 	ShapeGiven bool          `json:",omitempty"`
-	// TestShapes is the test switch that unlocks every shape.
+	// TestShapes is the test switch that unlocks every shape and frame.
 	TestShapes bool `json:",omitempty"`
+	// Frames is the frame rack; FrameGiven is set once the first frame is
+	// found. Saves from before frames have neither, and every slot plain.
+	Frames     []skill.Frame `json:",omitempty"`
+	FrameGiven bool          `json:",omitempty"`
 	// Mods and Board are the docking board's modules and where every hex
 	// sits. Saves from before the board have neither and load with the
 	// hexes laid out so nothing docks.
@@ -218,10 +222,11 @@ func (s *Sim) Snapshot() Save {
 		CallGiven: s.CallGiven,
 		Shapes:    append([]skill.Shape(nil), s.Shapes...), ShapeGiven: s.ShapeGiven,
 		TestShapes: s.TestShapes,
-		Mods:       append([]*skill.Hex(nil), s.Load.Mods...),
-		Board:      append([]Spot(nil), s.Load.Spots...),
-		Tiles:      s.Tiles,
-		Mine:       s.Mine, Example: s.Example,
+		Frames:     append([]skill.Frame(nil), s.Frames...), FrameGiven: s.FrameGiven,
+		Mods:  append([]*skill.Hex(nil), s.Load.Mods...),
+		Board: append([]Spot(nil), s.Load.Spots...),
+		Tiles: s.Tiles,
+		Mine:  s.Mine, Example: s.Example,
 	}
 	switch s.State {
 	case Dead:
@@ -267,6 +272,26 @@ func (s *Sim) Restore(sv Save) error {
 			shapes = append(shapes, sh)
 		}
 	}
+	frames := sv.Frames[:0:0]
+	for _, f := range sv.Frames {
+		if f.Valid() && !f.Plain() && f.Takes == skill.NewFrame(f.Bend).Takes && !IsTestFrame(f) && len(frames) < MaxFrames {
+			frames = append(frames, f)
+		}
+	}
+	for _, h := range sv.Hexes {
+		cleanFrames(h, sv.TestShapes)
+	}
+	for _, m := range sv.Mods {
+		cleanFrames(m, sv.TestShapes)
+	}
+	if sv.Mine != nil {
+		for _, h := range sv.Mine.Hexes {
+			cleanFrames(h, sv.TestShapes)
+		}
+		for _, m := range sv.Mine.Mods {
+			cleanFrames(m, sv.TestShapes)
+		}
+	}
 	l := Loadout{Hexes: sv.Hexes, Names: sv.Names, Blurb: sv.Blurb, Edited: sv.Edited, Spots: sv.Board}
 	for i, h := range l.Hexes {
 		if h == nil {
@@ -296,6 +321,7 @@ func (s *Sim) Restore(sv Save) error {
 	s.CallGiven = sv.CallGiven
 	s.Shapes, s.ShapeGiven = shapes, sv.ShapeGiven || len(shapes) > 0
 	s.TestShapes = sv.TestShapes
+	s.Frames, s.FrameGiven = frames, sv.FrameGiven || len(frames) > 0
 	s.Tiles = sv.Tiles & skill.AllTiles
 	s.Mine, s.Example = nil, ""
 	if sv.Mine != nil {

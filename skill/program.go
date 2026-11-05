@@ -40,9 +40,20 @@ const (
 	// queue rather than nest, so a loop is a hex calling itself again and
 	// never grows a stack; Heat and MaxCalls end it.
 	OpCall
+	// OpIfKill runs the next Span steps only if this hex's run has killed
+	// something by now (a Kill-lock frame's second firing).
+	OpIfKill
 )
 
-var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge", "call"}
+var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge", "call", "ifkill"}
+
+// Step flags: runtime bends a frame puts on one step.
+const (
+	FlagLeech    = 1 << iota // damage: LeechFrac of what it deals comes back as Power
+	FlagLonely               // damage, push, status: LonelyHit on one foe, LonelyMiss on more
+	FlagOverflow             // damage, push, status: grows with Heat over OverflowAt
+	FlagCrowd                // select: +1 per foe within CrowdRadius, no elites
+)
 
 func (o Op) String() string { return opNames[o] }
 
@@ -73,6 +84,7 @@ type Step struct {
 	Gate   GateKind // OpGate: the condition
 	Bank   uint8    // OpCharge and charge gates: which bank
 	Span   uint16
+	Flag   uint8 // frame bends that act at run time (Flag...)
 	Value  float32
 }
 
@@ -113,6 +125,12 @@ type Program struct {
 	// charge or call, here or in what it nests, docks or calls). It
 	// doesn't fire: a hex you equip needs one.
 	Inert bool
+	// Haste scales the trigger's proc cooldown (a Hair trigger frame);
+	// zero means 1. A periodic's Period is already scaled.
+	Haste float32
+	// LockExtra is seconds added to an overheat this hex's firing causes
+	// (an Overflow frame).
+	LockExtra float32
 }
 
 // CallsHex reports whether the program has a Call aimed at target
@@ -174,6 +192,14 @@ func (p *Program) String() string {
 			fmt.Fprintf(&b, "bank %s %+g if r%d", BankName(s.Bank), s.Value, s.Src2)
 		case OpCall:
 			fmt.Fprintf(&b, "call %s on r%d heat x%.2f", CallName(s.Count), s.Src, s.Value)
+		case OpIfKill:
+			fmt.Fprintf(&b, "if killed (%d steps)", s.Span)
+			ends = append(ends, i+1+int(s.Span))
+		}
+		for f, name := range [...]string{"leech", "lonely", "overflow", "crowd"} {
+			if s.Flag&(1<<f) != 0 {
+				b.WriteString(" +" + name)
+			}
 		}
 		b.WriteByte('\n')
 	}

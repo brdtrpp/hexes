@@ -80,7 +80,7 @@ func (r *Rig) TryFire(p *Program) bool {
 	r.Heat = max(0, r.Heat+p.Heat)
 	if r.Heat >= r.MaxHeat {
 		r.Heat = r.MaxHeat
-		r.ShutdownLeft = OverheatShutdown
+		r.ShutdownLeft = OverheatShutdown + p.LockExtra
 	}
 	return true
 }

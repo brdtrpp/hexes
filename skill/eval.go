@@ -125,6 +125,9 @@ type Evaluator struct {
 	curCode uint8
 	curHeat float32
 	dropped int
+	// killBase is the run's kill count when the running hex started, so
+	// a Kill-lock can tell whether this hex has killed yet.
+	killBase int
 }
 
 // NewEvaluator makes an evaluator for a type registry and rule set.
@@ -235,6 +238,7 @@ func (e *Evaluator) prepare(p *Program, w World, ctx *Ctx, subject EntityID, cod
 // stops after its check when the check found nobody.
 func (e *Evaluator) start(p *Program, w World, ctx *Ctx, subject EntityID, code uint8, heat float32, res *Result) {
 	e.prepare(p, w, ctx, subject, code, heat)
+	e.killBase = res.Kills
 	if p.WatchSteps > 0 && p.Trigger == Watch {
 		e.exec(p.Steps[:p.WatchSteps], w, ctx, res)
 		if e.n[p.WatchRet] == 0 {
@@ -290,6 +294,10 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			if s.Target == TargetNearest || s.Target == TargetChain {
 				limit = int(s.Count)
 			}
+			if s.Flag&FlagCrowd != 0 {
+				e.n[s.Dst] = e.crowd(w, ctx, s, limit)
+				continue
+			}
 			e.n[s.Dst] = uint8(w.Select(s.Target, e.regs[s.Src][0], ctx.Caster, s.Value, e.regs[s.Dst][:limit]))
 		case OpUnion:
 			dst := &e.regs[s.Dst]
@@ -309,18 +317,27 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			}
 			e.n[s.Dst] = uint8(n)
 		case OpDamage:
+			v := e.bent(ctx, s)
 			for i := 0; i < int(e.n[s.Src]); i++ {
-				e.damage(w, ctx, e.regs[s.Src][i], s.Value, s.Type, res)
+				before := res.Damage
+				e.damage(w, ctx, e.regs[s.Src][i], v, s.Type, res)
+				if r := ctx.Rig; s.Flag&FlagLeech != 0 && r != nil {
+					r.Power = min(r.MaxPower, r.Power+(res.Damage-before)*LeechFrac)
+				}
 			}
 		case OpPush:
-			hexes := int(s.Value + 0.5)
+			hexes := int(e.bent(ctx, s) + 0.5)
 			for i := 0; i < int(e.n[s.Src]); i++ {
 				if u := w.Unit(e.regs[s.Src][i]); u != nil && u.Alive {
 					e.shove(w, ctx, u, hexes, 0, res)
 				}
 			}
 		case OpStatus:
-			e.status(w, ctx, s, res)
+			e.status(w, ctx, s, e.bent(ctx, s), res)
+		case OpIfKill:
+			if res.Kills <= e.killBase {
+				pc += int(s.Span) // nothing killed yet: skip the copy
+			}
 		case OpGate:
 			e.gate(w, ctx, s)
 		case OpCall:
@@ -438,9 +455,8 @@ func (e *Evaluator) killed(w World, ctx *Ctx, u *Unit, raise bool, res *Result) 
 	}
 }
 
-func (e *Evaluator) status(w World, ctx *Ctx, s *Step, res *Result) {
+func (e *Evaluator) status(w World, ctx *Ctx, s *Step, dur float32, res *Result) {
 	dt := e.Reg.Get(s.Type)
-	dur := s.Value
 	if dt.Status == StatusCloak {
 		if e.n[s.Src2] == 0 {
 			return // in a gate branch nobody took
@@ -627,4 +643,45 @@ func (e *Evaluator) bankAt(ctx *Ctx, b uint8) *uint32 {
 		return &ctx.Board[b-MaxBanks]
 	}
 	return &e.board[(b-MaxBanks)%BoardBanks]
+}
+
+// bent is a step's number after the frame bends that act at run time:
+// Lonely reads how many it lands on, Overflow reads the rig's Heat.
+func (e *Evaluator) bent(ctx *Ctx, s *Step) float32 {
+	v := s.Value
+	if s.Flag&FlagLonely != 0 {
+		if e.n[s.Src] == 1 {
+			v *= LonelyHit
+		} else {
+			v *= LonelyMiss
+		}
+	}
+	if r := ctx.Rig; s.Flag&FlagOverflow != 0 && r != nil {
+		if over := r.Heat - OverflowAt*r.MaxHeat; over > 0 {
+			v *= 1 + OverflowPer*over
+		}
+	}
+	return v
+}
+
+// crowd runs a Crowd-framed select: one more pick for every foe within
+// CrowdRadius of where it picks from, and elites (foes above the
+// caster's level) are passed over.
+func (e *Evaluator) crowd(w World, ctx *Ctx, s *Step, limit int) uint8 {
+	from := e.regs[s.Src][0]
+	limit = min(MaxTargets, limit+w.Select(TargetAdjacent, from, ctx.Caster, CrowdRadius, e.scratch[:]))
+	dst := &e.regs[s.Dst]
+	got := w.Select(s.Target, from, ctx.Caster, s.Value, dst[:MaxTargets])
+	n := 0
+	for _, id := range dst[:got] {
+		if u := w.Unit(id); u != nil && u.Level > ctx.Level {
+			continue
+		}
+		dst[n] = id
+		n++
+		if n == limit {
+			break
+		}
+	}
+	return uint8(n)
 }

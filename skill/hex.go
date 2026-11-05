@@ -84,6 +84,9 @@ type Hex struct {
 	Linked [Slots]bool
 	Slots  [Slots]Slot
 	Shape  Shape `json:",omitempty"`
+	// Frames are the slots' frames (see Frame). Zero is plain, so hexes
+	// saved before frames load with every slot plain.
+	Frames [Slots]Frame `json:",omitzero"`
 	// Docks[s] is the hex docked to the way out on slot s, if any. The
 	// game sets it from its board before compiling; it isn't saved.
 	Docks [Slots]*Hex `json:"-"`
@@ -142,6 +145,9 @@ func (h *Hex) Set(i int, p Part) error {
 	}
 	if !h.Sockets[i].Accepts(p.Kind) {
 		return fmt.Errorf("slot %d (%s socket) can't hold a %s part", i, h.Sockets[i], p.Kind)
+	}
+	if ok, why := h.Fits(i, p, nil); !ok {
+		return fmt.Errorf("slot %d: %s", i, why)
 	}
 	h.Slots[i] = Slot{Kind: SlotPart, Part: p}
 	return nil
