@@ -452,6 +452,10 @@ func (g *Game) drawLabels(screen *ebiten.Image) {
 			name := strings.ToUpper(skill.TileKind(f.Slot).String())
 			g.label(screen, g.face, "LOGIC TILE: "+name, x, y-s*1.1-float64(k)*s*1.2, fade(colGate, a), true)
 			g.label(screen, g.small, "tap an IF gate twice to build with it", x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
+		case game.FXFrame:
+			f := g.sim.LastFrame
+			g.label(screen, g.face, "FRAME: "+strings.ToUpper(f.Name()), x, y-s*1.1-float64(k)*s*1.2, fade(frameCol(f), a), true)
+			g.label(screen, g.small, "HEX > FRAMES to fit it", x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
 		case game.FXLens:
 			g.label(screen, g.face, fmt.Sprintf("LENS: OPTICS +%d", f.Slot), x, y-s*1.1-float64(k)*s*1.2, fade(colLens, a), true)
 			g.label(screen, g.small, fmt.Sprintf("light reaches %.1f hexes", f.Value), x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)

@@ -188,7 +188,7 @@ func (d *Director) Hear(e *game.FX, lx, ly float64) {
 		}
 	case game.FXSalvage:
 		d.play(Salvage(), x, y, lx, ly)
-	case game.FXShape, game.FXTile:
+	case game.FXShape, game.FXTile, game.FXFrame:
 		if d.ready(e.Kind, 0, gapOther) {
 			d.play(Learn(), x, y, lx, ly)
 		}

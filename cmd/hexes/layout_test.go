@@ -46,6 +46,15 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 				t.Errorf("%s %s: tiles %.0f css px across, too small to tap", sc.name, k, 2*l.slotR/sc.k)
 			}
 			top := l.shape.y + l.shape.h
+			// The PACK and FRAMES tabs sit over the grid, clear of it.
+			for _, r := range []rect{l.pack, l.frames} {
+				if r.w/sc.k < 80 || r.h/sc.k < 28 || overlaps(r, l.cells[0]) || overlaps(r, l.cells[3]) || overlaps(r, l.info) || overlaps(r, l.shape) || overlaps(r, l.test) {
+					t.Errorf("%s %s: grid tab misplaced %+v", sc.name, k, r)
+				}
+			}
+			if overlaps(l.pack, l.frames) {
+				t.Errorf("%s %s: grid tabs overlap", sc.name, k)
+			}
 			if l.test.x < l.shape.x+l.shape.w || l.test.x+l.test.w > W || l.test.y != l.shape.y {
 				t.Errorf("%s %s: TEST button misplaced", sc.name, k)
 			}
@@ -64,7 +73,7 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 						t.Errorf("%s %s: slots %d and %d overlap", sc.name, k, i, j)
 					}
 				}
-				for _, r := range append([]rect{l.info, l.scrap, l.close, l.cells[0], l.cells[len(l.cells)-1]}, l.tabs[:]...) {
+				for _, r := range append([]rect{l.info, l.scrap, l.close, l.pack, l.frames, l.cells[0], l.cells[len(l.cells)-1]}, l.tabs[:]...) {
 					if c[0]+l.slotR > r.x && c[0]-l.slotR < r.x+r.w && c[1]+inr > r.y && c[1]-inr < r.y+r.h {
 						t.Errorf("%s %s: slot %d overlaps a control", sc.name, k, i)
 					}

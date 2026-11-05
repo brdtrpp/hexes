@@ -99,7 +99,7 @@ func (g *Game) testTap(x, y float64) {
 		}
 		tm.on = false
 		e.hex, e.pick, e.board = 0, pickNone, false
-		e.msg = "Test switch off: only shapes you've found. Hexes on a test shape went back to a Ring."
+		e.msg = "Test switch off: only shapes you've found. Hexes on a test shape went back to a Ring, and test frames came off."
 		if back {
 			e.msg = "Test switch off and your own build is back."
 		}

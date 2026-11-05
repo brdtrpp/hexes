@@ -8,6 +8,10 @@ package main
 // where it goes. Slot to slot rewires the hex, pack to slot swaps loot in,
 // slot to an empty cell takes a part out. Every edit recompiles the hex at
 // once; a refused one says why in the info bar. No text entry anywhere.
+//
+// The FRAMES tab over the pack shows the frame rack instead: tap a frame,
+// then a slot, to fit it. Fitting scraps the frame that was there, so a
+// slot holding a found frame asks for a second tap first.
 
 import (
 	"fmt"
@@ -36,6 +40,7 @@ const (
 	pickNone = iota
 	pickSlot
 	pickCell
+	pickFrame // a frame on the rack: at indexes FrameChoices
 )
 
 type editor struct {
@@ -50,6 +55,12 @@ type editor struct {
 	// board is set while the docking board is on show (see board.go).
 	board bool
 	bd    boardView
+	// rack is set while the grid shows the frame rack, page is which
+	// twelve, and confirm is the slot that asked for a second tap (a fit
+	// that scraps a found frame), -1 for none.
+	rack    bool
+	page    int
+	confirm int
 }
 
 type rect struct{ x, y, w, h float64 }
@@ -69,6 +80,7 @@ type edLayout struct {
 	capW         float64 // room for the shape caption
 	capX, capY   float64 // where the shape caption starts
 	cells        [loot.InventorySize]rect
+	pack, frames rect // the PACK and FRAMES tabs over the grid
 	close, scrap rect
 	info         rect
 	// opts are a picked run-now call's options, in the caption row.
@@ -156,6 +168,14 @@ func (g *Game) edLayout() edLayout {
 	}
 	l.plate = sh.Kind == skill.ShapeRing || sh.Kind == skill.ShapeLoop
 	l.slotR = R * 0.54
+	// PACK and FRAMES tabs over the grid.
+	stripH := 30 * k
+	half := (math.Min(grid.w, 4*96*k) - gap) / 2
+	sx := grid.x + (grid.w-(2*half+gap))/2
+	l.pack = rect{sx, grid.y, half, stripH}
+	l.frames = rect{sx + half + gap, grid.y, half, stripH}
+	grid.y += stripH + 6*k
+	grid.h -= stripH + 6*k
 	cg := 6 * k
 	cs := math.Min(math.Min((grid.w-float64(cols-1)*cg)/float64(cols), (grid.h-float64(rows-1)*cg)/float64(rows)), 90*k)
 	gx := grid.x + (grid.w-(float64(cols)*cs+float64(cols-1)*cg))/2
@@ -173,6 +193,7 @@ func (g *Game) openEditor() {
 	}
 	g.ed.on = true
 	g.ed.pick = pickNone
+	g.ed.confirm = -1
 	g.cd.on, g.tm.on = false, false
 	g.stick.End() // a thumb on the stick shouldn't keep walking after
 
@@ -206,6 +227,9 @@ func (g *Game) updateEditor() bool {
 	if inpututil.IsKeyJustPressed(ebiten.KeyB) {
 		g.setBoard(!g.ed.board)
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF) && !g.ed.board && !g.cd.on && !g.tm.on {
+		g.edShowRack(!g.ed.rack)
+	}
 	if g.ed.board && !g.cd.on && !g.tm.on {
 		g.updateBoard()
 		return true
@@ -235,6 +259,8 @@ func (g *Game) edTap(x, y float64) {
 	sim := g.sim
 	inv := &sim.Stash.Inv
 	e.shape = false
+	confirm := e.confirm
+	e.confirm = -1
 	for i, t := range l.tabs {
 		if t.hit(x, y) {
 			if i == game.MaxSlots {
@@ -247,6 +273,18 @@ func (g *Game) edTap(x, y float64) {
 	}
 	if l.close.hit(x, y) {
 		e.on = false
+		return
+	}
+	if l.pack.hit(x, y) {
+		g.edShowRack(false)
+		return
+	}
+	if l.frames.hit(x, y) {
+		g.edShowRack(true)
+		return
+	}
+	if l.scrap.hit(x, y) && e.rack {
+		g.edScrapFrame()
 		return
 	}
 	if l.scrap.hit(x, y) {
@@ -266,7 +304,7 @@ func (g *Game) edTap(x, y float64) {
 				return
 			}
 			e.shape = true
-			e.msg, e.bad = "Test switch on: every shape and logic tile is unlocked. Tap SHAPE to step through shapes.", false
+			e.msg, e.bad = "Test switch on: every shape, frame and logic tile is unlocked. Tap SHAPE to step through shapes, FRAMES for frames.", false
 		}
 		g.openTestMenu()
 		return
@@ -309,6 +347,8 @@ func (g *Game) edTap(x, y float64) {
 		}
 		hs := sim.Load.Hex(e.hex).Slots[i]
 		switch {
+		case e.pick == pickFrame:
+			g.edFitFrame(i, confirm == i)
 		case e.pick == pickCell && inv.Has[e.at] && inv.Parts[e.at].Kind == skill.KindMult &&
 			hs.Kind == skill.SlotPart && hs.Part.RunsNow():
 			// A multiplier dropped on a library call rides on it as an
@@ -337,6 +377,10 @@ func (g *Game) edTap(x, y float64) {
 	for i, c := range l.cells {
 		if !c.hit(x, y) {
 			continue
+		}
+		if e.rack {
+			g.edRackTap(i)
+			return
 		}
 		switch {
 		case e.pick == pickSlot:
@@ -389,6 +433,123 @@ func (g *Game) edPickedCall() (skill.Part, bool) {
 	}
 	sl := g.sim.Load.Hex(e.hex).Slots[e.at]
 	return sl.Part, sl.Kind == skill.SlotPart && sl.Part.RunsNow()
+}
+
+// edShowRack switches the grid between the pack and the frame rack.
+// Tapping FRAMES while it shows turns the page when there are more than
+// twelve frames.
+func (g *Game) edShowRack(on bool) {
+	e := &g.ed
+	if on && e.rack {
+		if n := len(g.sim.FrameChoices()); n > loot.InventorySize {
+			e.page = (e.page + 1) % ((n + loot.InventorySize - 1) / loot.InventorySize)
+		}
+	} else {
+		e.page = 0
+	}
+	if e.pick == pickCell || e.pick == pickFrame {
+		e.pick = pickNone
+	}
+	e.rack, e.msg, e.bad = on, "", false
+	if on && len(g.sim.FrameChoices()) == 0 {
+		e.msg = "No frames yet: they drop from foes, elites most. TEST unlocks every one to try."
+	}
+}
+
+// edFrames is the frame rack page on show: up to twelve frames and the
+// index of the first in FrameChoices.
+func (g *Game) edFrames() ([]skill.Frame, int) {
+	all := g.sim.FrameChoices()
+	lo := min(g.ed.page*loot.InventorySize, len(all))
+	hi := min(lo+loot.InventorySize, len(all))
+	return all[lo:hi], lo
+}
+
+// edPickedFrame is the frame picked on the rack, if that's what is picked.
+func (g *Game) edPickedFrame() (skill.Frame, bool) {
+	e := &g.ed
+	all := g.sim.FrameChoices()
+	if e.pick != pickFrame || e.at < 0 || e.at >= len(all) {
+		return skill.Frame{}, false
+	}
+	return all[e.at], true
+}
+
+// edRackTap picks or puts down a frame on the rack page.
+func (g *Game) edRackTap(cell int) {
+	e := &g.ed
+	page, lo := g.edFrames()
+	switch {
+	case cell >= len(page):
+		e.pick, e.msg, e.bad = pickNone, "", false
+		if len(page) == 0 {
+			e.msg = "No frames yet: they drop from foes, elites most. TEST unlocks every one to try."
+		}
+	case e.pick == pickFrame && e.at == lo+cell:
+		e.pick, e.msg = pickNone, ""
+	default:
+		e.pick, e.at, e.msg, e.bad = pickFrame, lo+cell, "", false
+	}
+}
+
+// edFitFrame fits the picked frame on slot i. A fit that would scrap a
+// found frame waits for a second tap on the same slot.
+func (g *Game) edFitFrame(i int, sure bool) {
+	e, sim := &g.ed, g.sim
+	f, ok := g.edPickedFrame()
+	if !ok {
+		e.pick = pickNone
+		return
+	}
+	if err := sim.PreviewFrame(e.hex, i, f); err != nil {
+		e.msg, e.bad = err.Error()+".", true
+		return
+	}
+	old := sim.Load.Hex(e.hex).Frames[i]
+	if !old.Plain() && !game.IsTestFrame(old) && !sure {
+		e.confirm = i
+		e.msg, e.bad = "That scraps the "+old.Name()+" frame on it for good. Tap the slot again to fit.", true
+		return
+	}
+	scrapped, err := sim.FitFrame(e.hex, i, f)
+	if err != nil {
+		e.msg, e.bad = err.Error()+".", true
+		return
+	}
+	g.edResult(nil)
+	if !scrapped.Plain() {
+		e.msg = "Scrapped the " + scrapped.Name() + " frame. " + e.msg
+	}
+	e.msg = f.Name() + " fitted. " + e.msg
+	if all := sim.FrameChoices(); e.page*loot.InventorySize >= len(all) {
+		e.page = 0
+	}
+}
+
+// edScrapFrame is SCRAP while the rack shows: it scraps the picked rack
+// frame, or the frame on the picked slot.
+func (g *Game) edScrapFrame() {
+	e, sim := &g.ed, g.sim
+	switch {
+	case e.pick == pickFrame:
+		f, _ := g.edPickedFrame()
+		if game.IsTestFrame(f) {
+			e.msg, e.bad = "Test frames can't be scrapped: turn TEST off to put them away.", true
+			return
+		}
+		if e.at < len(sim.Frames) && sim.ScrapFrame(e.at) {
+			e.pick, e.msg, e.bad = pickNone, "Scrapped the "+f.Name()+" frame.", false
+		}
+	case e.pick == pickSlot:
+		old, err := sim.ScrapSlotFrame(e.hex, e.at)
+		if err != nil {
+			e.msg, e.bad = err.Error()+".", true
+			return
+		}
+		e.pick, e.msg, e.bad = pickNone, "Scrapped the "+old.Name()+" frame. The slot is plain.", false
+	default:
+		e.msg, e.bad = "Pick a frame on the rack, or a slot, to scrap its frame.", true
+	}
 }
 
 func (g *Game) edResult(err error) {
@@ -678,6 +839,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 			continue
 		}
 		s := h.Slots[i]
+		fr := h.Frame(i)
 		g.partTile(screen, c[0], c[1], l.slotR, true, s.Part, s.Kind == skill.SlotPart, e.pick == pickSlot && e.at == i)
 		if s.Kind != skill.SlotPart {
 			sock := "any part"
@@ -686,6 +848,8 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 				sock = "trigger"
 			case h.Merge(i):
 				sock = "pool"
+			case fr.Bend == skill.BendEcho:
+				sock = "echo"
 			}
 			g.label(screen, g.small, sock, c[0], c[1], fade(colDim, 0.7), true)
 		}
@@ -693,11 +857,8 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		// charge part's bank holds now, a call that loops on its hex.
 		var top []string
 		col := colCharge
-		switch {
-		case i == h.Shape.Twin():
-			top, col = append(top, "TWIN x2"), colShape
-		case i == h.Shape.Surge():
-			top, col = append(top, "SURGE"), colShape
+		if tag := fr.Tag(); tag != "" {
+			top, col = append(top, tag), frameCol(fr)
 		}
 		if s.Kind == skill.SlotPart && s.Part.UsesBank() && e.hex < game.MaxSlots {
 			b := s.Part.Bank
@@ -728,8 +889,8 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		if len(top) > 0 {
 			g.label(screen, g.small, strings.Join(top, " · "), c[0], c[1]-l.slotR*0.62, col, true)
 		}
-		if i == h.Shape.Twin() || i == h.Shape.Surge() {
-			drawHex(screen, c[0], c[1], l.slotR*1.08, true, color.RGBA{}, colShape, g.u(2))
+		if !fr.Plain() {
+			drawHex(screen, c[0], c[1], l.slotR*1.08, true, color.RGBA{}, frameCol(fr), g.u(2))
 		}
 		// Holding a part: slots where it would do something light up,
 		// the rest go dark. Otherwise a part that does nothing where it
@@ -756,18 +917,45 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	g.drawShapeEdges(screen, &l, h, true)
 	g.drawPorts(screen, &l, e.hex)
 
-	for i, c := range l.cells {
-		g.partTile(screen, c.x+c.w/2, c.y+c.h/2, c.w*0.5, false, inv.Parts[i], inv.Has[i], e.pick == pickCell && e.at == i)
-		if inv.Has[i] && sim.Stash.Fresh[i] {
-			// Unsecured: a death would drop it in the salvage cache.
-			g.label(screen, g.small, "NEW", c.x+c.w-14*g.k, c.y+9*g.k, colSalvage, true)
+	g.drawGridTabs(screen, &l)
+	if e.rack {
+		page, lo := g.edFrames()
+		for i, c := range l.cells {
+			var f skill.Frame
+			if i < len(page) {
+				f = page[i]
+			}
+			g.frameTile(screen, c.x+c.w/2, c.y+c.h/2, c.w*0.5, f, i < len(page), e.pick == pickFrame && e.at == lo+i)
+		}
+	} else {
+		for i, c := range l.cells {
+			g.partTile(screen, c.x+c.w/2, c.y+c.h/2, c.w*0.5, false, inv.Parts[i], inv.Has[i], e.pick == pickCell && e.at == i)
+			if inv.Has[i] && sim.Stash.Fresh[i] {
+				// Unsecured: a death would drop it in the salvage cache.
+				g.label(screen, g.small, "NEW", c.x+c.w-14*g.k, c.y+9*g.k, colSalvage, true)
+			}
 		}
 	}
 
 	// Info bar: the picked part, the last result, or how to use it.
 	g.drawRect(screen, l.info, colPanel, color.RGBA{0x3a, 0x42, 0x58, 0xff})
 	info, ic := "Tap a part, then tap where it goes. Slot to slot rewires the hex.", colDim
+	fr := skill.Frame{}
+	if e.pick == pickSlot {
+		fr = h.Frame(e.at)
+	}
+	pf, pickedFrame := g.edPickedFrame()
 	switch {
+	case pickedFrame && e.msg != "":
+		info, ic = e.msg, colText
+		if e.bad {
+			ic = colHot
+		}
+	case pickedFrame:
+		info, ic = "Green slots take it; fitting scraps the frame there. "+pf.Text(sim.Reg), frameCol(pf)
+		if game.IsTestFrame(pf) {
+			info += " Test frame: free to try."
+		}
 	case e.pick == pickCell && inv.Has[e.at] && e.msg != "" && e.bad:
 		info, ic = e.msg, colHot // why it can't go there
 	case e.pick == pickCell && inv.Has[e.at]:
@@ -796,8 +984,16 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		if (p.UsesBank() || p.Kind == skill.KindCall) && e.msg != "" && !e.bad {
 			info = e.msg + " " + info
 		}
+		if !fr.Plain() {
+			info += " " + fr.Text(sim.Reg)
+		}
+	case e.pick == pickSlot && e.msg != "" && e.bad:
+		info, ic = e.msg, colHot
 	case e.pick == pickSlot:
 		info = "Empty slot. Tap a part in your pack to put it here."
+		if !fr.Plain() {
+			info, ic = "Empty slot. "+fr.Text(sim.Reg), frameCol(fr)
+		}
 	case e.msg != "":
 		info, ic = e.msg, colText
 		if e.bad {
@@ -818,6 +1014,9 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 func (g *Game) edLit(i int) (ok, held bool) {
 	e := &g.ed
 	sim := g.sim
+	if f, picked := g.edPickedFrame(); picked {
+		return sim.PreviewFrame(e.hex, i, f) == nil, true
+	}
 	switch {
 	case e.pick == pickCell && sim.Stash.Inv.Has[e.at]:
 		_, ok = sim.PreviewIn(e.hex, i, e.at)
@@ -957,6 +1156,22 @@ func (g *Game) drawDrops(screen *ebiten.Image) {
 		screen.DrawTriangles(vs, is, whiteSub(), &ebiten.DrawTrianglesOptions{AntiAlias: true})
 		g.label(screen, g.small, "SHAPE", sx, sy-r*1.9, fade(colShape, 0.9), true)
 	}
+	// A frame on the floor: an empty hexagon outline in its grade's color,
+	// a frame with nothing in it yet.
+	for _, d := range g.sim.Stash.Frames {
+		x, y := d.At.Pixel()
+		sx, sy := g.toScreen(x, y)
+		if sx < -s || sy < -s || sx > float64(g.w)+s || sy > float64(g.h)+s || g.seeAt(x, y) < 0.2 {
+			continue
+		}
+		c := frameCol(d.Frame)
+		pop := math.Min(1, float64(d.Age)*4+0.25)
+		r := s * 0.38 * pop * (1 + 0.08*math.Sin(float64(g.frame)*0.12))
+		vector.DrawFilledCircle(screen, float32(sx), float32(sy), float32(r*1.5), fade(c, 0.14), true)
+		drawHex(screen, sx, sy, r, true, color.RGBA{}, c, g.u(3))
+		drawHex(screen, sx, sy, r*0.6, true, color.RGBA{}, fade(c, 0.6), g.u(1.5))
+		g.label(screen, g.small, "FRAME", sx, sy-r*1.9, fade(c, 0.9), true)
+	}
 	// A logic tile on the floor: an orange square that bobs.
 	for _, d := range g.sim.Stash.Tiles {
 		x, y := d.At.Pixel()
@@ -1041,4 +1256,113 @@ func shortVerb(v skill.Verb) string {
 		return "cnt"
 	}
 	return "all"
+}
+
+// frameCol is a frame's color: gold for one that comes with the shape,
+// otherwise its grade's.
+func frameCol(f skill.Frame) color.RGBA {
+	if f.Shaped {
+		return colShape
+	}
+	return rarityCol[f.Grade]
+}
+
+// frameTile draws a frame on the rack: an outlined hex in its grade's
+// color, its name over what it takes.
+func (g *Game) frameTile(dst *ebiten.Image, x, y, r float64, f skill.Frame, has, picked bool) {
+	if !has {
+		drawHex(dst, x, y, r, false, color.RGBA{0x1c, 0x21, 0x30, 0xff}, color.RGBA{0x3a, 0x42, 0x58, 0xff}, g.u(2))
+		return
+	}
+	c := frameCol(f)
+	fill := color.RGBA{0x16, 0x1a, 0x26, 0xff}
+	w := g.u(3)
+	if picked {
+		fill, w = fade(c, 0.35), g.u(5)
+	}
+	drawHex(dst, x, y, r, false, fill, c, w)
+	drawHex(dst, x, y, r*0.72, false, color.RGBA{}, fade(c, 0.45), g.u(1.5))
+	fit := r * 1.75
+	g.label(dst, g.small, fitWord(g, frameWords(f), fit), x, y-r*0.38, c, true)
+	g.label(dst, g.small, fitWord(g, takesWords(f, g.sim.Reg), fit), x, y+r*0.06, colDim, true)
+	if game.IsTestFrame(f) {
+		g.label(dst, g.small, "TEST", x, y+r*0.5, fade(colShape, 0.8), true)
+	}
+}
+
+// fitWord is the first of words that fits in w at the small size, or the
+// last cut to six letters.
+func fitWord(g *Game, words []string, w float64) string {
+	for _, s := range words {
+		if text.Advance(s, g.small) <= w {
+			return s
+		}
+	}
+	last := words[len(words)-1]
+	if len(last) > 6 {
+		last = last[:6]
+	}
+	return last
+}
+
+// frameWords is a frame's name, longest first, for a small tile.
+func frameWords(f skill.Frame) []string {
+	n := strings.ToUpper(f.Name())
+	short := strings.FieldsFunc(n, func(r rune) bool { return r == ' ' || r == '-' })[0]
+	return []string{n, f.Tag(), short}
+}
+
+// takesWords is what a frame takes, longest first, for a small tile.
+func takesWords(f skill.Frame, reg *skill.Registry) []string {
+	full := f.TakesText(reg)
+	var short string
+	switch f.Takes {
+	case skill.TakeAny:
+		short = "any"
+	case skill.TakeEffect, skill.TakeActs:
+		short = "effects"
+	case skill.TakeDamage:
+		short = "damage"
+	case skill.TakeTarget:
+		short = "targets"
+	case skill.TakeCount:
+		short = "nearest"
+	case skill.TakeMult:
+		short = "mults"
+	case skill.TakeTrigger:
+		short = "trigger"
+	case skill.TakeNone:
+		short = "no part"
+	}
+	if f.Typed && int(f.Type) < reg.Len() {
+		short = reg.Get(f.Type).Name + " only"
+	} else if f.Ranked {
+		short = strings.ToLower(f.Rank.String()) + " only"
+	}
+	return []string{full, short, strings.Fields(short)[0]}
+}
+
+// drawGridTabs draws the PACK and FRAMES tabs over the grid.
+func (g *Game) drawGridTabs(dst *ebiten.Image, l *edLayout) {
+	e := &g.ed
+	n := len(g.sim.FrameChoices())
+	tabs := []struct {
+		r    rect
+		name string
+		on   bool
+	}{
+		{l.pack, fmt.Sprintf("PACK %d/%d", g.sim.Stash.Inv.Count(), loot.InventorySize), !e.rack},
+		{l.frames, fmt.Sprintf("FRAMES %d", len(g.sim.Frames)), e.rack},
+	}
+	if e.rack && n > loot.InventorySize {
+		tabs[1].name = fmt.Sprintf("FRAMES %d/%d", e.page+1, (n+loot.InventorySize-1)/loot.InventorySize)
+	}
+	for _, t := range tabs {
+		fill, edge, c := colPanel, fade(colDim, 0.5), colDim
+		if t.on {
+			fill, edge, c = fade(colText, 0.12), colText, colText
+		}
+		g.drawRect(dst, t.r, fill, edge)
+		g.label(dst, g.small, t.name, t.r.x+t.r.w/2, t.r.y+t.r.h/2, c, true)
+	}
 }

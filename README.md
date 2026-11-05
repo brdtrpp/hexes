@@ -62,6 +62,7 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 | `graph.go` | A shape's graph: cells, links, flow order, validity, and the fixed five as graphs. |
 | `gen.go` | The shape generator. |
 | `dock.go` | Ports, docked compile, modules. |
+| `frame.go` | Slot frames: what a slot takes and how it bends the part in it, their text and their loot roll. |
 | `compile.go`, `program.go` | Compiles a hex tree into a flat `[]Step` with all multipliers baked in, plus a disassembler. |
 | `eval.go` | Runs a program against a `World`. Fixed arrays only: zero allocations per run. |
 | `combat.go` | Units, per-hit cap by level gap, adaptive resistance, damage over time. |
@@ -188,6 +189,41 @@ Effects, Calls and nested hexes always do something: with no target beside them 
 **Saves.** A hex saved before shapes has no shape field and six-slot arrays; it loads as a Ring with an empty center. Found shapes save in `Save.Shapes`. A generated shape carries its graph (`Shape.Net`); the fixed five carry none, so saves from before generation load unchanged.
 
 Under the hood: `Hex.Shape` and `Hex.Feeds(a, b)` replace the ring-only adjacency, `Hex.Flow` gives the run order (each slot after everything linking into it, one chain to its end before the next), `Slots` is now 9 (`RingSlots` 6 plus `Center` for the fixed shapes, up to nine for generated ones). Compile, `Hex.Use` and `Hex.Routes` all read the graph, so the fixed five and generated shapes run through the same code. Programs carry `Shape` and `Loops`; the Loop's back edge is one `OpCall` to self after the body (after an Echo copy, so Echo doesn't double it). Still zero allocations per run.
+
+## Frames (`skill/frame.go`, `skill/compile.go`, `game/frames.go`, `cmd/hexes/editor.go`)
+
+Every slot holds a frame. A frame rolls what the slot takes and one bend to the part in it, with a cost, so two hexes built from the same parts play differently depending on where the frames sit. Plain frames take anything and bend nothing; every hex starts plain and old saves load plain.
+
+| Frame | Takes | What it does |
+| --- | --- | --- |
+| Doubler | effects | The effect fires twice. Heat is paid twice, Power once. |
+| Kill-lock | effects, charges, calls | The part fires a second time, but only on a firing that has killed something by then. No extra cost. |
+| Prism | damage | The damage takes the type of the effect before it in the flow. +1 Heat. |
+| Leech | damage | 10% of the damage dealt comes back as Power; the hit is 20% weaker. |
+| Siphon | anything | The part costs no Power and +3 Heat instead. |
+| Hair trigger | the trigger | The trigger fires 1.4 times as often (a periodic's period, on-hit and on-hurt cooldowns); the hex runs x1.3 Heat. |
+| Overflow | multipliers | Every Heat point over 80% of max adds 2% to what the multiplier scales. An overheat it causes locks 1 s longer. |
+| Crowd | nearest or chain targets | +1 target for each foe within 3 hexes of where it picks from. Never picks an elite. |
+| Lonely | effects | x2.5 when it lands on exactly one foe, x0.5 on more. |
+| Echo | no part | Holds nothing: runs a copy of the part that feeds it, at full price. |
+| Twin | anything | Fires twice, costs twice (a shape's twin slot). |
+| Surge | anything | Every number x1.5 (a shape's surge slot is free; a looted one adds +1 Heat). |
+
+**One system.** A shape's twin and surge quirks are frames now: the slot reads as a gold TWIN or SURGE frame that comes with the shape and can't be swapped. Their numbers are unchanged.
+
+**Narrowed frames.** A frame can roll narrower than its bend: cryo effects only, or rare parts only. Commons often do (50%), exotics seldom (10%). A frame's grade (its rarity) also cuts the extra Heat it adds (x1 to x1.6 cheaper, like part rarity). The editor refuses a part a frame won't take and says why ("that slot's Doubler frame takes cryo effects").
+
+**Loot.** Frames drop from foes on their own random stream (1.5% a kill at depth 1, +0.15% a depth, capped at 6%, four times that from a foe above the floor's level), and lie on the floor as an outlined hexagon in their grade's color. Walk over one to rack it. The first time a save reaches depth 2 without a frame, a Doubler or Kill-lock waits next to where you arrive. The rack holds 12; a full rack leaves frames lying there.
+
+**Kept, and swapped for a price.** Racked frames are kept for good, like shapes; a death never takes one. Fitting a frame from the rack into a slot is free, but the frame it replaces is scrapped, not returned, so every swap gives something up. In the editor a slot with a found frame asks for a second tap first. Reshaping a hex sends frames on slots the new shape doesn't have (or that the shape brings its own frame to) back to the rack, and is refused if the rack can't hold them. Parts move with SHAPE only into slots whose frames take them.
+
+**In the editor.** The PACK and FRAMES tabs over the grid switch it between the pack and the rack (F on a keyboard). Tap a frame, then a slot: green slots take it. SCRAP on the rack scraps the picked rack frame, or with a slot picked, that slot's frame. A framed slot shows its tag on top (DOUBLER, KILL-LOCK, PRISM...) and an outline in its grade's color, and the info bar says what the frame takes and does.
+
+**Test switch.** With TEST on, the rack also shows one test frame of every bend plus a cryo-only Doubler and a rare-only Twin. Test frames are free to fit anywhere, as often as you like, and are never yours: turning TEST off takes them all off (parts stay put).
+
+**Defaults picked.** Kill-lock takes effects, charges and calls rather than anything, since a target or multiplier can't be guarded at run time. "Can't target bosses" became "never picks an elite", since there are no bosses yet. Leech counts direct hits only, not damage over time. Doubler and Kill-lock copy the part's steps in the compiled program; Kill-lock's copy sits behind a new `OpIfKill` step. Leech, Lonely, Overflow and Crowd are step flags read at run time. All of it runs through the same fixed arrays: still zero allocations per run (`TestFramedRunsAllocateNothing`).
+
+**Saves.** `Hex.Frames` saves only when a slot isn't plain; the rack saves in `Save.Frames`. A broken or test frame in a save is dropped on load.
 
 ## Docking board (`skill/dock.go`, `game/board.go`, `cmd/hexes/board.go`)
 

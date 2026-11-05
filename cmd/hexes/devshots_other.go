@@ -7,8 +7,10 @@ package main
 // with no display): it wakes every foe, walks toward the nearest, casts
 // on a beat, keeps the player alive, saves a PNG every HEXES_EVERY frames
 // (default 12) from frame 90, HEXES_COUNT of them (default 24), and quits.
-// HEXES_EXAMPLE=<n> loads example build n first. Without HEXES_SHOTS it
-// does nothing.
+// HEXES_EXAMPLE=<n> loads example build n first. HEXES_FRAMES=editor fits
+// a few test frames and opens the editor on the frame rack with one
+// picked; HEXES_FRAMES=floor lays a frame of each grade by the player.
+// Without HEXES_SHOTS it does nothing.
 
 import (
 	"fmt"
@@ -21,6 +23,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 
 	"hexes/game"
+	"hexes/skill"
 )
 
 type devState struct {
@@ -48,6 +51,7 @@ func (g *Game) devInput(in *game.Input) {
 				_ = g.sim.SetTestShapes(true)
 				_ = g.sim.LoadExample(n)
 			}
+			g.devFrames(os.Getenv("HEXES_FRAMES"))
 		}
 	}
 	if d.dir == "" {
@@ -110,4 +114,28 @@ func devWindow() (int, int) {
 		return w, h
 	}
 	return 1100, 720
+}
+
+func (g *Game) devFrames(mode string) {
+	s := g.sim
+	switch mode {
+	case "editor":
+		_ = s.SetTestShapes(true)
+		set := game.TestFrameSet
+		_, _ = s.FitFrame(0, 2, set[2]) // Doubler on the damage
+		_, _ = s.FitFrame(0, 5, set[3]) // Kill-lock on the call
+		_, _ = s.FitFrame(0, 3, set[8]) // Overflow on the multiplier
+		s.Frames = append(s.Frames, set[5], set[6])
+		s.Frames[0].ID, s.Frames[1].ID = 11, 13
+		s.Frames[0].Grade, s.Frames[1].Grade = 2, 1
+		g.openEditor()
+		g.edShowRack(true)
+		g.ed.pick, g.ed.at = pickFrame, len(s.Frames)+4 // the test Prism
+	case "floor":
+		p := s.P()
+		for i, f := range game.TestFrameSet[:4] {
+			f.Grade = skill.Rarity(i)
+			s.Stash.Frames = append(s.Stash.Frames, game.FrameDrop{At: p.At.Add(skill.HexDirs[i]).Add(skill.HexDirs[i]), Frame: f, Age: 1})
+		}
+	}
 }
