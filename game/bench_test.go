@@ -10,7 +10,7 @@ import (
 
 func TestBenchesSitOnGroundByStartAndStairs(t *testing.T) {
 	for seed := uint64(1); seed <= 20; seed++ {
-		s := New(seed)
+		s := NewVeteran(seed)
 		for depth := 1; depth <= 12; depth += 3 {
 			s.load(depth, 1)
 			f := s.Floor
@@ -33,7 +33,7 @@ func TestBenchesSitOnGroundByStartAndStairs(t *testing.T) {
 }
 
 func TestEditingOnlyAtABench(t *testing.T) {
-	s := New(4)
+	s := NewVeteran(4)
 	if !s.AtBench() {
 		t.Fatal("you arrive next to a bench")
 	}
@@ -61,7 +61,7 @@ func TestEditingOnlyAtABench(t *testing.T) {
 }
 
 func TestCastButtons(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	l := &s.Load
 	if l.Keys != [MaxSlots]uint8{1, 0, 0, 0} {
 		t.Fatalf("preset keys %v: only the lance casts, on button 1", l.Keys)
@@ -110,7 +110,7 @@ func TestCastButtons(t *testing.T) {
 }
 
 func TestHoldHexHoldsItsButton(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	l := &s.Load
 	cell := s.Stash.Inv.Add(skill.NewTrigger(skill.Channel))
 	if err := s.SwapIn(3, 0, cell); err != nil {
@@ -127,7 +127,7 @@ func TestHoldHexHoldsItsButton(t *testing.T) {
 }
 
 func TestCastButtonsSave(t *testing.T) {
-	s := New(6)
+	s := NewVeteran(6)
 	cell := s.Stash.Inv.Add(skill.NewTrigger(skill.OnCast))
 	if err := s.SwapIn(2, 0, cell); err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestCastButtonsSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(99)
+	r := NewVeteran(99)
 	if err := r.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestCastButtonsSave(t *testing.T) {
 	}
 	delete(raw, "Keys")
 	old, _ := json.Marshal(raw)
-	r = New(99)
+	r = NewVeteran(99)
 	if err := r.LoadSave(old); err != nil {
 		t.Fatal(err)
 	}

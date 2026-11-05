@@ -18,13 +18,12 @@ import (
 
 // Frame drop tuning. Placeholder balance, all constants.
 const (
-	FrameDropBase   = 0.015  // per kill at depth 1
-	FrameDropStep   = 0.0015 // more per depth below it
-	FrameDropMax    = 0.06
-	FrameDropElite  = 4  // times more likely from a foe above the floor's level
-	FrameFirstDepth = 2  // from here the first frame waits by the stairs until found
-	MaxFrames       = 12 // the rack
-	MaxFrameDrops   = 4  // frames that can lie on one floor
+	FrameDropBase  = 0.015  // per kill at depth 1
+	FrameDropStep  = 0.0015 // more per depth below it
+	FrameDropMax   = 0.06
+	FrameDropElite = 4  // times more likely from a foe above the floor's level
+	MaxFrames      = 12 // the rack
+	MaxFrameDrops  = 4  // frames that can lie on one floor
 )
 
 // testFrameBit marks the test switch's frames, which nobody owns.
@@ -55,7 +54,7 @@ func (s *Sim) rollFrame(r *loot.RNG, depth int) skill.Frame {
 // rollFrameDrop maybe drops a frame from a dying foe. It uses its own
 // random stream so it never changes which parts drop.
 func (s *Sim) rollFrameDrop(id skill.EntityID, at skill.Coord, elite bool) {
-	if len(s.Stash.Frames) >= MaxFrameDrops {
+	if len(s.Stash.Frames) >= MaxFrameDrops || !s.Has(UFrames) {
 		return
 	}
 	r := loot.NewRNG(loot.Seed(s.Floor.Seed^hash(uint64(s.Visits))^0xf4a3e, int(id)))
@@ -63,30 +62,6 @@ func (s *Sim) rollFrameDrop(id skill.EntityID, at skill.Coord, elite bool) {
 		return
 	}
 	s.Stash.Frames = append(s.Stash.Frames, FrameDrop{At: at, Frame: s.rollFrame(&r, s.Depth)})
-}
-
-// placeFirstFrame lays a frame next to the stairs down the first time a
-// save reaches FrameFirstDepth without having found one, so everyone gets
-// to try frames early. It comes back every visit until it's picked up.
-// It's always a bend that works on almost any hex.
-func (s *Sim) placeFirstFrame() {
-	if s.FrameGiven || s.Depth < FrameFirstDepth {
-		return
-	}
-	at := s.Floor.Start
-	for i := len(skill.HexDirs) - 1; i >= 0; i-- {
-		if n := at.Add(skill.HexDirs[i]); s.Floor.At(n).Walkable() {
-			at = n
-			break
-		}
-	}
-	r := loot.NewRNG(s.RunSeed ^ 0xf1a3e)
-	f := skill.NewFrame(skill.BendDoubler)
-	if r.Next()%2 == 1 {
-		f = skill.NewFrame(skill.BendKillLock)
-	}
-	f.ID = r.Next()&^testFrameBit | 1
-	s.Stash.Frames = append(s.Stash.Frames, FrameDrop{At: at, Frame: f})
 }
 
 // pickupFrames racks any frame under the player. A full rack leaves it

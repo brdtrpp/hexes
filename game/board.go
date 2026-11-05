@@ -124,7 +124,7 @@ func (l *Loadout) Dock() []Dock {
 		l.Hex(i).Docks = [skill.Slots]*skill.Hex{}
 	}
 	l.Link()
-	if len(l.Spots) != l.Count() {
+	if l.Undocked || len(l.Spots) != l.Count() {
 		return nil
 	}
 	for i := 0; i < l.Count(); i++ {
@@ -405,6 +405,7 @@ func (s *Sim) RemoveModule(i int) error {
 // dispatcher. A periodic hex that was edited starts a full period from
 // now; the others keep their timers. On error nothing changes.
 func (s *Sim) rebuildAll(edited int) error {
+	s.Load.Undocked = !s.Has(UBoard)
 	if err := s.Load.Rebuild(s.Reg, s.Depth, s.Rig.MaxDepth, edited); err != nil {
 		return err
 	}

@@ -28,7 +28,7 @@ func TestBoardGrowsWithYourDeepest(t *testing.T) {
 	if BoardOpen(1) != BoardBase || BoardOpen(4) != BoardBase+1 || BoardOpen(200) != BoardCells {
 		t.Fatalf("open %d %d %d", BoardOpen(1), BoardOpen(4), BoardOpen(200))
 	}
-	s := New(5)
+	s := NewVeteran(5)
 	if s.NextCellAt() != 4 {
 		t.Fatalf("next cell at %d", s.NextCellAt())
 	}
@@ -44,7 +44,7 @@ func TestBoardGrowsWithYourDeepest(t *testing.T) {
 // A new run, and a save from before the board, dock nothing: the hexes
 // play as they always have.
 func TestNewRunDocksNothing(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	if d := s.Docks(); len(d) != 0 {
 		t.Fatalf("new run docks %v", d)
 	}
@@ -59,7 +59,7 @@ func TestNewRunDocksNothing(t *testing.T) {
 	if strings.Contains(string(b), `"Board"`) {
 		t.Fatal("empty board saved")
 	}
-	o := New(9)
+	o := NewVeteran(9)
 	if err := o.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func dockInto(t *testing.T, s *Sim, a, b int) Dock {
 }
 
 func TestModuleDocksOntoAHex(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	m, err := s.AddModule(BoardOrder[4])
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestModuleDocksOntoAHex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o := New(9)
+	o := NewVeteran(9)
 	if err := o.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestModuleDocksOntoAHex(t *testing.T) {
 // Two equipped hexes can dock too: the first one's firing runs the
 // second's parts, and the second still fires on its own trigger.
 func TestHexesDockIntoEachOther(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	dockInto(t, s, 0, 1)
 	if s.Load.Progs[0].Docked == 0 || s.Load.Progs[1].Trigger != skill.OnHit {
 		t.Fatal("hex to hex dock")
@@ -167,7 +167,7 @@ func TestHexesDockIntoEachOther(t *testing.T) {
 }
 
 func TestTestSwitchOpensTheBoard(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	if err := s.SetTestShapes(true); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestTestSwitchOpensTheBoard(t *testing.T) {
 }
 
 func BenchmarkBoardRebuild(b *testing.B) {
-	s := New(5)
+	s := NewVeteran(5)
 	s.TestShapes = true
 	for i := MaxSlots; i < BoardCells; i++ {
 		if _, err := s.AddModule(BoardOrder[i]); err != nil {

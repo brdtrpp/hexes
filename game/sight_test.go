@@ -114,7 +114,7 @@ func TestLightFalloff(t *testing.T) {
 }
 
 func TestLightRadiusFromOptics(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	if r := s.LightRadius(); r != skill.LightBase {
 		t.Fatalf("default radius %v, want %v", r, skill.LightBase)
 	}
@@ -206,7 +206,7 @@ func TestLensesWidenTheLight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(9)
+	r := NewVeteran(9)
 	if err := r.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestLensesWidenTheLight(t *testing.T) {
 }
 
 func TestLensesDrop(t *testing.T) {
-	s := New(11)
+	s := NewVeteran(11)
 	got := 0
 	for v := 0; v < 400 && got == 0; v++ {
 		s.Visits = v

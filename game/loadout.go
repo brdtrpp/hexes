@@ -31,6 +31,9 @@ type Loadout struct {
 	// Keys is each hex's cast button, 1 to Buttons, 0 for none yet (see
 	// bench.go). Only on-cast and hold hexes answer a button.
 	Keys [MaxSlots]uint8
+	// Undocked turns the board off: no hex docks to another, so hexes
+	// the teaching ladder hasn't brought online can't run anything.
+	Undocked bool
 }
 
 // StarterCallTarget is the hex the starting Call points at: Nanite Swarm.

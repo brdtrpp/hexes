@@ -17,7 +17,7 @@ func rack(s *Sim, b skill.Bend) skill.Frame {
 }
 
 func TestFitFrameScrapsTheOldOne(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	// Arc Lance: trigger, chain, damage, multiplier, empty, call.
 	_, heat := s.HexPower(0)
 	dbl := rack(s, skill.BendDoubler)
@@ -48,7 +48,7 @@ func TestFitFrameScrapsTheOldOne(t *testing.T) {
 }
 
 func TestFrameRefusesAPartItDoesntTake(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	prism := rack(s, skill.BendPrism)
 	// Slot 3 holds a multiplier; a Prism takes only damage.
 	if _, err := s.FitFrame(0, 3, prism); err == nil || !strings.Contains(err.Error(), "take the part out") {
@@ -83,7 +83,7 @@ func TestFrameRefusesAPartItDoesntTake(t *testing.T) {
 }
 
 func TestScrapFrames(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	f := rack(s, skill.BendSiphon)
 	rack(s, skill.BendCrowd)
 	if _, err := s.FitFrame(0, 2, f); err != nil {
@@ -101,7 +101,7 @@ func TestScrapFrames(t *testing.T) {
 }
 
 func TestShapedSlotsKeepTheirFrame(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	hub := found(s, skill.ShapeHub, skill.ShapeTwin, 2)
 	if err := s.SetShape(0, hub); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestShapedSlotsKeepTheirFrame(t *testing.T) {
 }
 
 func TestReshapeSendsFramesBackToTheRack(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	d, k := rack(s, skill.BendDoubler), rack(s, skill.BendKillLock)
 	if _, err := s.FitFrame(0, 2, d); err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestReshapeSendsFramesBackToTheRack(t *testing.T) {
 }
 
 func TestFramesSurviveSaveAndDeath(t *testing.T) {
-	s := New(8)
+	s := NewVeteran(8)
 	d := rack(s, skill.BendDoubler)
 	l := rack(s, skill.BendLonely)
 	if _, err := s.FitFrame(0, 2, d); err != nil {
@@ -171,7 +171,7 @@ func TestFramesSurviveSaveAndDeath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(1)
+	r := NewVeteran(1)
 	if err := r.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -194,12 +194,12 @@ func steps(p *skill.Program, op skill.Op) []skill.Step {
 }
 
 func TestOldSaveLoadsWithPlainFrames(t *testing.T) {
-	s := New(4)
+	s := NewVeteran(4)
 	b, _ := s.Save()
 	if strings.Contains(string(b), "Frames") {
 		t.Fatal("a save with no frames wrote frames")
 	}
-	r := New(1)
+	r := NewVeteran(1)
 	if err := r.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -223,38 +223,6 @@ func TestOldSaveLoadsWithPlainFrames(t *testing.T) {
 	}
 }
 
-func TestFirstFrameWaitsAtDepthTwo(t *testing.T) {
-	s := New(6)
-	if len(s.Stash.Frames) != 0 {
-		t.Fatal("a frame on depth 1")
-	}
-	s.load(FrameFirstDepth, 1)
-	if len(s.Stash.Frames) != 1 {
-		t.Fatalf("depth %d has %d frames lying about", s.Depth, len(s.Stash.Frames))
-	}
-	d := s.Stash.Frames[0]
-	if b := d.Frame.Bend; b != skill.BendDoubler && b != skill.BendKillLock {
-		t.Fatalf("first frame %v", b)
-	}
-	if !s.Floor.At(d.At).Walkable() {
-		t.Fatal("first frame on an unwalkable tile")
-	}
-	s.Dirty = false
-	s.pickupFrames(d.At, 0)
-	if len(s.Frames) != 1 || s.Frames[0] != d.Frame || !s.FrameGiven || !s.Dirty || len(s.Stash.Frames) != 0 {
-		t.Fatal("first frame not racked")
-	}
-	shown := false
-	s.FX.Each(func(f *FX) { shown = shown || f.Kind == FXFrame })
-	if !shown {
-		t.Fatal("no fx for a racked frame")
-	}
-	s.load(FrameFirstDepth+1, 1)
-	if len(s.Stash.Frames) != 0 {
-		t.Fatal("first frame placed twice")
-	}
-}
-
 func TestFrameDropsLeanElite(t *testing.T) {
 	if FrameDropChance(1, true) != FrameDropChance(1, false)*FrameDropElite {
 		t.Fatal("elites don't lean")
@@ -263,7 +231,7 @@ func TestFrameDropsLeanElite(t *testing.T) {
 		t.Fatal("no cap")
 	}
 	roll := func() []skill.Frame {
-		s := New(9)
+		s := NewVeteran(9)
 		s.FrameGiven = true
 		s.load(30, 1)
 		for id := 1; id < 600 && len(s.Stash.Frames) < MaxFrameDrops; id++ {
@@ -285,7 +253,7 @@ func TestFrameDropsLeanElite(t *testing.T) {
 		}
 	}
 	// A full rack leaves a frame on the floor.
-	s := New(9)
+	s := NewVeteran(9)
 	for len(s.Frames) < MaxFrames {
 		rack(s, skill.BendEcho)
 	}
@@ -297,7 +265,7 @@ func TestFrameDropsLeanElite(t *testing.T) {
 }
 
 func TestTestSwitchUnlocksEveryFrame(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	if len(s.FrameChoices()) != 0 {
 		t.Fatal("frames before finding any")
 	}

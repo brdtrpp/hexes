@@ -31,7 +31,7 @@ func TestLoadoutCompiles(t *testing.T) {
 // The preset Kinetic Ram gates on hull: a weak foe takes the heavy jab.
 func TestKineticRamGatesOnHull(t *testing.T) {
 	dealt := func(hull float32) float32 {
-		s := New(5)
+		s := NewVeteran(5)
 		p := s.P()
 		for i := range s.Actors {
 			if skill.EntityID(i) != s.Player {
@@ -61,7 +61,7 @@ func TestKineticRamGatesOnHull(t *testing.T) {
 // every fifth, through the dispatcher's on-kill path. The bank survives a
 // bank switch and empties on the next floor.
 func TestCryoBloomNovaEveryFifthKill(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	clearFloor(s)
 	p := s.P()
 	for q := -4; q <= 4; q++ {

@@ -32,7 +32,7 @@ func TestStarterCallRunsSwarm(t *testing.T) {
 }
 
 func TestCycleCallSkipsItself(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	var got []uint8
 	for i := 0; i < 5; i++ {
 		if !s.CycleCall(0, 5) {
@@ -55,14 +55,14 @@ func TestCycleCallSkipsItself(t *testing.T) {
 }
 
 func TestCallSurvivesSave(t *testing.T) {
-	s := New(11)
+	s := NewVeteran(11)
 	s.CycleCall(0, 5) // self
 	s.CycleCall(0, 5) // hex 2
 	b, err := s.Save()
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(1)
+	r := NewVeteran(1)
 	if err := r.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -77,14 +77,14 @@ func TestCallSurvivesSave(t *testing.T) {
 
 // A save from before Calls gets one starter Call in the pack, once.
 func TestOldSaveGetsOneCall(t *testing.T) {
-	s := New(11)
+	s := NewVeteran(11)
 	s.Load.Hexes[0].Clear(5)
 	if err := s.recompile(0); err != nil {
 		t.Fatal(err)
 	}
 	sv := s.Snapshot()
 	sv.CallGiven = false
-	r := New(1)
+	r := NewVeteran(1)
 	if err := r.Restore(sv); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestOldSaveGetsOneCall(t *testing.T) {
 		t.Fatal("the gift should be saved")
 	}
 	b, _ := r.Save()
-	r2 := New(2)
+	r2 := NewVeteran(2)
 	if err := r2.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}

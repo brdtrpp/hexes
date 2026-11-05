@@ -11,7 +11,7 @@ import (
 // openArena swaps in a walled rectangle of open floor with the player in
 // the middle and nobody else.
 func openArena(w, h int) *Sim {
-	s := New(1)
+	s := NewVeteran(1)
 	f := &dungeon.Floor{W: w, H: h, Tiles: make([]dungeon.Tile, w*h), Seed: 7}
 	for i := range f.Tiles {
 		c := f.CoordOf(i)
@@ -251,7 +251,7 @@ func TestDoorways(t *testing.T) {
 
 func TestNeverInsideWalls(t *testing.T) {
 	for seed := uint64(1); seed <= 6; seed++ {
-		s := New(seed)
+		s := NewVeteran(seed)
 		s.load(4, 1)
 		p := s.P()
 		p.U.MaxHP, p.U.HP = 1e9, 1e9
@@ -395,7 +395,7 @@ func TestConeUsesTrueFacing(t *testing.T) {
 }
 
 func TestStepAllocFree(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	s.load(10, 1)
 	p := s.P()
 	p.U.MaxHP, p.U.HP = 1e9, 1e9

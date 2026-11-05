@@ -9,7 +9,7 @@ import (
 // A watch trigger takes a condition from the editor, cycles on to a
 // finder module, refuses a module that acts, and survives a save.
 func TestWatchInTheGame(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	h := s.Load.Hexes[0]
 	entry := h.Shape.Entry()
 	h.Slots[entry].Part = skill.NewTrigger(skill.Watch)
@@ -53,7 +53,7 @@ func TestWatchInTheGame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o := New(9)
+	o := NewVeteran(9)
 	if err := o.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestWatchInTheGame(t *testing.T) {
 // Board banks X and Y start empty on each floor and a charge on X shows
 // in the board's banks, not the hex's.
 func TestBoardBanksInTheGame(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	if s.Disp.Loadout(s.Player).Board != &s.BoardBanks {
 		t.Fatal("dispatcher not on the board's banks")
 	}

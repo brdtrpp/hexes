@@ -173,8 +173,17 @@ type Sim struct {
 	FrameGiven bool
 	LastFrame  skill.Frame
 	// SustainGiven is set once a sustain part (Mend, Purge, Shield) has
-	// been picked up; until then a Mend waits by the stairs (sustain.go).
+	// been picked up.
 	SustainGiven bool
+	// Taught is how many rungs of the teaching ladder are done (see
+	// teach.go), kept for good. Card is the rung whose card shows, for
+	// CardT more seconds.
+	Taught int
+	Card   int
+	CardT  float32
+	// veteran starts new runs with the preset hexes and the ladder done
+	// (NewVeteran).
+	veteran bool
 	// Tiles are the logic tiles found so far, one bit each (see
 	// tiles.go); the starter set is always known on top. LastTile is
 	// the latest, for the HUD.
@@ -207,9 +216,19 @@ type Sim struct {
 	safe     skill.Coord // last tile the player stood on that wasn't a pit
 }
 
-// New starts a run at depth 1.
+// New starts a run at depth 1, at the bottom of the teaching ladder.
 func New(seed uint64) *Sim {
 	s := &Sim{Reg: skill.DefaultRegistry(), Rules: skill.DefaultRules()}
+	s.Eval = skill.NewEvaluator(s.Reg, s.Rules)
+	s.NewRun(seed)
+	return s
+}
+
+// NewVeteran starts a run at depth 1 with the ladder already done and
+// the four preset hexes equipped, as runs began before the ladder. Tests
+// of the deeper systems use it.
+func NewVeteran(seed uint64) *Sim {
+	s := &Sim{Reg: skill.DefaultRegistry(), Rules: skill.DefaultRules(), veteran: true}
 	s.Eval = skill.NewEvaluator(s.Reg, s.Rules)
 	s.NewRun(seed)
 	return s
@@ -226,11 +245,16 @@ func (s *Sim) NewRun(seed uint64) {
 	s.Points = DefaultPoints
 	s.Cache, s.Deaths, s.LastDeathAt, s.LastDeath = Cache{}, 0, 0, Death{}
 	s.Load = Loadout{}
-	s.CallGiven = true // the preset Arc Lance carries it
+	s.CallGiven = true // the preset Arc Lance carries it; the ladder hands its own
 	s.Shapes, s.ShapeGiven, s.LastShape = nil, false, skill.Shape{}
 	s.Frames, s.FrameGiven, s.LastFrame = nil, false, skill.Frame{}
 	s.SustainGiven = false
 	s.Tiles, s.LastTile = 0, 0
+	s.Taught, s.Card, s.CardT = 1, 0, CardShow
+	if s.veteran {
+		s.Taught, s.CardT = len(Ladder), 0
+		s.SustainGiven, s.FrameGiven, s.ShapeGiven = true, true, true
+	}
 	s.resetStash()
 	s.load(1, 1)
 	s.Dirty = true
@@ -293,6 +317,7 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	s.State, s.StateT = Playing, 0
 	s.strikeCD = 0
 	s.refreshField()
+	s.placeLesson()
 	// A cache saved before floors changed shape can sit in rock or out of
 	// reach on the regenerated floor; move it next to where you arrive.
 	if c := &s.Cache; c.Active && c.Depth == depth && (!f.In(c.At) || s.dist[f.Index(c.At)] <= 0) {
@@ -343,6 +368,7 @@ func (s *Sim) Step(dt float32) {
 	}
 	s.StateT += dt
 	s.CheckpointT = max(0, s.CheckpointT-dt)
+	s.CardT = max(0, s.CardT-dt)
 	switch s.State {
 	case Dead:
 		s.ageCorpses(dt)

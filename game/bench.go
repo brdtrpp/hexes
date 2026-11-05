@@ -52,6 +52,10 @@ func benchBeside(f *dungeon.Floor, at, avoid skill.Coord) skill.Coord {
 	return at
 }
 
+// BenchOn reports whether bench i is there: the one where you arrive
+// waits until the ladder has taught workbenches (teach.go).
+func (s *Sim) BenchOn(i int) bool { return i != 0 || s.Has(UBench) }
+
 // AtBench reports whether the player is close enough to a bench to edit.
 func (s *Sim) AtBench() bool {
 	_, ok := s.NearBench()
@@ -64,7 +68,10 @@ func (s *Sim) NearBench() (skill.Coord, bool) {
 		return skill.Coord{}, false
 	}
 	at := s.P().At
-	for _, b := range s.Benches {
+	for i, b := range s.Benches {
+		if !s.BenchOn(i) {
+			continue
+		}
 		if skill.Dist(at, b) <= BenchReach {
 			return b, true
 		}

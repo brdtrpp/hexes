@@ -16,7 +16,7 @@ func found(s *Sim, k skill.ShapeKind, q skill.ShapeQuirk, at uint8) skill.Shape 
 }
 
 func TestHubKeepsTheBuild(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	before := *s.Load.Hexes[0]
 	_, ringHeat := s.HexPower(0)
 	hub := found(s, skill.ShapeHub, skill.ShapeLean, 0)
@@ -50,7 +50,7 @@ func TestHubKeepsTheBuild(t *testing.T) {
 }
 
 func TestTriangleSendsTheRestToThePack(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	// Arc Lance: trigger, chain, damage, multiplier, empty, call.
 	if err := s.SetShape(0, skill.Shape{Kind: skill.ShapeTriangle}); err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestTriangleSendsTheRestToThePack(t *testing.T) {
 		t.Fatal(err)
 	}
 	// With a full pack a triangle is refused and nothing changes.
-	s2 := New(5)
+	s2 := NewVeteran(5)
 	for s2.Stash.Inv.Count() < loot.InventorySize {
 		s2.Stash.Inv.Add(skill.NewPush(1))
 	}
@@ -81,7 +81,7 @@ func TestTriangleSendsTheRestToThePack(t *testing.T) {
 }
 
 func TestForkMovesTheTriggerToTheCenter(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	fork := found(s, skill.ShapeFork, skill.ShapeTwin, 1)
 	if err := s.SetShape(1, fork); err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func TestForkMovesTheTriggerToTheCenter(t *testing.T) {
 }
 
 func TestCycleShape(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	loop := found(s, skill.ShapeLoop, skill.ShapeOneWay, 2)
 	hub := found(s, skill.ShapeHub, skill.ShapeSurge, 3)
 	// Hex 4 (Nanite Swarm) has 3 parts, so every shape fits.
@@ -148,7 +148,7 @@ func TestCycleShape(t *testing.T) {
 }
 
 func TestShapesSurviveSaveAndDeath(t *testing.T) {
-	s := New(8)
+	s := NewVeteran(8)
 	loop := found(s, skill.ShapeLoop, skill.ShapeTwin, 3)
 	found(s, skill.ShapeFork, skill.ShapeLean, 0)
 	if err := s.SetShape(3, loop); err != nil {
@@ -159,7 +159,7 @@ func TestShapesSurviveSaveAndDeath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(1)
+	r := NewVeteran(1)
 	if err := r.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestShapesSurviveSaveAndDeath(t *testing.T) {
 }
 
 func TestOldSaveLoadsAsRings(t *testing.T) {
-	s := New(4)
+	s := NewVeteran(4)
 	b, _ := s.Save()
 	// Strip everything shapes added: the save fields, each hex's shape
 	// and its seventh slot, as a save from before shapes looked.
@@ -190,7 +190,7 @@ func TestOldSaveLoadsAsRings(t *testing.T) {
 	if strings.Contains(string(old), "Shape") {
 		t.Fatal("test didn't strip shapes")
 	}
-	r := New(1)
+	r := NewVeteran(1)
 	if err := r.LoadSave(old); err != nil {
 		t.Fatal(err)
 	}
@@ -205,38 +205,6 @@ func TestOldSaveLoadsAsRings(t *testing.T) {
 	}
 }
 
-func TestFirstShapeWaitsAtDepthFive(t *testing.T) {
-	s := New(6)
-	if len(s.Stash.Shapes) != 0 || ShapeDropChance(1) != 0 {
-		t.Fatal("shapes on depth 1")
-	}
-	s.load(ShapeMinDepth, 1)
-	if len(s.Stash.Shapes) != 1 {
-		t.Fatalf("depth %d has %d shapes lying about, want the first one", s.Depth, len(s.Stash.Shapes))
-	}
-	d := s.Stash.Shapes[0]
-	if !d.Shape.Valid() || d.Shape.Quirk == skill.ShapeQuirkNone || d.Shape.Kind == skill.ShapeRing || d.Shape.Kind == skill.ShapeTriangle {
-		t.Fatalf("first shape %+v", d.Shape)
-	}
-	if !s.Floor.At(d.At).Walkable() {
-		t.Fatal("first shape on an unwalkable tile")
-	}
-	s.Dirty = false
-	s.pickupShapes(d.At, 0)
-	if len(s.Shapes) != 1 || s.Shapes[0] != d.Shape || !s.ShapeGiven || !s.Dirty || len(s.Stash.Shapes) != 0 {
-		t.Fatal("first shape not learned")
-	}
-	shown := false
-	s.FX.Each(func(f *FX) { shown = shown || f.Kind == FXShape })
-	if !shown {
-		t.Fatal("no fx for a learned shape")
-	}
-	s.load(ShapeMinDepth+1, 1)
-	if len(s.Stash.Shapes) != 0 {
-		t.Fatal("first shape placed twice")
-	}
-}
-
 func TestShapeDropsAreRareAndDeterministic(t *testing.T) {
 	if c := ShapeDropChance(ShapeMinDepth); c <= 0 || c > 0.01 {
 		t.Fatalf("chance at depth %d is %.3f", ShapeMinDepth, c)
@@ -245,7 +213,7 @@ func TestShapeDropsAreRareAndDeterministic(t *testing.T) {
 		t.Fatal("no cap on the drop chance")
 	}
 	roll := func() []skill.Shape {
-		s := New(9)
+		s := NewVeteran(9)
 		s.ShapeGiven = true
 		s.load(40, 1)
 		var out []skill.Shape
@@ -274,7 +242,7 @@ func TestShapeDropsAreRareAndDeterministic(t *testing.T) {
 // A Loop hex fired through the dispatcher: the back edge runs through the
 // call queue, so its passes pay Heat on the real rig.
 func TestLoopHexFiresInTheGame(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	loop := found(s, skill.ShapeLoop, skill.ShapeLean, 0)
 	// Arc Lance's slot 5 call carries its subject back round.
 	if err := s.SetShape(0, loop); err != nil {
@@ -296,7 +264,7 @@ func TestLoopHexFiresInTheGame(t *testing.T) {
 }
 
 func TestTestSwitchUnlocksEveryShape(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	if len(s.ShapeChoices(0)) != 2 {
 		t.Fatal("a new save should only have Ring and Triangle")
 	}
@@ -349,7 +317,7 @@ func TestTestSwitchUnlocksEveryShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := New(9)
+	r := NewVeteran(9)
 	if err := r.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +351,7 @@ func TestTestSwitchUnlocksEveryShape(t *testing.T) {
 }
 
 func TestPartsOnlyGoWhereTheyDoSomething(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	// Every preset part does something where it sits.
 	for i, h := range s.Load.Hexes {
 		for j := range h.Slots {
@@ -426,7 +394,7 @@ func TestPartsOnlyGoWhereTheyDoSomething(t *testing.T) {
 func TestDropsAreGenerated(t *testing.T) {
 	big := 0
 	for _, depth := range []int{ShapeMinDepth, 45} {
-		s := New(11)
+		s := NewVeteran(11)
 		s.ShapeGiven = true
 		s.load(depth, 1)
 		for id := 1; id < 4000 && len(s.Stash.Shapes) < MaxShapeDrops; id++ {
@@ -470,7 +438,7 @@ func TestTestSwitchCoversGeneratedFamilies(t *testing.T) {
 	if len(fam) != int(skill.ShapeGen) || most != skill.Slots {
 		t.Fatalf("test set families %v, biggest %d", fam, most)
 	}
-	s := New(5)
+	s := NewVeteran(5)
 	if err := s.SetTestShapes(true); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +455,7 @@ func TestTestSwitchCoversGeneratedFamilies(t *testing.T) {
 // A save holding found shapes of the old fixed kinds and generated ones
 // loads with every shape intact.
 func TestOldAndGeneratedShapesSave(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	old := found(s, skill.ShapeFork, skill.ShapeSurge, 1)
 	r := loot.NewRNG(3)
 	gen := skill.RollShape(r.Next, 555, 30)
@@ -506,7 +474,7 @@ func TestOldAndGeneratedShapesSave(t *testing.T) {
 	if err := json.Unmarshal(b, &sv); err != nil {
 		t.Fatal(err)
 	}
-	back := New(5)
+	back := NewVeteran(5)
 	if err := back.Restore(sv); err != nil {
 		t.Fatal(err)
 	}

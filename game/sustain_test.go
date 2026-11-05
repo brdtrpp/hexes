@@ -1,7 +1,6 @@
 package game
 
 import (
-	"strings"
 	"testing"
 
 	"hexes/skill"
@@ -17,80 +16,8 @@ func sustainDrop(s *Sim) (Drop, bool) {
 	return Drop{}, false
 }
 
-func TestFirstMendWaitsByTheStairs(t *testing.T) {
-	s := New(6)
-	d, ok := sustainDrop(s)
-	if !ok || d.Part != FirstSustain() || d.Part.Effect != skill.EffectMend {
-		t.Fatalf("no first mend on depth 1: %+v", s.Stash.Drops)
-	}
-	if !s.Floor.At(d.At).Walkable() || skill.Dist(d.At, s.Floor.Start) != 1 {
-		t.Fatalf("first mend at %v, start %v", d.At, s.Floor.Start)
-	}
-	for seed := uint64(1); seed <= 40; seed++ {
-		s := New(seed)
-		d, _ := sustainDrop(s)
-		for _, b := range s.Benches {
-			if d.At == b {
-				t.Fatalf("seed %d: first mend on a workbench", seed)
-			}
-		}
-	}
-	// Not picked up: it comes back on the next floor.
-	s.load(2, 1)
-	if _, ok := sustainDrop(s); !ok {
-		t.Fatal("first mend gone before it was picked up")
-	}
-	for _, f := range s.Stash.Frames {
-		if f.At == d.At {
-			t.Fatal("first mend on the first frame's tile")
-		}
-	}
-	d, _ = sustainDrop(s)
-	s.P().At = d.At
-	s.pickup(0)
-	if !s.SustainGiven {
-		t.Fatal("picking up a mend didn't count")
-	}
-	found := false
-	for i, p := range s.Stash.Inv.Parts {
-		found = found || (s.Stash.Inv.Has[i] && p == FirstSustain())
-	}
-	if !found {
-		t.Fatal("mend not in the pack")
-	}
-	b, err := s.Save()
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := New(1)
-	if err := r.LoadSave(b); err != nil {
-		t.Fatal(err)
-	}
-	if !r.SustainGiven {
-		t.Fatal("save lost SustainGiven")
-	}
-	if _, ok := sustainDrop(r); ok {
-		t.Fatal("first mend placed again after it was found")
-	}
-}
-
-func TestOldSaveGetsTheFirstMend(t *testing.T) {
-	s := New(3)
-	b, _ := s.Save()
-	if strings.Contains(string(b), "SustainGiven") {
-		t.Fatal("an unfound mend wrote SustainGiven")
-	}
-	r := New(1)
-	if err := r.LoadSave(b); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := sustainDrop(r); !ok {
-		t.Fatal("no mend waiting for an old save")
-	}
-}
-
 func TestPresetHexesHaveNoSustain(t *testing.T) {
-	s := New(2)
+	s := NewVeteran(2)
 	for i, h := range s.Load.Hexes {
 		if h == nil {
 			continue
@@ -104,7 +31,7 @@ func TestPresetHexesHaveNoSustain(t *testing.T) {
 }
 
 func TestShieldSoaksClaws(t *testing.T) {
-	s := New(9)
+	s := NewVeteran(9)
 	p := s.P()
 	var foe skill.EntityID = -1
 	for i := range s.Actors {
@@ -134,7 +61,7 @@ func TestShieldSoaksClaws(t *testing.T) {
 }
 
 func TestSustainFiresInTheSim(t *testing.T) {
-	s := New(4)
+	s := NewVeteran(4)
 	p := s.P()
 	p.U.HP = p.U.MaxHP / 2
 	s.Rig.Heat = 40

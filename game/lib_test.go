@@ -10,7 +10,7 @@ import (
 // board; a run-now call takes options from the pack and gives them back,
 // and all of it survives a save.
 func TestLibraryCallInTheGame(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	m, err := s.AddModule(BoardOrder[4])
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +48,7 @@ func TestLibraryCallInTheGame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o := New(9)
+	o := NewVeteran(9)
 	if err := o.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}

@@ -88,6 +88,43 @@ type Table struct {
 	// Damage is the base damage amount per type, before the roll's spread
 	// and rarity.
 	Damage [skill.MaxTypes]float32
+	// Allow limits what rolls to what the player has been taught. The
+	// zero value allows everything.
+	Allow Allow
+}
+
+// Allow is what a roll may make. With Limit off everything rolls; with
+// it on only the part kinds in Kinds (one bit per skill.PartKind) roll,
+// sustain effects only with Sustain, spend and empty gates only with
+// Spend, and exotics, quirks, channel and watch triggers only with
+// Quirks. Filtering only zeroes weights, so it never allocates.
+type Allow struct {
+	Limit   bool
+	Kinds   uint16
+	Sustain bool
+	Spend   bool
+	Quirks  bool
+}
+
+// KindBit is a part kind's bit in Allow.Kinds.
+func KindBit(k skill.PartKind) uint16 { return 1 << k }
+
+func (a Allow) kind(k skill.PartKind) bool { return !a.Limit || a.Kinds&KindBit(k) != 0 }
+func (a Allow) sustain() bool              { return !a.Limit || a.Sustain }
+func (a Allow) spend() bool                { return !a.Limit || a.Spend }
+func (a Allow) quirks() bool               { return !a.Limit || a.Quirks }
+
+// Any reports whether anything at all can roll.
+func (a Allow) Any() bool {
+	if !a.Limit {
+		return true
+	}
+	for _, k := range partKinds {
+		if a.Kinds&KindBit(k) != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Base damage per type for drops. Nanite is high because it arrives as
@@ -179,26 +216,40 @@ var verbWeights = [...]float32{
 
 // Drop rolls whether something drops at all, then what.
 func (t *Table) Drop(r *RNG, depth int, chance float32) (skill.Part, bool) {
-	if r.Float() >= chance {
+	if r.Float() >= chance || !t.Allow.Any() {
 		return skill.Part{}, false
 	}
 	return t.Roll(r, depth), true
 }
 
-// Roll makes one part for a drop at depth.
+// Roll makes one part for a drop at depth. Without quirks allowed no
+// exotic rolls.
 func (t *Table) Roll(r *RNG, depth int) skill.Part {
-	rar := RollRarity(r, depth)
-	return t.RollAt(r, rar)
+	w := RarityWeights(depth)
+	if !t.Allow.quirks() {
+		w[skill.Exotic] = 0
+	}
+	return t.RollAt(r, skill.Rarity(r.pick(w[:])))
 }
 
 // RollAt makes one part of a given tier.
 func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
-	kw := kindWeights[:]
+	kw := kindWeights
 	if rar == skill.Exotic {
-		kw = exoticKindWeights[:]
+		kw = exoticKindWeights
+	}
+	sum := float32(0)
+	for i, k := range partKinds {
+		if !t.Allow.kind(k) {
+			kw[i] = 0
+		}
+		sum += kw[i]
+	}
+	if sum == 0 { // nothing taught fits this tier: a plain effect
+		kw[0] = 1
 	}
 	var p skill.Part
-	switch partKinds[r.pick(kw)] {
+	switch partKinds[r.pick(kw[:])] {
 	case skill.KindTrigger:
 		p = t.trigger(r, rar)
 	case skill.KindTarget:
@@ -218,7 +269,7 @@ func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
 	if p.Kind == skill.KindGate && p.Gate == skill.GateSpend {
 		p.Count = uint8(max(2, int(p.Count)-int(rar)))
 	}
-	if rar == skill.Exotic || (rar == skill.Rare && r.Float() < RareQuirkChance) {
+	if t.Allow.quirks() && (rar == skill.Exotic || (rar == skill.Rare && r.Float() < RareQuirkChance)) {
 		p.Quirk = quirkFor(p)
 	}
 	return p
@@ -236,10 +287,18 @@ func quirkFor(p skill.Part) skill.Quirk {
 
 func (t *Table) trigger(r *RNG, rar skill.Rarity) skill.Part {
 	w := triggerWeights
+	if !t.Allow.quirks() {
+		w[skill.Channel], w[skill.Watch] = 0, 0
+	}
+	sum := float32(0)
 	for k := range w {
 		if skill.TriggerKind(k).Tier() != rar {
 			w[k] = 0
 		}
+		sum += w[k]
+	}
+	if sum == 0 { // a tier whose only triggers aren't taught yet
+		return skill.NewTrigger(skill.OnCast)
 	}
 	k := skill.TriggerKind(r.pick(w[:]))
 	if k == skill.Periodic {
@@ -268,7 +327,7 @@ func (t *Table) effect(r *RNG, rar skill.Rarity) skill.Part {
 	if rar == skill.Exotic {
 		w[skill.EffectPush] = 0
 	}
-	if rar == skill.Uncommon || rar == skill.Rare {
+	if (rar == skill.Uncommon || rar == skill.Rare) && t.Allow.sustain() {
 		for k, v := range sustainWeights {
 			w[k] += v
 		}
@@ -294,7 +353,11 @@ func (t *Table) effect(r *RNG, rar skill.Rarity) skill.Part {
 // gate rolls a condition and its threshold. Status gates skip types whose
 // status is a cloak: casting breaks stealth, so it would rarely pass.
 func (t *Table) gate(r *RNG) skill.Part {
-	switch k := skill.GateKind(r.pick(gateWeights[:])); k {
+	gw := gateWeights
+	if !t.Allow.spend() {
+		gw[skill.GateSpend], gw[skill.GateEmpty] = 0, 0
+	}
+	switch k := skill.GateKind(r.pick(gw[:])); k {
 	case skill.GateHull:
 		return skill.NewGate(k, twentieth(r.Range(0.2, 0.5)))
 	case skill.GateHeat, skill.GatePower:

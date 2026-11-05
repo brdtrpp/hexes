@@ -14,7 +14,7 @@ func kill(s *Sim) {
 }
 
 func TestSaveRoundTrip(t *testing.T) {
-	s := New(11)
+	s := NewVeteran(11)
 	cryo := skill.NewDamage(s.Reg.MustID("cryo"), 20)
 	cell := s.Stash.Inv.Add(cryo)
 	if err := s.SwapIn(3, 4, cell); err != nil {
@@ -32,7 +32,7 @@ func TestSaveRoundTrip(t *testing.T) {
 	if s.Dirty {
 		t.Fatal("Save should clear Dirty")
 	}
-	r := New(999)
+	r := NewVeteran(999)
 	if err := r.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestSaveRoundTrip(t *testing.T) {
 }
 
 func TestBadSaveLeavesTheGameAlone(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	s.load(4, 1)
 	for _, b := range []string{"", "{", `{"Version":99,"Depth":3}`, `{"Version":1,"Depth":0}`, `{"Version":1,"Depth":3}`} {
 		if err := s.LoadSave([]byte(b)); err == nil {
@@ -90,7 +90,7 @@ func TestFallFloors(t *testing.T) {
 }
 
 func TestDeathDropsBackAndLeavesSalvage(t *testing.T) {
-	s := New(7)
+	s := NewVeteran(7)
 	s.load(30, 1)
 	safe := s.Stash.Inv.Add(skill.NewPush(1)) // picked up before the checkpoint
 	for i := 0; i < 3; i++ {
@@ -141,7 +141,7 @@ func TestDeathDropsBackAndLeavesSalvage(t *testing.T) {
 }
 
 func TestSecondDeathCostsLessAndLosesTheOldCache(t *testing.T) {
-	s := New(8)
+	s := NewVeteran(8)
 	s.load(50, 1)
 	c := s.Stash.Inv.Add(skill.NewPush(1))
 	s.Stash.Fresh[c] = true
@@ -164,7 +164,7 @@ func TestSecondDeathCostsLessAndLosesTheOldCache(t *testing.T) {
 }
 
 func TestCheckpointSecuresThePack(t *testing.T) {
-	s := New(9)
+	s := NewVeteran(9)
 	s.load(4, 1)
 	c := s.Stash.Inv.Add(skill.NewPush(1))
 	s.Stash.Fresh[c] = true
@@ -182,7 +182,7 @@ func TestCheckpointSecuresThePack(t *testing.T) {
 }
 
 func TestSlottingSecuresAPart(t *testing.T) {
-	s := New(10)
+	s := NewVeteran(10)
 	c := s.Stash.Inv.Add(skill.NewDamage(s.Reg.MustID("cryo"), 20))
 	s.Stash.Fresh[c] = true
 	if err := s.SwapIn(3, 4, c); err != nil {
@@ -201,7 +201,7 @@ func TestSlottingSecuresAPart(t *testing.T) {
 }
 
 func TestPickupMarksFreshAndRevisitRollsNewLoot(t *testing.T) {
-	s := New(12)
+	s := NewVeteran(12)
 	s.load(20, 1)
 	at := s.P().At
 	s.Stash.Drops = append(s.Stash.Drops, Drop{At: at, Part: skill.NewPush(1)})
@@ -238,7 +238,7 @@ func TestPickupMarksFreshAndRevisitRollsNewLoot(t *testing.T) {
 // A cache saved where the regenerated floor now has rock moves next to the
 // arrival point instead of being lost.
 func TestStaleCacheMovesNextToStart(t *testing.T) {
-	s := New(11)
+	s := NewVeteran(11)
 	s.Cache = Cache{Active: true, Depth: 3, At: skill.Coord{Q: -500, R: 2}, N: 1}
 	s.load(3, 1)
 	f := s.Floor

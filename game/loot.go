@@ -44,6 +44,9 @@ type Stash struct {
 	Lenses []LensDrop
 	// Frames are slot frames lying on the floor (frames.go).
 	Frames []FrameDrop
+	// Lesson is the teaching ladder's pickup, when one waits here
+	// (teach.go).
+	Lesson LessonDrop
 	// Picked counts parts ever picked up.
 	Picked int
 	// Fresh marks pack cells holding a part picked up since the last
@@ -86,11 +89,13 @@ func (s *Sim) loadLoot(level int) {
 	s.Stash.Lenses = s.Stash.Lenses[:0]
 	s.Stash.Frames = s.Stash.Frames[:0]
 	s.Stash.fullShow = false
-	defer s.placeFirstSustain() // after the shape and frame, to keep off their tiles
-	defer s.placeFirstFrame()
-	defer s.placeFirstShape()
+	s.Stash.Lesson = LessonDrop{}
 	if s.Load.Hexes[0] == nil {
-		s.Load = BuildLoadout(s.Reg, level, s.Rig.MaxDepth)
+		if s.Learned() {
+			s.Load = BuildLoadout(s.Reg, level, s.Rig.MaxDepth)
+		} else {
+			s.Load = LadderLoadout(s.Reg, level, s.Rig.MaxDepth)
+		}
 		return
 	}
 	if err := s.Load.Rebuild(s.Reg, level, s.Rig.MaxDepth, -1); err != nil {
@@ -120,6 +125,7 @@ func (s *Sim) dropLoot(id skill.EntityID) {
 		s.rollFrameDrop(id, at, elite)
 	}
 	r := loot.NewRNG(loot.Seed(s.Floor.Seed^hash(uint64(s.Visits)), int(id)))
+	s.Stash.table.Allow = s.lootAllow()
 	p, ok := s.Stash.table.Drop(&r, s.Depth, chance)
 	if !ok {
 		return
@@ -186,6 +192,7 @@ func (s *Sim) pickup(dt float32) {
 		s.pickupTiles(at, dt)
 		s.pickupLenses(at, dt)
 		s.pickupFrames(at, dt)
+		s.pickupLesson(at, dt)
 	}
 }
 

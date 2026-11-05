@@ -37,7 +37,7 @@ func ring(t *testing.T, s *Sim) {
 func TestAreaFormsFromExamples(t *testing.T) {
 	kinds := map[FXKind]int{}
 	for i, e := range Examples(skill.DefaultRegistry()) {
-		s := New(9)
+		s := NewVeteran(9)
 		if err := s.SetTestShapes(true); err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +83,7 @@ func TestAreaFormsFromExamples(t *testing.T) {
 
 // The cast ring carries what the hex cost.
 func TestRingCarriesCost(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	ring(t, s)
 	s.Rig.Heat = 0
 	if o := s.Disp.Cast(s.Player, 0, s.nearestFoe(s.P().At, NearestRange)); o != skill.Fired {
@@ -107,7 +107,7 @@ func TestRingCarriesCost(t *testing.T) {
 // The starter build shows its chain (Arc Lance) and its rings (Cryo
 // Bloom's chill lands with no damage and still shows).
 func TestStarterForms(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	ring(t, s)
 	kinds := map[FXKind]int{}
 	for slot := range s.Load.Progs {
@@ -130,7 +130,7 @@ func TestStarterForms(t *testing.T) {
 
 // A status-only hit (Cryo Bloom's chill, no damage) still shows its ring.
 func TestStatusOnlyShowsArea(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	ring(t, s)
 	p := s.Load.Progs[2] // Cryo Bloom: adjacent chill, damage only behind a full bank
 	s.FX.Clear()

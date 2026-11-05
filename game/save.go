@@ -27,7 +27,9 @@ import (
 
 // Death and checkpoint tuning. Placeholder balance, all constants.
 const (
-	SaveVersion     = 1
+	// SaveVersion 2 is the teaching ladder: saves from before it don't
+	// load, so they start fresh at the bottom of the ladder.
+	SaveVersion     = 2
 	CheckpointEvery = 5   // every 5th depth secures the pack
 	FallMin         = 2   // floors lost on death, at least, before mercy
 	FallFrac        = 0.1 // deep down you lose this share of your depth
@@ -204,6 +206,8 @@ type Save struct {
 	// from before sustain parts don't have it, so the first Mend waits by
 	// the stairs on their next floor.
 	SustainGiven bool `json:",omitempty"`
+	// Taught is how many rungs of the teaching ladder are done.
+	Taught int
 	// Mods and Board are the docking board's modules and where every hex
 	// sits. Saves from before the board have neither and load with the
 	// hexes laid out so nothing docks.
@@ -231,6 +235,7 @@ func (s *Sim) Snapshot() Save {
 		TestShapes: s.TestShapes,
 		Frames:     append([]skill.Frame(nil), s.Frames...), FrameGiven: s.FrameGiven,
 		SustainGiven: s.SustainGiven,
+		Taught:       s.Taught,
 		Mods:         append([]*skill.Hex(nil), s.Load.Mods...),
 		Board:        append([]Spot(nil), s.Load.Spots...),
 		Tiles:        s.Tiles,
@@ -313,6 +318,7 @@ func (s *Sim) Restore(sv Save) error {
 	}
 	l.FixSpots()
 	rig := skill.NewRig(sv.Points)
+	l.Undocked = !sv.TestShapes && ladderUnlocks(sv.Taught)&UBoard == 0
 	if err := l.Rebuild(s.Reg, sv.Depth, rig.MaxDepth, -1); err != nil {
 		return err
 	}
@@ -331,6 +337,8 @@ func (s *Sim) Restore(sv Save) error {
 	s.TestShapes = sv.TestShapes
 	s.Frames, s.FrameGiven = frames, sv.FrameGiven || len(frames) > 0
 	s.SustainGiven = sv.SustainGiven
+	s.Taught = min(len(Ladder), max(1, sv.Taught))
+	s.Card, s.CardT = 0, 0
 	s.Tiles = sv.Tiles & skill.AllTiles
 	s.Mine, s.Example = nil, ""
 	if sv.Mine != nil {

@@ -8,7 +8,7 @@ import (
 )
 
 func TestExamplesLoad(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	if err := s.LoadExample(0); err != ErrNeedsTest {
 		t.Fatalf("loaded with the test switch off: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestExamplesLoad(t *testing.T) {
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatal(err)
 	}
-	s2 := New(5)
+	s2 := NewVeteran(5)
 	if err := s2.Restore(back); err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestExamplesLoad(t *testing.T) {
 }
 
 func TestFieldMedicSustains(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	if err := s.SetTestShapes(true); err != nil {
 		t.Fatal(err)
 	}

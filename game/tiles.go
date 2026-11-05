@@ -45,7 +45,7 @@ func (s *Sim) Knows(k skill.TileKind) bool { return s.KnownTiles()&skill.TileBit
 
 // rollTileDrop maybe drops a tile the player doesn't know yet.
 func (s *Sim) rollTileDrop(id skill.EntityID, at skill.Coord, elite bool) {
-	if len(s.Stash.Tiles) >= MaxTileDrops {
+	if len(s.Stash.Tiles) >= MaxTileDrops || !s.Has(UQuirks) {
 		return
 	}
 	chance := float32(TileDropChance)

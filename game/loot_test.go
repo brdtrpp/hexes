@@ -35,7 +35,7 @@ func enemyOrder(s *Sim, reverse bool) []int {
 
 func TestDropsAreDeterministic(t *testing.T) {
 	collect := func(reverse bool) map[skill.Coord][]skill.Part {
-		s := New(42)
+		s := NewVeteran(42)
 		s.load(8, 1)
 		killAll(s, enemyOrder(s, reverse))
 		m := map[skill.Coord][]skill.Part{}
@@ -69,7 +69,7 @@ func TestDropsAreDeterministic(t *testing.T) {
 
 func TestDropsLandOnWalkableTiles(t *testing.T) {
 	for seed := uint64(1); seed <= 20; seed++ {
-		s := New(seed)
+		s := NewVeteran(seed)
 		s.load(1+int(seed%9), 1)
 		killAll(s, enemyOrder(s, false))
 		for _, d := range s.Stash.Drops {
@@ -83,7 +83,7 @@ func TestDropsLandOnWalkableTiles(t *testing.T) {
 func TestElitesDropMore(t *testing.T) {
 	var elite, eliteN, plain, plainN int
 	for seed := uint64(1); seed <= 60; seed++ {
-		s := New(seed)
+		s := NewVeteran(seed)
 		s.load(12, 1)
 		for i := range s.Actors {
 			if skill.EntityID(i) == s.Player {
@@ -120,7 +120,7 @@ func clearFloor(s *Sim) {
 }
 
 func TestPickupOnWalkOver(t *testing.T) {
-	s := New(7)
+	s := NewVeteran(7)
 	clearFloor(s)
 	p := s.P()
 	part := skill.NewMult(skill.VerbDamage, 1.5).WithRarity(skill.Rare)
@@ -141,7 +141,7 @@ func TestPickupOnWalkOver(t *testing.T) {
 }
 
 func TestFullInventoryLeavesTheDrop(t *testing.T) {
-	s := New(7)
+	s := NewVeteran(7)
 	clearFloor(s)
 	for i := 0; i < loot.InventorySize; i++ {
 		s.Stash.Inv.Add(skill.NewPush(1))
@@ -168,7 +168,7 @@ func TestFullInventoryLeavesTheDrop(t *testing.T) {
 }
 
 func TestSwapRecompilesAndRewiresDispatch(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	before := s.Load.Progs[0]
 	dmg := func(p *skill.Program) (sum float32) {
 		for _, st := range p.Steps {
@@ -206,7 +206,7 @@ func TestSwapRecompilesAndRewiresDispatch(t *testing.T) {
 }
 
 func TestSwapRefusals(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	prog := s.Load.Progs[1]
 	trig := s.Stash.Inv.Add(skill.NewTrigger(skill.OnKill))
 	if err := s.SwapIn(1, 2, trig); err == nil {
@@ -233,7 +233,7 @@ func TestSwapRefusals(t *testing.T) {
 }
 
 func TestSwappedTriggerChangesHowItFires(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	cell := s.Stash.Inv.Add(skill.NewTrigger(skill.OnCast))
 	if err := s.SwapIn(1, 0, cell); err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestSwappedTriggerChangesHowItFires(t *testing.T) {
 }
 
 func TestSwapSlotsRewires(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	// Arc Lance: chain, plasma, x2. Move the x2 two slots on, behind an
 	// empty slot where it has nothing to scale, and the damage halves.
 	before := s.Load.Progs[0]
@@ -281,7 +281,7 @@ func TestSwapSlotsRewires(t *testing.T) {
 }
 
 func TestEditsLastTheRun(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	cell := s.Stash.Inv.Add(skill.NewDamage(s.Reg.MustID("cryo"), 20))
 	if err := s.SwapIn(3, 4, cell); err != nil {
 		t.Fatal(err)
@@ -301,7 +301,7 @@ func TestEditsLastTheRun(t *testing.T) {
 }
 
 func TestDropAndPickupDoNotAllocate(t *testing.T) {
-	s := New(9)
+	s := NewVeteran(9)
 	s.load(20, 1)
 	at := s.P().At
 	ids := []skill.EntityID{}
@@ -334,7 +334,7 @@ func TestDropAndPickupDoNotAllocate(t *testing.T) {
 // BenchmarkSwapRecompile is one editor tap: trade a part into a hex,
 // recompile it and hand it to the dispatcher.
 func BenchmarkSwapRecompile(b *testing.B) {
-	s := New(3)
+	s := NewVeteran(3)
 	m := skill.NewMult(skill.VerbAll, 1.4)
 	m.Quirk = skill.QuirkRadiant
 	cell := s.Stash.Inv.Add(m)

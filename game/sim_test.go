@@ -62,7 +62,7 @@ func TestBotPlays(t *testing.T) {
 	descended, died := 0, 0
 	var total bot
 	for seed := uint64(1); seed <= 12; seed++ {
-		s := New(seed)
+		s := NewVeteran(seed)
 		b := &bot{}
 		for frame := 0; frame < 60*240 && s.Depth < 4; frame++ {
 			s.Input = b.input(s)
@@ -122,7 +122,7 @@ func TestBotPlays(t *testing.T) {
 
 func TestDeterministicRun(t *testing.T) {
 	run := func() (int, float32, int) {
-		s := New(99)
+		s := NewVeteran(99)
 		b := &bot{}
 		for frame := 0; frame < 60*30; frame++ {
 			s.Input = b.input(s)
@@ -138,7 +138,7 @@ func TestDeterministicRun(t *testing.T) {
 }
 
 func TestPushIntoPitKills(t *testing.T) {
-	s := New(5)
+	s := NewVeteran(5)
 	p := s.P()
 	// Build a small test room around the player: floor, with a pit two
 	// hexes east and a grunt between.
@@ -165,7 +165,7 @@ func TestPushIntoPitKills(t *testing.T) {
 func BenchmarkStep(b *testing.B) {
 	for _, depth := range []int{1, 10, 30} {
 		b.Run("depth"+itoa(depth), func(b *testing.B) {
-			s := New(3)
+			s := NewVeteran(3)
 			s.load(depth, 1)
 			s.P().U.MaxHP, s.P().U.HP = 1e9, 1e9
 			bt := &bot{}

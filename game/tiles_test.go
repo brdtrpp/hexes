@@ -10,7 +10,7 @@ import (
 )
 
 func TestConditionNeedsKnownTiles(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	// Arc Lance has no gate; put one in a module-free hex slot via the pack.
 	cell := s.Stash.Inv.Add(skill.NewGate(skill.GateHull, 0.4))
 	slot := -1
@@ -46,7 +46,7 @@ func TestConditionNeedsKnownTiles(t *testing.T) {
 	b, _ := s.Save()
 	var sv Save
 	_ = json.Unmarshal(b, &sv)
-	o := New(9)
+	o := NewVeteran(9)
 	if err := o.LoadSave(b); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestConditionNeedsKnownTiles(t *testing.T) {
 }
 
 func TestTileDropsAreNew(t *testing.T) {
-	s := New(3)
+	s := NewVeteran(3)
 	for i := 0; i < 200; i++ {
 		r := newTestRNG(uint64(i))
 		k, ok := s.pickTile(&r)

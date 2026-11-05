@@ -67,7 +67,7 @@ func ShapeSockets(sh skill.Shape) [skill.Slots]skill.SocketKind {
 // random stream so it never changes which parts drop.
 func (s *Sim) rollShapeDrop(id skill.EntityID, at skill.Coord, elite bool) {
 	chance := ShapeDropChance(s.Depth)
-	if chance <= 0 || len(s.Stash.Shapes) >= MaxShapeDrops {
+	if chance <= 0 || len(s.Stash.Shapes) >= MaxShapeDrops || !s.Has(UShapes) {
 		return
 	}
 	if elite {
@@ -78,33 +78,6 @@ func (s *Sim) rollShapeDrop(id skill.EntityID, at skill.Coord, elite bool) {
 		return
 	}
 	s.Stash.Shapes = append(s.Stash.Shapes, ShapeDrop{At: at, Shape: skill.RollShape(r.Next, r.Next(), s.Depth)})
-}
-
-// placeFirstShape lays a shape next to the stairs down the first time a
-// save reaches ShapeMinDepth without having found one, so everyone gets
-// to try shapes. It comes back every visit until it's picked up.
-func (s *Sim) placeFirstShape() {
-	if s.ShapeGiven || s.Depth < ShapeMinDepth {
-		return
-	}
-	r := loot.NewRNG(s.RunSeed ^ 0xf1257)
-	at := s.Floor.Start
-	for _, d := range skill.HexDirs {
-		if n := at.Add(d); s.Floor.At(n).Walkable() {
-			at = n
-			break
-		}
-	}
-	// The first find shows something new: a fork, hub or loop, not a
-	// plain chain.
-	sh := skill.RollShape(r.Next, r.Next(), s.Depth)
-	for try := 0; try < 32; try++ {
-		if f := sh.Family(); f != skill.ShapeRing && f != skill.ShapeTriangle {
-			break
-		}
-		sh = skill.RollShape(r.Next, r.Next(), s.Depth)
-	}
-	s.Stash.Shapes = append(s.Stash.Shapes, ShapeDrop{At: at, Shape: sh})
 }
 
 // pickupShapes learns any shape under the player.
@@ -367,7 +340,8 @@ func (s *Sim) SetTestShapes(on bool) error {
 	}
 	s.TestShapes = on
 	s.Dirty = true
-	return nil
+	// The board docks only once it's taught, and TEST teaches it.
+	return s.rebuildAll(-1)
 }
 
 // ShapeText says what a shape does, in a sentence or two, for the editor.
