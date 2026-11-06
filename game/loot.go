@@ -152,7 +152,7 @@ func (s *Sim) dropLoot(id skill.EntityID) {
 	allow := s.lootAllow()
 	kinds, sustain, best := s.gridKinds()
 	if !allow.Limit {
-		allow = loot.Allow{Limit: true, Kinds: 0xffff, Sustain: true, Spend: true, Quirks: true}
+		allow = loot.Allow{Limit: true, Kinds: 0xffff, Sustain: true, Spend: true, Quirks: true, New: allow.New}
 	}
 	allow.Kinds &= kinds
 	allow.Sustain = allow.Sustain && sustain
@@ -164,7 +164,7 @@ func (s *Sim) dropLoot(id skill.EntityID) {
 	if rar == skill.Exotic && !allow.Quirks {
 		rar = skill.Rare
 	}
-	p := s.Stash.table.RollAt(&r, rar)
+	p := s.Stash.table.RollTaught(&r, rar)
 	at, ok := s.dropSpot(a.At)
 	if !ok {
 		return

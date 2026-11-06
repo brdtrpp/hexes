@@ -54,6 +54,16 @@ func (t *Table) RollNew(r *RNG, rar skill.Rarity) skill.Part {
 	return t.RollFam(r, r.pick(w[:]), rar)
 }
 
+// RollTaught is RollAt with the class families mixed in: when Allow.New
+// lets any family through, NewChance of rolls come from them. Foe drops
+// and the floor-end pick roll through it.
+func (t *Table) RollTaught(r *RNG, rar skill.Rarity) skill.Part {
+	if t.Allow.New != 0 && r.Float() < NewChance {
+		return t.RollNew(r, rar)
+	}
+	return t.RollAt(r, rar)
+}
+
 // RollFam makes one part of family f at a tier.
 func (t *Table) RollFam(r *RNG, f int, rar skill.Rarity) skill.Part {
 	var p skill.Part
@@ -148,4 +158,67 @@ func (t *Table) Rider(r *RNG, rar skill.Rarity) skill.Part {
 	p := skill.NewDamage(ty, max(1, amt)).WithRarity(rar)
 	p.Quirk = skill.QuirkRider
 	return p
+}
+
+// FamOf is the class family part p comes from, or -1 for a part of the
+// original tables.
+func FamOf(p skill.Part) int {
+	switch p.Kind {
+	case skill.KindForm:
+		switch {
+		case p.Form == skill.FormDetonate:
+			return 2
+		case p.Form.Placed():
+			return 3
+		}
+		return 0
+	case skill.KindTarget:
+		switch p.Target {
+		case skill.TargetWeakest, skill.TargetMarked:
+			return 1
+		case skill.TargetWreck:
+			return 2
+		}
+	case skill.KindTrigger:
+		switch p.Trigger {
+		case skill.OnDodge:
+			return 1
+		case skill.OnWreck:
+			return 2
+		case skill.OnVent:
+			return 4
+		}
+	case skill.KindEffect:
+		switch p.Effect {
+		case skill.EffectBlink:
+			return 1
+		case skill.EffectReanimate:
+			return 2
+		case skill.EffectTaunt, skill.EffectThorns, skill.EffectHaste:
+			return 4
+		}
+	case skill.KindMult:
+		if p.Verb == skill.VerbMarked {
+			return 1
+		}
+	case skill.KindGate:
+		switch {
+		case p.Gate == skill.GateBehind || p.Name == "finisher":
+			return 1
+		case p.Gate == skill.GateHurt:
+			return 4
+		}
+	case skill.KindCharge:
+		if p.Name == "combo" {
+			return 1
+		}
+	case skill.KindCost:
+		if p.Cost == skill.CostWrecks {
+			return 2
+		}
+		return 4
+	case skill.KindStance:
+		return 4
+	}
+	return -1
 }

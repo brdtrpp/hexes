@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"hexes/dungeon"
+	"hexes/loot"
 	"hexes/skill"
 )
 
@@ -133,7 +134,11 @@ func TestDraftKeepsToTheLadder(t *testing.T) {
 							t.Fatalf("seed %d: grid offer %d isn't a free cell next to yours", seed, p.Node)
 						}
 					case DraftPart:
-						if u&UBench == 0 || (allow.Limit && allow.Kinds&(1<<p.Part.Kind) == 0) {
+						fam := loot.FamOf(p.Part)
+						if fam >= 0 && allow.New&(1<<fam) == 0 {
+							t.Fatalf("seed %d after %s: offered a %s part early", seed, Ladder[idx].Name, loot.FamName(fam))
+						}
+						if u&UBench == 0 || (fam < 0 && allow.Limit && allow.Kinds&(1<<p.Part.Kind) == 0) {
 							t.Fatalf("seed %d after %s: offered a %v", seed, Ladder[idx].Name, p.Part.Kind)
 						}
 						if p.Part.Rarity == skill.Exotic && u&UQuirks == 0 {

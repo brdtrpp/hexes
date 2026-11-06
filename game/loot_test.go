@@ -345,3 +345,45 @@ func BenchmarkSwapRecompile(b *testing.B) {
 		}
 	}
 }
+
+// Once the ladder has taught them, class parts drop from foes and turn up
+// in the floor-end pick, not only on the grid's outer rings.
+func TestClassPartsDropOnceTaught(t *testing.T) {
+	class := func(p skill.Part) bool {
+		switch p.Kind {
+		case skill.KindForm, skill.KindCost, skill.KindStance:
+			return true
+		case skill.KindEffect:
+			return p.Effect >= skill.EffectTaunt
+		case skill.KindTarget:
+			return p.Target == skill.TargetWreck || p.Target == skill.TargetWeakest || p.Target == skill.TargetMarked
+		}
+		return false
+	}
+	drops, seen := 0, 0
+	for seed := uint64(1); seed <= 12; seed++ {
+		s := NewVeteran(seed)
+		s.load(26, 1)
+		killAll(s, enemyOrder(s, false))
+		for _, d := range s.Stash.Drops {
+			drops++
+			if class(d.Part) {
+				seen++
+			}
+		}
+	}
+	if drops == 0 || seen == 0 {
+		t.Fatalf("%d drops on taught saves, %d class parts among them", drops, seen)
+	}
+	picks := 0
+	for i := 0; i < 200; i++ {
+		s := NewVeteran(uint64(i) + 100)
+		r := loot.NewRNG(uint64(i))
+		if class(s.draftPart(&r, skill.Rare, nil)) {
+			picks++
+		}
+	}
+	if picks == 0 {
+		t.Fatal("the floor-end pick never offered a class part")
+	}
+}

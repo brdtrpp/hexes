@@ -257,9 +257,9 @@ func (s *Sim) draftPart(r *loot.RNG, rar skill.Rarity, ok func(skill.Part) bool)
 	old := t.Allow
 	t.Allow = allow
 	defer func() { t.Allow = old }()
-	p := t.RollAt(r, rar)
+	p := t.RollTaught(r, rar)
 	for i := 0; i < 6 && ok != nil && !ok(p); i++ {
-		p = t.RollAt(r, rar)
+		p = t.RollTaught(r, rar)
 	}
 	return p
 }
