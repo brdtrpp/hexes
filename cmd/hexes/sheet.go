@@ -501,8 +501,8 @@ func (g *Game) drawLootCard(dst *ebiten.Image) {
 	k := g.k
 	W := float64(g.w)
 	w := math.Min(W-28*k, 340*k)
-	r := rect{(W - w) / 2, 70 * k, w, 118 * k}
+	r := rect{(W - w) / 2, 168 * k, w, 140 * k} // under the bars and cast cards
 	edge := rarityCol[g.lootSheet.Rarity]
 	g.drawRect(dst, r, color.RGBA{0x0c, 0x0f, 0x18, 0xe8}, fade(edge, 0.8))
-	g.drawCardPanel(dst, g.lootSheet, r, "Picked up: it's in your pack.", colYes, "", "")
+	g.drawCardPanel(dst, g.lootSheet, r, "Picked up: in your pack.", colYes, "", "")
 }
