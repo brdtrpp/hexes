@@ -480,6 +480,11 @@ func (g *Game) drawLabels(screen *ebiten.Image) {
 		case game.FXLesson:
 			name := game.Ladder[min(f.Slot, len(game.Ladder)-1)].Name
 			g.label(screen, g.face, "LEARNED "+name, x, y-s*1.1-float64(k)*s*1.2, fade(colLesson, a), true)
+		case game.FXData:
+			g.label(screen, g.small, fmt.Sprintf("+%.0f DATA", f.Value), x+s*0.3, y-s*0.7-float64(k)*s*1.1, fade(colData, a), true)
+		case game.FXSignal:
+			g.label(screen, g.face, "SIGNAL FRAGMENT", x, y-s*1.1-float64(k)*s*1.2, fade(colSignal, a), true)
+			g.label(screen, g.small, "HEX > GRID to light up the fog", x, y-s*0.4-float64(k)*s*1.2, fade(colText, a), true)
 		case game.FXFull:
 			g.label(screen, g.small, "PACK FULL", x, y-s*0.9-float64(k)*s, fade(colHot, a), true)
 		case game.FXNumber:
@@ -609,7 +614,10 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 
 	// Top left: depth and kills.
 	g.label(screen, g.face, fmt.Sprintf("DEPTH %d", sim.Depth), float64(u(14)), float64(u(20)), colText, false)
-	info := fmt.Sprintf("kills %d  best %d  lv %d  pack %d/%d", sim.Kills, sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)
+	info := fmt.Sprintf("data %d  best %d  lv %d  pack %d/%d", sim.DataTotal(), sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)
+	if sim.Unbanked > 0 {
+		info = fmt.Sprintf("data %d (%d unbanked)  best %d  lv %d  pack %d/%d", sim.DataTotal(), sim.Unbanked, sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)
+	}
 	if n := sim.Unsecured(); n > 0 {
 		info += fmt.Sprintf(" (%d new, safe at %d)", n, sim.NextCheckpoint())
 	}
@@ -817,11 +825,19 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 			g.label(screen, g.small, fmt.Sprintf("%d new parts left in a salvage cache on depth %d", d.Lost, d.From), float64(W/2), y, colSalvage, true)
 			y += float64(u(18))
 		}
-		if d.Gone > 0 {
-			g.label(screen, g.small, fmt.Sprintf("your old cache is gone for good (%d parts)", d.Gone), float64(W/2), y, colHot, true)
+		if d.Data > 0 {
+			g.label(screen, g.small, fmt.Sprintf("%d unbanked Data in the salvage crate on depth %d", d.Data, d.From), float64(W/2), y, colSalvage, true)
 			y += float64(u(18))
 		}
-		g.label(screen, g.small, "rig, hexes and the rest of your pack are safe", float64(W/2), y, colDim, true)
+		if d.LetGo > 0 {
+			g.label(screen, g.small, fmt.Sprintf("the grid let go of %d outer cells: buy them back at half price", d.LetGo), float64(W/2), y, colData, true)
+			y += float64(u(18))
+		}
+		if d.Gone > 0 || d.DataGone > 0 {
+			g.label(screen, g.small, fmt.Sprintf("your old cache is gone for good (%d parts, %d Data)", d.Gone, d.DataGone), float64(W/2), y, colHot, true)
+			y += float64(u(18))
+		}
+		g.label(screen, g.small, "rig, hexes, locker and the rest of your pack are safe", float64(W/2), y, colDim, true)
 		g.label(screen, g.small, "tap, Enter or Space to redeploy", float64(W/2), y+float64(u(24)), colDim, true)
 	}
 }

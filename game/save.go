@@ -288,10 +288,10 @@ func (s *Sim) Snapshot() Save {
 		Board:        append([]Spot(nil), s.Load.Spots...),
 		Tiles:        s.Tiles,
 		Mine:         s.Mine, Example: s.Example,
-		Data:         s.Data, Unbanked: s.Unbanked,
-		Own:          marks(s.Own), Seen: marks(s.Seen), Glimpse: marks(s.Glimpse), Reclaim: marks(s.Reclaim),
-		Locker:       append([]skill.Part(nil), s.Locker...),
-		Signals:      s.Signals, BoardKeys: s.BoardKeys, GridNewest: s.GridNewest, GridRingsSeen: s.GridRingsSeen,
+		Data: s.Data, Unbanked: s.Unbanked,
+		Own: marks(s.Own), Seen: marks(s.Seen), Glimpse: marks(s.Glimpse), Reclaim: marks(s.Reclaim),
+		Locker:  append([]skill.Part(nil), s.Locker...),
+		Signals: s.Signals, BoardKeys: s.BoardKeys, GridNewest: s.GridNewest, GridRingsSeen: s.GridRingsSeen,
 	}
 	switch s.State {
 	case Dead:

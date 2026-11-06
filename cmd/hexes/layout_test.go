@@ -47,12 +47,12 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 			}
 			top := l.shape.y + l.shape.h
 			// The PACK and FRAMES tabs sit over the grid, clear of it.
-			for _, r := range []rect{l.pack, l.frames} {
+			for _, r := range []rect{l.pack, l.locker, l.frames} {
 				if r.w/sc.k < 80 || r.h/sc.k < 28 || overlaps(r, l.cells[0]) || overlaps(r, l.cells[3]) || overlaps(r, l.info) || overlaps(r, l.shape) || overlaps(r, l.test) {
 					t.Errorf("%s %s: grid tab misplaced %+v", sc.name, k, r)
 				}
 			}
-			if overlaps(l.pack, l.frames) {
+			if overlaps(l.pack, l.frames) || overlaps(l.pack, l.locker) || overlaps(l.locker, l.frames) {
 				t.Errorf("%s %s: grid tabs overlap", sc.name, k)
 			}
 			if l.test.x < l.shape.x+l.shape.w || l.test.x+l.test.w > W || l.test.y != l.shape.y {
@@ -121,6 +121,54 @@ func TestBoardLayoutFits(t *testing.T) {
 				if overlaps(r, q) {
 					t.Errorf("%s: buttons overlap", sc.name)
 				}
+			}
+		}
+	}
+}
+
+// The grid tab: about four rings show at the starting zoom, cells are
+// big enough to tap, tapping a cell finds it, and the controls stay clear
+// of the grid.
+func TestGridLayoutFits(t *testing.T) {
+	for _, sc := range []struct {
+		name    string
+		w, h, k float64
+	}{
+		{"phone portrait", 390, 844, 3},
+		{"small phone", 360, 640, 2},
+		{"phone landscape", 844, 390, 3},
+		{"desktop", 1280, 800, 1},
+	} {
+		g := &Game{sim: game.New(1), w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
+		g.ed.gv.zoom = 1
+		l := g.edLayout()
+		b := g.gridLayout(&l)
+		if b.size/sc.k < 16 {
+			t.Errorf("%s: grid cells %.0f css px across", sc.name, 2*b.size/sc.k)
+		}
+		for i, n := range g.sim.Grid.Nodes {
+			x, y := b.at(n.At)
+			if n.Ring <= 3 && (x < b.area.x || x > b.area.x+b.area.w || y < b.area.y || y > b.area.y+b.area.h) {
+				t.Errorf("%s: ring %d cell off the grid area at the start", sc.name, n.Ring)
+			}
+			if got := g.gridCellAt(&b, x+b.size*0.3, y-b.size*0.3); got != i {
+				t.Fatalf("%s: tapping cell %d finds %d", sc.name, i, got)
+			}
+		}
+		btn := []rect{b.status, b.test, b.buy, b.signal, l.close, l.info}
+		for i, r := range btn {
+			if r.x < 0 || r.x+r.w > float64(g.w) || overlaps(r, b.area) {
+				t.Errorf("%s: control %d misplaced", sc.name, i)
+			}
+			for _, q := range btn[i+1:] {
+				if overlaps(r, q) {
+					t.Errorf("%s: controls %d overlap", sc.name, i)
+				}
+			}
+		}
+		for _, tb := range l.tabs {
+			if tb.x < 0 || tb.x+tb.w > float64(g.w) || overlaps(tb, b.area) || tb.w/sc.k < 50 {
+				t.Errorf("%s: tab misplaced or %.0f css px wide", sc.name, tb.w/sc.k)
 			}
 		}
 	}

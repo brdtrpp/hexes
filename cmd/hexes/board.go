@@ -60,6 +60,9 @@ type pointer struct {
 func (g *Game) setBoard(on bool) {
 	e := &g.ed
 	e.board, e.pick, e.shape = on, pickNone, false
+	if on {
+		e.grid = false
+	}
 	if !on {
 		return
 	}
@@ -268,9 +271,13 @@ func (g *Game) boardTap(x, y float64) {
 	l := g.edLayout()
 	b := g.boardLayout(&l)
 	for i, t := range l.tabs {
-		if t.hit(x, y) {
-			if i == game.MaxSlots {
+		if t.hit(x, y) && g.edTabOn(i) {
+			switch i {
+			case game.MaxSlots:
 				return // already here
+			case game.MaxSlots + 1:
+				g.setGrid(true)
+				return
 			}
 			e.hex, e.board, e.pick, e.msg = i, false, pickNone, ""
 			return

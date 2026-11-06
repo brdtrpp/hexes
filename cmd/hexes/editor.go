@@ -40,7 +40,8 @@ const (
 	pickNone = iota
 	pickSlot
 	pickCell
-	pickFrame // a frame on the rack: at indexes FrameChoices
+	pickFrame  // a frame on the rack: at indexes FrameChoices
+	pickLocker // a part in the locker: at indexes Locker
 )
 
 type editor struct {
@@ -64,6 +65,12 @@ type editor struct {
 	// help is set while the ? is on: a picked part shows one plain
 	// sentence instead of its numbers.
 	help bool
+	// locker is set while the strip shows the locker, lpage is which
+	// twelve. grid is set while the skill grid is on show (gridview.go).
+	locker bool
+	lpage  int
+	grid   bool
+	gv     gridView
 }
 
 type rect struct{ x, y, w, h float64 }
@@ -72,7 +79,7 @@ func (r rect) hit(x, y float64) bool { return x >= r.x && y >= r.y && x < r.x+r.
 
 // edLayout is where everything sits for the current window.
 type edLayout struct {
-	tabs         [game.MaxSlots + 1]rect // the four hexes, then BOARD
+	tabs         [game.MaxSlots + 2]rect // the four hexes, BOARD, then GRID
 	ringX, ringY float64
 	slotR        float64
 	gridX, gridY float64 // where the shape's middle cell (0,0) sits
@@ -84,6 +91,7 @@ type edLayout struct {
 	capX, capY   float64 // where the shape caption starts
 	cells        [loot.InventorySize]rect
 	pack, frames rect // the PACK and FRAMES tabs over the grid
+	locker       rect // the LOCKER tab between them
 	close, scrap rect
 	info         rect
 	// bind is the hex's cast button: tap it to move the hex to the next.
@@ -187,12 +195,13 @@ func (g *Game) edLayout() edLayout {
 	}
 	l.plate = sh.Kind == skill.ShapeRing || sh.Kind == skill.ShapeLoop
 	l.slotR = R * 0.54
-	// PACK and FRAMES tabs over the grid.
+	// PACK, LOCKER and FRAMES tabs over the grid.
 	stripH := 30 * k
-	half := (math.Min(grid.w, 4*96*k) - gap) / 2
-	sx := grid.x + (grid.w-(2*half+gap))/2
-	l.pack = rect{sx, grid.y, half, stripH}
-	l.frames = rect{sx + half + gap, grid.y, half, stripH}
+	third := (math.Min(grid.w, 4*110*k) - 2*gap) / 3
+	sx := grid.x + (grid.w-(3*third+2*gap))/2
+	l.pack = rect{sx, grid.y, third, stripH}
+	l.locker = rect{sx + third + gap, grid.y, third, stripH}
+	l.frames = rect{sx + 2*(third+gap), grid.y, third, stripH}
 	grid.y += stripH + 6*k
 	grid.h -= stripH + 6*k
 	cg := 6 * k
@@ -226,6 +235,9 @@ func (g *Game) openEditor() {
 	if g.ed.rack && !g.sim.Has(game.UFrames) {
 		g.ed.rack = false
 	}
+	if g.ed.grid {
+		g.setGrid(true)
+	}
 	g.cd.on, g.tm.on = false, false
 	g.stick.End() // a thumb on the stick shouldn't keep walking after
 
@@ -253,11 +265,21 @@ func (g *Game) updateEditor() bool {
 	}
 	for i, key := range []ebiten.Key{ebiten.KeyDigit1, ebiten.KeyDigit2, ebiten.KeyDigit3, ebiten.KeyDigit4} {
 		if inpututil.IsKeyJustPressed(key) && g.edTabOn(i) {
-			g.ed.hex, g.ed.pick, g.ed.board = i, pickNone, false
+			g.ed.hex, g.ed.pick, g.ed.board, g.ed.grid = i, pickNone, false, false
 		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyG) && g.edTabOn(game.MaxSlots+1) && !g.cd.on && !g.tm.on {
+		g.setGrid(!g.ed.grid)
+	}
+	if g.ed.grid && !g.cd.on && !g.tm.on {
+		g.updateGrid()
+		return true
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyB) && g.sim.Has(game.UBoard) {
 		g.setBoard(!g.ed.board)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyL) && !g.ed.board && !g.cd.on && !g.tm.on {
+		g.edShowLocker()
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF) && g.sim.Has(game.UFrames) && !g.ed.board && !g.cd.on && !g.tm.on {
 		g.edShowRack(!g.ed.rack)
@@ -295,11 +317,14 @@ func (g *Game) edTap(x, y float64) {
 	e.confirm = -1
 	for i, t := range l.tabs {
 		if t.hit(x, y) && g.edTabOn(i) {
-			if i == game.MaxSlots {
+			switch i {
+			case game.MaxSlots:
 				g.setBoard(true)
-				return
+			case game.MaxSlots + 1:
+				g.setGrid(true)
+			default:
+				e.hex, e.pick, e.msg = i, pickNone, ""
 			}
-			e.hex, e.pick, e.msg = i, pickNone, ""
 			return
 		}
 	}
@@ -320,12 +345,29 @@ func (g *Game) edTap(x, y float64) {
 		g.edShowRack(false)
 		return
 	}
+	if l.locker.hit(x, y) {
+		if e.pick == pickCell && inv.Has[e.at] {
+			// A picked pack part tapped onto LOCKER moves there.
+			if err := sim.PackToLocker(e.at); err != nil {
+				e.msg, e.bad = upFirst(err.Error())+".", true
+				return
+			}
+			e.pick, e.msg, e.bad = pickNone, "Moved to the locker.", false
+			return
+		}
+		g.edShowLocker()
+		return
+	}
 	if l.frames.hit(x, y) && sim.Has(game.UFrames) {
 		g.edShowRack(true)
 		return
 	}
 	if l.scrap.hit(x, y) && e.rack {
 		g.edScrapFrame()
+		return
+	}
+	if l.scrap.hit(x, y) && e.locker {
+		e.msg, e.bad = "Locker parts are yours for good: they can't be scrapped.", true
 		return
 	}
 	if l.scrap.hit(x, y) {
@@ -390,6 +432,8 @@ func (g *Game) edTap(x, y float64) {
 		switch {
 		case e.pick == pickFrame:
 			g.edFitFrame(i, confirm == i)
+		case e.pick == pickLocker:
+			g.edResult(sim.LockerIn(e.hex, i, e.at))
 		case e.pick == pickCell && inv.Has[e.at] && inv.Parts[e.at].Kind == skill.KindMult &&
 			hs.Kind == skill.SlotPart && hs.Part.RunsNow():
 			// A multiplier dropped on a library call rides on it as an
@@ -421,6 +465,10 @@ func (g *Game) edTap(x, y float64) {
 		}
 		if e.rack {
 			g.edRackTap(i)
+			return
+		}
+		if e.locker {
+			g.edLockerTap(i)
 			return
 		}
 		switch {
@@ -488,10 +536,10 @@ func (g *Game) edShowRack(on bool) {
 	} else {
 		e.page = 0
 	}
-	if e.pick == pickCell || e.pick == pickFrame {
+	if e.pick == pickCell || e.pick == pickFrame || e.pick == pickLocker {
 		e.pick = pickNone
 	}
-	e.rack, e.msg, e.bad = on, "", false
+	e.rack, e.locker, e.msg, e.bad = on, false, "", false
 	if on && len(g.sim.FrameChoices()) == 0 {
 		e.msg = "No frames yet: they drop from foes, elites most. TEST unlocks every one to try."
 	}
@@ -794,6 +842,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 			g.drawBoardTab(screen, t)
 			continue
 		}
+		if i == game.MaxSlots+1 {
+			g.drawGridTab(screen, t)
+			continue
+		}
 		fill, edge := colPanel, fade(slotCol[i], 0.45)
 		if i == e.hex {
 			fill, edge = fade(slotCol[i], 0.25), slotCol[i]
@@ -821,6 +873,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	}
 	if e.board {
 		g.drawBoard(screen)
+		return
+	}
+	if e.grid {
+		g.drawGrid(screen)
 		return
 	}
 	// The shape: edges first, then the center plate (shapes without a
@@ -982,6 +1038,15 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 			}
 			g.frameTile(screen, c.x+c.w/2, c.y+c.h/2, c.w*0.5, f, i < len(page), e.pick == pickFrame && e.at == lo+i)
 		}
+	} else if e.locker {
+		page, lo := g.edLocker()
+		for i, c := range l.cells {
+			var p skill.Part
+			if i < len(page) {
+				p = page[i]
+			}
+			g.partTile(screen, c.x+c.w/2, c.y+c.h/2, c.w*0.5, false, p, i < len(page), e.pick == pickLocker && e.at == lo+i)
+		}
 	} else {
 		for i, c := range l.cells {
 			g.partTile(screen, c.x+c.w/2, c.y+c.h/2, c.w*0.5, false, inv.Parts[i], inv.Has[i], e.pick == pickCell && e.at == i)
@@ -1020,6 +1085,13 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		if game.IsTestFrame(pf) {
 			info += " Test frame: free to try."
 		}
+	case e.pick == pickLocker && e.at < len(sim.Locker) && e.help:
+		info, ic = game.PlainHelp(sim.Locker[e.at]), colText
+	case e.pick == pickLocker && e.at < len(sim.Locker) && e.msg != "" && e.bad:
+		info, ic = e.msg, colHot
+	case e.pick == pickLocker && e.at < len(sim.Locker):
+		p := sim.Locker[e.at]
+		info, ic = "Green slots are where it does something. "+loot.Describe(p, sim.Reg), rarityCol[p.Rarity]
 	case e.pick == pickCell && inv.Has[e.at] && e.msg != "" && e.bad:
 		info, ic = e.msg, colHot // why it can't go there
 	case e.pick == pickCell && inv.Has[e.at]:
@@ -1094,6 +1166,9 @@ func (g *Game) edLit(i int) (ok, held bool) {
 	switch {
 	case e.pick == pickCell && sim.Stash.Inv.Has[e.at]:
 		_, ok = sim.PreviewIn(e.hex, i, e.at)
+		return ok, true
+	case e.pick == pickLocker && e.at < len(sim.Locker):
+		_, ok = sim.PreviewPart(e.hex, i, sim.Locker[e.at])
 		return ok, true
 	case e.pick == pickSlot && e.at != i && sim.Load.Hex(e.hex).Slots[e.at].Kind == skill.SlotPart:
 		_, ok = sim.PreviewSwap(e.hex, e.at, i)
@@ -1461,16 +1536,20 @@ func (g *Game) drawGridTabs(dst *ebiten.Image, l *edLayout) {
 		name string
 		on   bool
 	}{
-		{l.pack, fmt.Sprintf("PACK %d/%d", g.sim.Stash.Inv.Count(), loot.InventorySize), !e.rack},
+		{l.pack, fmt.Sprintf("PACK %d/%d", g.sim.Stash.Inv.Count(), loot.InventorySize), !e.rack && !e.locker},
+		{l.locker, fmt.Sprintf("LOCKER %d", len(g.sim.Locker)), e.locker},
 		{l.frames, fmt.Sprintf("FRAMES %d", len(g.sim.Frames)), e.rack},
 	}
 	if !g.sim.Has(game.UFrames) {
-		tabs = tabs[:1]
+		tabs = tabs[:2]
 	} else {
 		g.newPulse(dst, l.frames, g.teach.edNewU(game.UFrames))
 	}
 	if e.rack && n > loot.InventorySize {
-		tabs[1].name = fmt.Sprintf("FRAMES %d/%d", e.page+1, (n+loot.InventorySize-1)/loot.InventorySize)
+		tabs[2].name = fmt.Sprintf("FRAMES %d/%d", e.page+1, (n+loot.InventorySize-1)/loot.InventorySize)
+	}
+	if m := len(g.sim.Locker); e.locker && m > loot.InventorySize {
+		tabs[1].name = fmt.Sprintf("LOCKER %d/%d", e.lpage+1, (m+loot.InventorySize-1)/loot.InventorySize)
 	}
 	for _, t := range tabs {
 		fill, edge, c := colPanel, fade(colDim, 0.5), colDim
@@ -1479,5 +1558,56 @@ func (g *Game) drawGridTabs(dst *ebiten.Image, l *edLayout) {
 		}
 		g.drawRect(dst, t.r, fill, edge)
 		g.label(dst, g.small, t.name, t.r.x+t.r.w/2, t.r.y+t.r.h/2, c, true)
+	}
+}
+
+// edShowLocker switches the strip to the locker. Tapping LOCKER while it
+// shows turns the page when it holds more than twelve parts.
+func (g *Game) edShowLocker() {
+	e := &g.ed
+	if e.locker {
+		if n := len(g.sim.Locker); n > loot.InventorySize {
+			e.lpage = (e.lpage + 1) % ((n + loot.InventorySize - 1) / loot.InventorySize)
+		}
+	} else {
+		e.lpage = 0
+	}
+	if e.pick == pickCell || e.pick == pickFrame || e.pick == pickLocker {
+		e.pick = pickNone
+	}
+	e.locker, e.rack, e.msg, e.bad = true, false, "", false
+	if len(g.sim.Locker) == 0 {
+		e.msg = "The locker holds what you buy on the GRID. Nothing here yet."
+	}
+}
+
+// edLocker is the locker page on show: up to twelve parts and the index
+// of the first.
+func (g *Game) edLocker() ([]skill.Part, int) {
+	all := g.sim.Locker
+	lo := min(g.ed.lpage*loot.InventorySize, len(all))
+	hi := min(lo+loot.InventorySize, len(all))
+	return all[lo:hi], lo
+}
+
+// edLockerTap picks a locker part, puts one down, or takes the picked
+// slot's part out into the locker.
+func (g *Game) edLockerTap(cell int) {
+	e, sim := &g.ed, g.sim
+	page, lo := g.edLocker()
+	switch {
+	case e.pick == pickSlot:
+		if err := sim.LockerOut(e.hex, e.at); err != nil {
+			e.msg, e.bad = upFirst(err.Error())+".", true
+			return
+		}
+		g.edResult(nil)
+		e.msg = "Into the locker. " + e.msg
+	case cell >= len(page):
+		e.pick, e.msg, e.bad = pickNone, "", false
+	case e.pick == pickLocker && e.at == lo+cell:
+		e.pick, e.msg = pickNone, ""
+	default:
+		e.pick, e.at, e.msg, e.bad = pickLocker, lo+cell, "", false
 	}
 }

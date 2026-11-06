@@ -426,3 +426,16 @@ func Purge(heat float32) Sound {
 	s.Gain = 1
 	return s
 }
+
+// Chime is a grid node bought: two bright bell notes a fifth apart, the
+// second a beat later, over a short sparkle. rare lifts it an octave step
+// per rarity.
+func Chime(rare int) Sound {
+	var s Sound
+	f := float32(660) * float32(math.Pow(1.122, float64(min(max(rare, 0), 3))))
+	s.Add(Layer{Wave: FM, F0: f, FMRatio: 3.5, FMIndex: 0.8, Attack: 0.002, Decay: 0.5, Gain: 0.2})
+	s.Add(Layer{Wave: FM, F0: f * 1.5, FMRatio: 3.5, FMIndex: 0.7, Delay: 0.08, Attack: 0.002, Decay: 0.7, Gain: 0.17})
+	s.Add(Layer{Wave: Noise, Attack: 0.01, Decay: 0.25, HP: 6000, LP0: 9000, LP1: 6000, Gain: 0.05})
+	s.Gain = 1
+	return s
+}

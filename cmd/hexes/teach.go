@@ -84,6 +84,9 @@ func (g *Game) edTabOn(i int) bool {
 	if i == game.MaxSlots {
 		return g.sim.Has(game.UBoard)
 	}
+	if i == game.MaxSlots+1 {
+		return g.sim.Has(game.UBench)
+	}
 	return g.sim.HexOpen(i)
 }
 

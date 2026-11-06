@@ -327,6 +327,22 @@ No recorded files. Every sound is synthesized while it plays from oscillators (s
 
 Speed and mix: one Ebitengine player pulls 32-bit float stereo from one mixer (`sfx.Mixer`, an endless `io.Reader`) with a 20-voice cap; a new voice takes over the quietest. Pitch and filter sweeps update every 32 samples. `sfx.Director` keeps fights readable: the same sound can't retrigger within 40 to 70 ms, a game step starts at most 5 sounds, sounds pan with position and fade with distance, and far-off ones are dropped. A full 20 voices mix in about 1% of a desktop core (`go test ./sfx -bench .`). Muted, the player pauses and the synth costs nothing. Settings live under `hexes.volume` and `hexes.mute`.
 
+## Skill grid (`game/grid.go`, `game/gridplay.go`, `cmd/hexes/gridview.go`)
+
+Skills come from one big hexagon grid rolled from the save's seed, as the design doc "Hexes: the skill grid" lays out. 14 rings around the starter hex (631 cells) on a new save, one more ring per 10 depths past 30. Each ring is cut into six wedges; a wedge leans mildly to one damage type (about 40% of its effects). From ring 3 about 12% of cells are voids, placed so every cell stays reachable. Ring k teaches the ladder's idea for that ring: at least 40% of its cells, and at least one in each pair of wedges, are copies of that idea (ring 1 damage effects, 2 targets, 3 triggers, 4 multipliers, 5 sustain, 6 frames, 7 shapes, 8 gates, 9 charges, 10 calls plus three board keystones, 11 everything). Guarantees: a cryo damage effect in ring 1, an adjacent target in ring 2, a trigger in every wedge of ring 3. Rings 1 to 11 open with the ladder lessons, 12 to 14 at best depth 20, 25 and 30. Growth keeps every inner cell as it was.
+
+**Data.** Kills pay 2 (brute 5, elite 12), half on a floor more than 3 above your best. The first time you reach a depth pays 30 + 5 a depth. Salvage pays its crate's Data plus 10, scrapping a pack part or frame pays 3. New Data is unbanked until the next checkpoint; dying drops unbanked Data in the salvage crate. A new save starts with 15.
+
+**Buying.** At a workbench, HEX > GRID (or G). Tap a cell next to one you own and hold BUY for 0.4 s. Cost is 15 + 8 per ring, times 1, 1.25, 1.6 or 2 by rarity; a board keystone is 40. Parts go to the LOCKER (an unlimited, secured list beside PACK in the editor: pick a locker part, tap a slot; pick a slot, tap the locker to take its part out; a secured pack part tapped onto LOCKER moves there). Frames go to the rack, shapes to your shapes, tiles to your tiles. No selling.
+
+**Fog.** You see the cells next to yours. Uncommon cells glow from 2 steps, rare 3, exotic 4 (just the glow). A signal fragment (1% a kill, 10% from an elite) lights the kinds within 2 cells of where you aim it. TEST opens every ring and lifts the fog; buying still costs Data.
+
+**Death.** On top of the one floor fall (FallMin is now 1), the grid lets go of 8% of your owned cells (2 to 10, half in the mercy window), outermost ring first, never cutting the region in two or taking the start. Let-go cells become reclaim cells: half price, and you keep what they gave you.
+
+**Drops.** Floor loot is now rare extras (grunt 6%, skitter 4%, brute 11%, elite 30%), only of part kinds you own on the grid, at up to the best rarity you own. Shapes and frames no longer drop. Where a part used to drop, foes leave a small Data shard instead.
+
+Save version 3 adds the grid marks, Data, locker and signals; older saves start fresh.
+
 ## Cast buttons and workbenches (`game/bench.go`, `cmd/hexes/bench.go`)
 
 Cast buttons: every hex whose trigger is on cast or hold gets a cast button, 1 to 4. A hex that becomes castable (a CAST trigger swapped in) takes the lowest free button, so two cast hexes are two buttons, not one press that fires both. At a workbench the editor's BUTTON switch moves the hex on show to the next button; two hexes on the same button make a combo, one press fires both in slot order. Hexes with any other trigger (on hit, on kill, every N s, watch) have no button: the trigger part decides whether a hex is cast by hand, the button only decides where. Nothing auto-casts.

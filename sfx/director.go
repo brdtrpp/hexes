@@ -210,3 +210,6 @@ func (d *Director) Hear(e *game.FX, lx, ly float64) {
 		}
 	}
 }
+
+// Chime plays a grid node bought, brighter for a rarer one.
+func (d *Director) Chime(rare int) { d.M.Play(Chime(rare)) }

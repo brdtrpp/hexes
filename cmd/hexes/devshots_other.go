@@ -13,6 +13,8 @@ package main
 // HEXES_FRAMES=buttons puts cast triggers in hexes 2 and 4, so three cast
 // buttons show; HEXES_FRAMES=bind does that and opens the editor;
 // HEXES_FRAMES=bench stands still beside the start bench.
+// HEXES_FRAMES=grid opens the skill grid on a save a few floors in;
+// HEXES_FRAMES=locker opens the locker on that save.
 // Without HEXES_SHOTS it does nothing.
 
 import (
@@ -56,7 +58,8 @@ func (g *Game) devInput(in *game.Input) {
 				_ = g.sim.LoadExample(n)
 			}
 			g.devFrames(os.Getenv("HEXES_FRAMES"))
-			d.still = os.Getenv("HEXES_FRAMES") == "bench"
+			m := os.Getenv("HEXES_FRAMES")
+			d.still = m == "bench" || m == "grid" || m == "locker"
 		}
 	}
 	if d.dir == "" || d.still {
@@ -145,6 +148,35 @@ func (g *Game) devFrames(mode string) {
 			g.openEditor()
 			g.ed.hex = 1
 			g.edBind()
+		}
+	case "grid", "locker":
+		// A save a few floors in: the ladder at frames, Data to spend, a
+		// path bought out along one wedge, one cell lost to a death.
+		s.Taught, s.Best = 7, 6
+		s.Data, s.Unbanked, s.Signals = 400, 23, 2
+		bought := 0
+		for k := 1; k <= 6 && bought < 12; k++ {
+			for i := game.RingStart(k); i < game.RingStart(k+1) && bought < 2*k; i++ {
+				if _, err := s.CanBuy(i); err == nil {
+					_ = s.Buy(i)
+					bought++
+				}
+			}
+		}
+		s.Data = 140
+		g.openEditor()
+		if mode == "grid" {
+			g.setGrid(true)
+			for i := len(s.Grid.Nodes) - 1; i >= 0; i-- {
+				if s.GridDist(i) == 1 && s.CellView(i) == game.ViewCard {
+					g.ed.gv.sel = i
+					g.ed.msg = ""
+					break
+				}
+			}
+		} else {
+			g.edShowLocker()
+			g.ed.pick, g.ed.at = pickLocker, 0
 		}
 	case "floor":
 		p := s.P()
