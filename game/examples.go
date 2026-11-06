@@ -65,6 +65,13 @@ func condGate(ts ...skill.Tile) skill.Part {
 	return skill.NewGate(skill.GateHull, 0.5).WithCond(tiles(ts...))
 }
 
+// heated makes a rare multiplier with the Heated quirk.
+func heated(p skill.Part) skill.Part {
+	p = p.WithRarity(skill.Rare)
+	p.Quirk = skill.QuirkHeated
+	return p
+}
+
 // Examples builds the examples for a type registry.
 func Examples(reg *skill.Registry) []Example {
 	ty := reg.MustID
@@ -293,6 +300,69 @@ func Examples(reg *skill.Registry) []Example {
 					4: skill.NewDamage(ty("kinetic"), 30),
 					5: skill.NewCost(skill.CostBlood),
 				}), "Blood Price", "paid in hull; hits harder when you're low"},
+			}},
+		{Name: "Ranger", Blurb: "marks, a volley that hits them hard, a trap",
+			Hexes: []ExampleHex{
+				{exHex("Tag", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetNearest, 0, 1),
+					2: skill.NewStatus(ty("drone"), 5),
+					3: skill.NewDamage(ty("kinetic"), 12),
+				}), "Tag", "mark the nearest foe for 5 s"},
+				{exHex("Volley", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetMarked, float32(skill.NearestReach), 3),
+					2: skill.NewDamage(ty("plasma"), 24),
+					3: skill.NewMarkedMult(2),
+				}), "Volley", "shoots up to 3 marked foes, double on marks"},
+				{exHex("Pin", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormTrap),
+					2: skill.NewStatus(ty("cryo"), 2),
+					3: skill.NewDamage(ty("kinetic"), 20),
+				}), "Pin", "a trap that chills 4 times"},
+			}},
+		{Name: "Berserker", Blurb: "hits harder hot; a vent that bursts",
+			Hexes: []ExampleHex{
+				{exHex("Frenzy", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetAdjacent, 2, 0),
+					2: skill.NewDamage(ty("kinetic"), 30),
+					3: heated(skill.NewMult(skill.VerbDamage, 1.5)),
+				}), "Frenzy", "cleave; the hotter your rig, the harder it hits"},
+				{exHex("Rage", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnHurt),
+					1: skill.NewTarget(skill.TargetSelf, 0, 0),
+					2: skill.NewHurtGate(0.5),
+					3: skill.NewHaste(2),
+				}), "Rage", "under half hull, every hit you take speeds you up"},
+				{exHex("Release", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnVent),
+					1: skill.NewForm(skill.FormNova),
+					2: skill.NewDamage(ty("plasma"), 40),
+				}), "Release", "VENT and the Heat bursts out around you"},
+			}},
+		{Name: "Druid", Blurb: "three stances to switch between, and a shot",
+			Hexes: []ExampleHex{
+				{exHex("Bark", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewStance(skill.StanceBulwark),
+				}), "Bark", "a stance: tougher, slower"},
+				{exHex("Prowl", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewStance(skill.StanceHunter),
+				}), "Prowl", "a stance: faster and harder, but frailer"},
+				{exHex("Ember", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewStance(skill.StanceFurnace),
+					2: skill.NewForm(skill.FormAura),
+					3: skill.NewStatus(ty("plasma"), 2),
+				}), "Ember", "a stance: cools fast, and burns all near you"},
+				{exHex("Thorn", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetNearest, 0, 1),
+					2: skill.NewDamage(ty("nanite"), 26),
+				}), "Thorn", "a plain shot for any stance"},
 			}},
 	}
 }

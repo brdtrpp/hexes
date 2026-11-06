@@ -288,3 +288,70 @@ func TestDotsAndMinionsBreakStealth(t *testing.T) {
 		t.Fatal("a minion's blow left you hidden")
 	}
 }
+
+func TestRangerKit(t *testing.T) {
+	s := classSim(t, "Ranger")
+	f := foeAt(s, 0, 3, 1e5)
+	g := foeAt(s, 1, 3, 1e5)
+	s.refreshSight()
+	// Volley finds nobody until Tag marks someone.
+	if o := s.Disp.Cast(s.Player, 0, f); o != skill.Fired {
+		t.Fatalf("tag %s", o)
+	}
+	if s.Actors[f].U.MarkLeft <= 0 {
+		t.Fatal("tag didn't mark")
+	}
+	cool(s)
+	hf, hg := s.Actors[f].U.HP, s.Actors[g].U.HP
+	if o := s.Disp.Cast(s.Player, 1, f); o != skill.Fired {
+		t.Fatalf("volley %s", o)
+	}
+	if s.Actors[f].U.HP >= hf || s.Actors[g].U.HP != hg {
+		t.Fatalf("volley should hit only the mark: %v %v", hf-s.Actors[f].U.HP, hg-s.Actors[g].U.HP)
+	}
+}
+
+func TestBerserkerKit(t *testing.T) {
+	s := classSim(t, "Berserker")
+	f := foeAt(s, 0, 1, 1e5)
+	s.refreshSight()
+	// Frenzy hits harder hot than cool.
+	hp := s.Actors[f].U.HP
+	s.Disp.Cast(s.Player, 0, f)
+	coolHit := hp - s.Actors[f].U.HP
+	cool(s)
+	s.Rig.Heat = 80
+	hp = s.Actors[f].U.HP
+	s.Disp.Cast(s.Player, 0, f)
+	if hot := hp - s.Actors[f].U.HP; hot <= coolHit {
+		t.Fatalf("heated frenzy %.1f, cool %.1f", hot, coolHit)
+	}
+	// Release fires on a vent. (Frenzy shoved f away; a fresh one stands
+	// beside you.)
+	f = foeAt(s, 3, 1, 1e5)
+	s.refreshSight()
+	before := s.Disp.Stats.Fired
+	hp = s.Actors[f].U.HP
+	s.Input.Vent = true
+	s.Step(1.0 / 60)
+	s.Input.Vent = false
+	if s.Disp.Stats.Fired == before || s.Actors[f].U.HP >= hp {
+		t.Fatalf("release: before %d hp %.1f->%.1f heat %.0f %+v", before, hp, s.Actors[f].U.HP, s.Rig.Heat, s.Disp.Stats)
+	}
+}
+
+func TestDruidKit(t *testing.T) {
+	s := classSim(t, "Druid")
+	f := foeAt(s, 0, 3, 1e5)
+	s.refreshSight()
+	for slot, k := range []skill.StanceKind{skill.StanceBulwark, skill.StanceHunter, skill.StanceFurnace} {
+		cool(s)
+		if o := s.Disp.Cast(s.Player, slot, f); o != skill.Fired {
+			t.Fatalf("stance %d: %s", slot, o)
+		}
+		s.stances()
+		if s.Stance != 1<<k {
+			t.Fatalf("after slot %d stances are %b", slot, s.Stance)
+		}
+	}
+}
