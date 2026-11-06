@@ -20,7 +20,21 @@ const (
 	// KindCall runs another equipped hex, or its own hex again, once this
 	// one finishes. See the call rules on Compile.
 	KindCall
+	// KindForm is how a hex shows up in the world: a bolt, a beam, an
+	// aura, a nova, a dash, a detonation, or something it leaves behind
+	// (a zone, a turret, a trap, a drone). It sits in a target socket and
+	// picks who the slots beside it hit, like a target does.
+	KindForm
+	// KindCost changes what a hex burns when it fires: hull instead of
+	// Heat (sacrifice), or wrecks (a rare cost).
+	KindCost
+	// KindStance makes a hex an always-on mode: casting it toggles it,
+	// and while it's on it swaps the rig's stats and pulses its effects.
+	KindStance
 )
+
+// NumPartKinds is how many part kinds exist, KindNone included.
+const NumPartKinds = 11
 
 func (k PartKind) String() string {
 	switch k {
@@ -38,6 +52,12 @@ func (k PartKind) String() string {
 		return "charge"
 	case KindCall:
 		return "call"
+	case KindForm:
+		return "form"
+	case KindCost:
+		return "cost"
+	case KindStance:
+		return "stance"
 	}
 	return "none"
 }
@@ -55,19 +75,25 @@ const (
 	OnHurt                         // caster takes a hit; subject is the attacker
 	Channel                        // fires every ChannelEvery seconds while CAST is held
 	Watch                          // fires when its condition or library hex comes out true
+	OnWreck                        // a foe within WreckRange leaves a wreck; subject is the wreck
+	OnDodge                        // a shot passes within a hex of the caster and misses
+	OnVent                         // the caster vents; subject is the nearest foe
 )
 
 // NumTriggers is how many trigger kinds exist.
-const NumTriggers = 9
+const NumTriggers = 12
 
-var triggerNames = [...]string{"on-cast", "on-hit", "on-kill", "from-stealth", "from-behind", "periodic", "on-hurt", "channel", "watch"}
+// WreckRange is how near a wreck has to fall to fire on-wreck hexes.
+const WreckRange = 6
+
+var triggerNames = [...]string{"on-cast", "on-hit", "on-kill", "from-stealth", "from-behind", "periodic", "on-hurt", "channel", "watch", "on-wreck", "on-dodge", "on-vent"}
 
 // Tier is how rare a trigger kind is: it drops only at that tier.
 func (t TriggerKind) Tier() Rarity {
 	switch t {
 	case OnCast:
 		return Common
-	case OnHit, OnKill, OnHurt:
+	case OnHit, OnKill, OnHurt, OnWreck:
 		return Uncommon
 	case Watch:
 		return Exotic
@@ -103,9 +129,35 @@ const (
 	TargetCone                       // foes in a wedge out from the origin, Value hexes long
 	TargetAdjacent                   // foes within Value hexes of the origin, origin excluded
 	TargetChain                      // hop to the nearest unvisited foe Count times
+	TargetWreck                      // the nearest Count wrecks within Value hexes of the origin
+	TargetWeakest                    // the Count foes in reach with the least hull left, by share
+	TargetMarked                     // up to Count marked foes in reach, nearest first
+
+	// The rest only come from forms (see Form), never as target parts.
+
+	TargetLine   // foes on a line from the origin toward the nearest foe, Value hexes long
+	TargetBoth   // a line both ways
+	TargetAllies // the caster and its allies (minions, devices) within Value hexes of the origin
+	TargetAura   // foes within Value hexes of the caster or any of its allies
 )
 
-var targetNames = [...]string{"self", "nearest", "cone", "adjacent", "chain"}
+// NumTargetParts is how many target kinds drop as target parts.
+const NumTargetParts = 8
+
+var targetNames = [...]string{"self", "nearest", "cone", "adjacent", "chain", "wreck", "weakest", "marked", "line", "both", "allies", "aura"}
+
+// Counted reports whether the target picks at most Count.
+func (t TargetKind) Counted() bool {
+	switch t {
+	case TargetNearest, TargetChain, TargetWreck, TargetWeakest, TargetMarked:
+		return true
+	}
+	return false
+}
+
+// Ranged reports whether the target's Value is a radius or length a
+// radius multiplier stretches.
+func (t TargetKind) Ranged() bool { return t != TargetSelf && t != TargetNearest }
 
 func (t TargetKind) String() string { return targetNames[t] }
 
@@ -127,18 +179,57 @@ const (
 	// it lands on (the caster with no target beside it), soaking hits
 	// until it runs out or ShieldTime passes (see Unit.AddShield).
 	EffectShield
+	// EffectTaunt forces the foes it lands on to come at the caster for
+	// Value seconds, dealing TauntCut less while they do.
+	EffectTaunt
+	// EffectThorns hands back ThornsFrac of every hit the caster takes to
+	// whoever dealt it, for Value seconds.
+	EffectThorns
+	// EffectReanimate raises the wrecks it lands on as the caster's
+	// drones for Value seconds. With no target beside it, it finds the
+	// nearest wreck.
+	EffectReanimate
+	// EffectHaste speeds the caster up by HasteFrac for Value seconds.
+	EffectHaste
+	// EffectBlink jumps the caster Value hexes: next to the target beside
+	// it, or away from the nearest foe with none.
+	EffectBlink
 )
 
 // NumEffects is how many effect kinds exist.
-const NumEffects = 6
+const NumEffects = 11
 
-var effectNames = [...]string{"damage", "push", "status", "mend", "purge", "shield"}
+// Tuning for the newer effects.
+const (
+	TauntCut   = 0.25 // a taunted foe deals this much less
+	ThornsFrac = 0.5  // share of a hit thorns hand back
+	HasteFrac  = 0.35 // how much faster haste moves you
+	// AmbushMult is how hard the first hit out of stealth lands. Any hit
+	// breaks stealth.
+	AmbushMult = 2
+	// MinionMax is how many raised drones one caster keeps; raising
+	// more lets the oldest go.
+	MinionMax = 4
+	// MinionLife is how long a drone raised by a kill lasts.
+	MinionLife = 10
+	// RiderTime is the status a Rider damage effect leaves; RiderHit is
+	// the damage a Rider status effect deals.
+	RiderTime = 1.5
+	RiderHit  = 6
+	RiderCost = 0.3 // a rider costs this much more
+)
+
+var effectNames = [...]string{"damage", "push", "status", "mend", "purge", "shield", "taunt", "thorns", "reanimate", "haste", "blink"}
 
 func (e EffectKind) String() string { return effectNames[e] }
 
 // Sustain reports whether the effect keeps you going (mend, purge,
 // shield) rather than acting on foes.
 func (e EffectKind) Sustain() bool { return e == EffectMend || e == EffectPurge || e == EffectShield }
+
+// OnSelf reports whether the effect only ever lands on the caster
+// (thorns, haste), whoever sits beside it.
+func (e EffectKind) OnSelf() bool { return e == EffectThorns || e == EffectHaste }
 
 // Typed reports whether the effect carries a damage type: damage and
 // status effects do; push and the sustain effects don't.
@@ -150,8 +241,10 @@ func (e EffectKind) Verb() Verb {
 	switch e {
 	case EffectPush:
 		return VerbPush
-	case EffectStatus:
+	case EffectStatus, EffectTaunt, EffectThorns, EffectReanimate, EffectHaste:
 		return VerbDuration
+	case EffectBlink:
+		return VerbPush
 	}
 	return VerbDamage
 }
@@ -166,9 +259,10 @@ const (
 	VerbCount                // target count and chain hops
 	VerbRadius               // target radius and cone length
 	VerbAll                  // every number above
+	VerbMarked               // damage, but only on marked foes
 )
 
-var verbNames = [...]string{"damage", "push", "duration", "count", "radius", "all"}
+var verbNames = [...]string{"damage", "push", "duration", "count", "radius", "all", "marked"}
 
 func (v Verb) String() string { return verbNames[v] }
 
@@ -203,18 +297,25 @@ const (
 	// GateCond tests the condition the player built in Cond (see
 	// cond.go). The fixed kinds above are its presets.
 	GateCond
+	// GateBehind passes foes facing away from the caster.
+	GateBehind
+	// GateHurt passes everyone while the caster's own hull is under Value
+	// of its max (0.5 is "under half"), and no one otherwise.
+	GateHurt
 )
 
 // NumGates is how many gate conditions exist.
-const NumGates = 8
+const NumGates = 10
 
-var gateNames = [...]string{"hull", "heat", "power", "status", "crowd", "spend", "empty", "condition"}
+var gateNames = [...]string{"hull", "heat", "power", "status", "crowd", "spend", "empty", "condition", "behind", "hurt"}
 
 func (g GateKind) String() string { return gateNames[g] }
 
 // PerFoe reports whether the gate tests each foe on its own. The others
 // test the caster's rig, so the whole group goes one way.
-func (g GateKind) PerFoe() bool { return g == GateHull || g == GateStatus || g == GateCrowd }
+func (g GateKind) PerFoe() bool {
+	return g == GateHull || g == GateStatus || g == GateCrowd || g == GateBehind
+}
 
 // Charged reports whether the gate reads a charge bank.
 func (g GateKind) Charged() bool { return g == GateSpend || g == GateEmpty }
@@ -337,12 +438,19 @@ const (
 	// QuirkEcho (triggers): the whole hex runs twice per firing. The second
 	// run picks its targets again, so it finds whoever the first one missed.
 	QuirkEcho
+	// QuirkRider (damage and status effects): a second effect rides
+	// along. Damage also leaves its type's status for RiderTime; a status
+	// also deals RiderHit damage of its type.
+	QuirkRider
+	// QuirkHeated (multipliers): the part it scales grows with Heat, the
+	// way an Overflow frame does.
+	QuirkHeated
 )
 
 // NumQuirks counts quirks, QuirkNone included.
-const NumQuirks = 4
+const NumQuirks = 6
 
-var quirkNames = [...]string{"", "radiant", "relay", "echo"}
+var quirkNames = [...]string{"", "radiant", "relay", "echo", "rider", "heated"}
 
 func (q Quirk) String() string { return quirkNames[q] }
 
@@ -357,6 +465,10 @@ func (q Quirk) Fits(p Part) bool {
 		return p.Kind == KindEffect && p.Effect.Typed()
 	case QuirkEcho:
 		return p.Kind == KindTrigger
+	case QuirkRider:
+		return p.Kind == KindEffect && p.Effect.Typed()
+	case QuirkHeated:
+		return p.Kind == KindMult
 	}
 	return false
 }
@@ -411,6 +523,10 @@ type Part struct {
 	Opts Opts `json:",omitzero"`
 	// Cond is a condition gate's tiles (GateCond).
 	Cond Cond `json:",omitzero"`
+	// Form, Cost and Stance are what a form, cost or stance part is.
+	Form   FormKind   `json:",omitempty"`
+	Cost   CostKind   `json:",omitempty"`
+	Stance StanceKind `json:",omitempty"`
 }
 
 // Opt is one multiplier riding on a call as an option. It keeps what it
@@ -496,6 +612,12 @@ func (p Part) String() string {
 		return fmt.Sprintf("%s %s %g", p.Charge, BankName(p.Bank), p.Value)
 	case KindCall:
 		return "call " + CallName(p.Call)
+	case KindForm:
+		return p.Form.String()
+	case KindCost:
+		return "cost " + p.Cost.String()
+	case KindStance:
+		return "stance " + p.Stance.String()
 	}
 	return "empty"
 }
@@ -743,3 +865,271 @@ func (p Part) UsesBank() bool {
 
 // WithRarity returns the part at a different tier.
 func (p Part) WithRarity(r Rarity) Part { p.Rarity = r; return p }
+
+// FormKind is how a hex shows up in the world. The first six act at
+// once, picking who the slots beside them hit; the rest are placed
+// (Placed) and keep running the hex from where they are.
+type FormKind uint8
+
+const (
+	// FormBolt hits the nearest foe. Rare: it pierces everyone on the
+	// line. Exotic: it pierces and splits onto the foes beside the first.
+	FormBolt FormKind = iota
+	// FormBeam hits every foe on a short line toward the nearest. Rare:
+	// both ways. Exotic: it fans into a wedge.
+	FormBeam
+	// FormAura hits every foe close around you, wherever the hex fires
+	// from. Rare: around your allies too. Exotic: and every marked foe.
+	// With Mend or Shield beside it, it lands on you and your allies.
+	FormAura
+	// FormNova bursts around where the hex fires from. Rare: around you
+	// too. Exotic: wider.
+	FormNova
+	// FormDash carries you along a line to the nearest foe, hitting
+	// everyone on it. Rare: you dash back after. Exotic: back, unseen.
+	FormDash
+	// FormDetonate blows up the nearest wreck, hitting every foe around
+	// it, and uses it up. Rare: it sets off the next wreck too. Exotic:
+	// both, wider.
+	FormDetonate
+	// FormZone leaves a field on the nearest foe that runs the hex
+	// around itself every ZoneEvery for ZoneLife, at ZoneScale. Rare:
+	// it drifts after foes. Exotic: it drifts and chills.
+	FormZone
+	// FormTurret places a turret beside you that runs the hex at the
+	// nearest foe every TurretEvery for TurretLife. A turret carrying an
+	// aura is a totem. Rare: two can stand. Exotic: three.
+	FormTurret
+	// FormTrap leaves a trap where you stand that runs the hex on what
+	// steps on it. Rare: it rearms twice. Exotic: and it stuns.
+	FormTrap
+	// FormDrone launches a drone that follows you and runs the hex at
+	// the nearest foe every DroneEvery for DroneLife. Rare: two can fly.
+	// Exotic: it bursts the hex once more when it ends.
+	FormDrone
+)
+
+// NumForms is how many forms exist.
+const NumForms = 10
+
+var formNames = [...]string{"bolt", "beam", "aura", "nova", "dash", "detonate", "zone", "turret", "trap", "drone"}
+
+func (f FormKind) String() string { return formNames[f] }
+
+// Placed reports whether the form leaves something behind that keeps
+// running the hex.
+func (f FormKind) Placed() bool { return f >= FormZone }
+
+// Form and device tuning (placeholders to tune in play).
+const (
+	BoltReach   = 9   // a piercing bolt's line
+	BeamLength  = 5   // a beam's line
+	AuraRadius  = 2   // round you
+	NovaRadius  = 2   // round where it fires
+	DashLength  = 4   // hexes a dash carries you
+	BlastRadius = 2   // round a detonated wreck
+	WreckReach  = 6   // how far a form or reanimate looks for a wreck
+	ZoneRadius  = 1.5 // a zone's field
+	ZoneEvery   = 0.5
+	ZoneLife    = 6
+	ZoneScale   = 0.35 // a zone's numbers, it runs often
+	TurretEvery = 1
+	TurretLife  = 12
+	TrapLife    = 25
+	TrapRadius  = 1
+	DroneEvery  = 1.2
+	DroneLife   = 14
+	FormPower   = 1 // a form's Power beyond what it replaces
+	DevicePower = 4 // a placed form's Power
+	DeviceHeat  = 2
+)
+
+// Rule is what a form part's tier adds: 0 below rare, 1 rare, 2 exotic.
+func (p Part) Rule() uint8 {
+	switch {
+	case p.Rarity >= Exotic:
+		return 2
+	case p.Rarity >= Rare:
+		return 1
+	}
+	return 0
+}
+
+// NewForm makes a form part.
+func NewForm(f FormKind) Part {
+	p := Part{Kind: KindForm, Form: f, Power: FormPower}
+	switch f {
+	case FormBolt:
+	case FormBeam, FormNova:
+		p.Power, p.Heat = 2, 1
+	case FormAura:
+		p.Power, p.Heat = 2, 1
+	case FormDash:
+		p.Power, p.Heat = 3, 2
+	case FormDetonate:
+		p.Power, p.Heat = 2, 1
+	default:
+		p.Power, p.Heat = DevicePower, DeviceHeat
+	}
+	return p
+}
+
+// CostKind is what a cost part makes a hex burn instead of Heat.
+type CostKind uint8
+
+const (
+	// CostBlood (sacrifice): the hex adds no Heat and takes BloodPerHeat
+	// of your max hull for each Heat it would have added. It won't fire
+	// on the last of your hull.
+	CostBlood CostKind = iota
+	// CostWrecks (rare): the hex adds no Heat and uses up one wreck near
+	// you each firing; with none in reach it doesn't fire.
+	CostWrecks
+)
+
+var costNames = [...]string{"blood", "wrecks"}
+
+func (c CostKind) String() string { return costNames[c] }
+
+// Cost tuning.
+const (
+	BloodPerHeat = 0.004 // hull share per Heat a sacrifice pays
+	WreckCostN   = 1
+	CostPower    = 1
+)
+
+// NewCost makes a cost part.
+func NewCost(c CostKind) Part {
+	return Part{Kind: KindCost, Cost: c, Power: CostPower}
+}
+
+// StanceKind is the mode a stance hex holds you in.
+type StanceKind uint8
+
+const (
+	// StanceBulwark: take BulwarkGuard less damage, move BulwarkSlow
+	// slower.
+	StanceBulwark StanceKind = iota
+	// StanceHunter: deal HunterMight more, move HunterSpeed faster, take
+	// HunterFrail more.
+	StanceHunter
+	// StanceFurnace: Heat cools FurnaceCool times as fast, Power comes
+	// back FurnaceCharge as fast.
+	StanceFurnace
+)
+
+// NumStances is how many stances exist.
+const NumStances = 3
+
+var stanceNames = [...]string{"bulwark", "hunter", "furnace"}
+
+func (s StanceKind) String() string { return stanceNames[s] }
+
+// Stance tuning.
+const (
+	StancePulse   = 2 // seconds between a stance hex's pulses while it's on
+	BulwarkGuard  = 0.35
+	BulwarkSlow   = 0.3
+	HunterMight   = 0.25
+	HunterSpeed   = 0.2
+	HunterFrail   = 0.2
+	FurnaceCool   = 2
+	FurnaceCharge = 0.5
+	StancePower   = 2
+)
+
+// NewStance makes a stance part.
+func NewStance(k StanceKind) Part {
+	return Part{Kind: KindStance, Stance: k, Power: StancePower}
+}
+
+// Constructors for the newer effects. Zero takes the default.
+
+// NewTaunt makes a Taunt that holds foes on you for seconds.
+func NewTaunt(seconds float32) Part {
+	if seconds <= 0 {
+		seconds = 3
+	}
+	return Part{Kind: KindEffect, Effect: EffectTaunt, Value: seconds, Power: 3, Heat: 1}
+}
+
+// NewThorns makes Thorns that last seconds.
+func NewThorns(seconds float32) Part {
+	if seconds <= 0 {
+		seconds = 4
+	}
+	return Part{Kind: KindEffect, Effect: EffectThorns, Value: seconds, Power: 4, Heat: 2}
+}
+
+// NewReanimate makes a Reanimate whose drones last seconds.
+func NewReanimate(seconds float32) Part {
+	if seconds <= 0 {
+		seconds = 12
+	}
+	return Part{Kind: KindEffect, Effect: EffectReanimate, Value: seconds, Power: 5, Heat: 2}
+}
+
+// NewHaste makes a Haste that lasts seconds.
+func NewHaste(seconds float32) Part {
+	if seconds <= 0 {
+		seconds = 3
+	}
+	return Part{Kind: KindEffect, Effect: EffectHaste, Value: seconds, Power: 3, Heat: 1}
+}
+
+// NewBlink makes a Blink of hexes.
+func NewBlink(hexes float32) Part {
+	if hexes <= 0 {
+		hexes = 3
+	}
+	return Part{Kind: KindEffect, Effect: EffectBlink, Value: hexes, Power: 3, Heat: 2}
+}
+
+// NewMarkedMult makes the "x2 on marked" multiplier.
+func NewMarkedMult(factor float32) Part {
+	if factor <= 0 {
+		factor = 2
+	}
+	return NewMult(VerbMarked, factor)
+}
+
+// NewBehindGate passes foes facing away from you.
+func NewBehindGate() Part {
+	return Part{Kind: KindGate, Gate: GateBehind, Power: GatePowerCost}
+}
+
+// NewHurtGate fires while your own hull is under frac (zero: half).
+func NewHurtGate(frac float32) Part {
+	if frac <= 0 {
+		frac = 0.5
+	}
+	return Part{Kind: KindGate, Gate: GateHurt, Value: frac, Power: GatePowerCost}
+}
+
+// ComboBank is the bank a combo counts on: the hex's own A, or the
+// board's X for a rare combo, so it carries between hexes.
+func ComboBank(r Rarity) uint8 {
+	if r >= Rare {
+		return MaxBanks // X
+	}
+	return 0
+}
+
+// ComboHits is how many points a combo finisher spends.
+const ComboHits = 3
+
+// NewCombo is a combo builder: a Charge that adds a point each time its
+// slot runs, named so it reads as one.
+func NewCombo(r Rarity) Part {
+	p := NewCharge(ComboBank(r), 1).WithRarity(r)
+	p.Name = "combo"
+	return p
+}
+
+// NewFinisher is the combo's finisher: a spend gate that pays out once
+// the combo holds ComboHits.
+func NewFinisher(r Rarity) Part {
+	p := NewSpendGate(ComboBank(r), ComboHits).WithRarity(r)
+	p.Name = "finisher"
+	return p
+}

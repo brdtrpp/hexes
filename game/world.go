@@ -117,7 +117,7 @@ func (s *Sim) Select(kind skill.TargetKind, origin, caster skill.EntityID, radiu
 		s.noteForm(kind, origin, caster, radius, 0, 0, out[:n])
 		return n
 	}
-	return 0
+	return s.selectMore(kind, origin, caster, radius, out)
 }
 
 var coneCos = math.Cos(35 * math.Pi / 180)
@@ -208,8 +208,10 @@ func (s *Sim) Push(id, from skill.EntityID, hexes int) skill.Terrain {
 	return result
 }
 
-// Raise implements skill.World. Minions aren't in the slice yet.
-func (s *Sim) Raise(id, owner skill.EntityID) bool { return false }
+// Raise implements skill.World: a body gets up for owner (devices.go).
+func (s *Sim) Raise(id, owner skill.EntityID) bool {
+	return s.Reanimate(id, owner, skill.MinionLife)
+}
 
 // Behind implements skill.Senses.
 func (s *Sim) Behind(attacker, target skill.EntityID) bool {
@@ -254,7 +256,14 @@ func (s *Sim) Hit(caster, target skill.EntityID, dealt float32, t skill.TypeID, 
 	}
 	if !terrain && caster != target {
 		area := s.landForm(caster, target, dealt, mag, t)
-		s.addFX(FX{Kind: FXBolt, From: s.Actors[caster].At, At: a.At, Type: t, Mag: mag, Impact: area, Life: 0.3})
+		from := s.Actors[caster].At
+		if s.emitting {
+			from = s.Actors[s.emitter].At // a device's shot starts from it
+		}
+		if s.Actors[caster].U.Ambush && caster == s.Player {
+			s.addFX(FX{Kind: FXAmbush, At: a.At, From: from, Value: dealt, Life: 0.5})
+		}
+		s.addFX(FX{Kind: FXBolt, From: from, At: a.At, Type: t, Mag: mag, Impact: area, Life: 0.3})
 	}
 }
 
@@ -281,6 +290,11 @@ func (s *Sim) Sustained(caster, target skill.EntityID, kind skill.EffectKind, am
 		s.addFX(FX{Kind: FXShield, At: a.At, Value: amount, Mag: mag, Life: 0.7})
 	case skill.EffectPurge:
 		s.addFX(FX{Kind: FXPurge, At: a.At, Value: amount, Life: 0.8})
+	case skill.EffectTaunt:
+		s.addFX(FX{Kind: FXTaunt, At: a.At, From: s.Actors[caster].At, Life: 0.6})
+		a.Awake = true
+	case skill.EffectThorns, skill.EffectHaste:
+		s.addFX(FX{Kind: FXBuff, At: a.At, Slot: int(kind), Life: 0.7})
 	}
 }
 

@@ -56,7 +56,7 @@ func TestAreaFormsFromExamples(t *testing.T) {
 			s.FX.Each(func(f *FX) {
 				kinds[f.Kind]++
 				switch f.Kind {
-				case FXWave, FXCone, FXChain:
+				case FXWave, FXCone, FXChain, FXBeam:
 					area++
 					if f.Mag <= 0 {
 						t.Errorf("%s hex %d: area form with no magnitude", e.Name, slot)

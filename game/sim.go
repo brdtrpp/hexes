@@ -20,6 +20,9 @@ const (
 	KindSkitter
 	KindBrute
 	KindGunner
+	// KindDevice is a placed form: a zone, turret, trap or drone
+	// (devices.go). Dev says which.
+	KindDevice
 	// NumKinds is how many actor kinds exist.
 	NumKinds
 )
@@ -60,6 +63,22 @@ type Actor struct {
 	Fled   bool
 	Aim    float32
 	Shots  uint16
+
+	// Devices, minions and wrecks (devices.go). Owner is whose hex placed
+	// or raised it, Life its seconds left, Clock the countdown to its next
+	// run, Every how often it runs and Arms a trap's triggers left. Dep is
+	// the hex a device runs. Minion marks a raised body (its Kind stays
+	// what it was alive); Used marks a body used up.
+	Dev    skill.FormKind
+	Rule   uint8
+	Owner  skill.EntityID
+	Life   float32
+	Clock  float32
+	Every  float32
+	Arms   uint8
+	Dep    skill.Deployment
+	Minion bool
+	Used   bool
 }
 
 // Arrived reports whether the actor has finished its current step.
@@ -253,6 +272,15 @@ type Sim struct {
 	Shots  [MaxShots]Shot
 	NShots int
 
+	// Stance is the stances on, one bit per skill.StanceKind (set each
+	// frame from the loadout).
+	Stance uint8
+	// emitter is the device whose hex is running, so its bolts start from
+	// it; dashFromX, dashFromY is where the last dash began.
+	emitter              skill.EntityID
+	emitting             bool
+	dashFromX, dashFromY float64
+
 	occ      []skill.EntityID
 	dist, q  []int32
 	distFrom skill.Coord
@@ -357,6 +385,13 @@ func (s *Sim) load(depth int, hpFrac float32) {
 		s.Actors[id].Squad = uint8(sp.Room%(MaxSquads-1) + 1)
 	}
 	s.formSquads()
+	// Room for devices without allocating mid-floor (devices.go).
+	if cap(s.Actors)-len(s.Actors) < MaxExtra {
+		grown := make([]Actor, len(s.Actors), len(s.Actors)+MaxExtra)
+		copy(grown, s.Actors)
+		s.Actors = grown
+	}
+	s.Stance = 0
 
 	s.Rig = skill.NewRig(s.Points)
 	s.loadLoot(lvl)
@@ -438,9 +473,11 @@ func (s *Sim) Step(dt float32) {
 		return
 	}
 
+	s.stances()
 	s.Disp.Update(dt)
 	s.playerInput(dt)
 	s.enemies(dt)
+	s.extras(dt)
 	s.stepShots(dt)
 	s.advance(dt)
 	s.timers(dt)
@@ -464,6 +501,7 @@ func (s *Sim) playerInput(dt float32) {
 	if in.Vent {
 		if s.Rig.Vent() {
 			s.addFX(FX{Kind: FXVent, At: p.At, Life: 0.6})
+			s.Disp.Emit(skill.Event{Trigger: skill.OnVent, Actor: s.Player, Subject: skill.NoEntity, Chain: 1, Slot: -1})
 		}
 	}
 	s.Disp.Channel(s.Player, in.Hold && p.U.Alive)
@@ -555,6 +593,7 @@ func (s *Sim) refreshField() {
 func (s *Sim) claw(attacker skill.EntityID, raw float32) {
 	p := s.P()
 	a := &s.Actors[attacker]
+	raw = s.taunted(attacker, raw) * s.guard()
 	hit := min(raw, s.Rules.HitCap(a.U.Level, p.U.Level, p.U.MaxHP))
 	left := p.U.Soak(hit) // a shield takes it first
 	dealt := min(left, p.U.HP)
@@ -571,6 +610,7 @@ func (s *Sim) claw(attacker skill.EntityID, raw float32) {
 	}
 	s.addFX(FX{Kind: FXClaw, At: p.At, From: a.At, Life: 0.25})
 	if p.U.Alive {
+		s.thorns(attacker, hit)
 		s.Disp.Hurt(s.Player, attacker)
 	}
 }
@@ -590,6 +630,9 @@ func (s *Sim) timers(dt float32) {
 		u.StunLeft = max(0, u.StunLeft-dt)
 		u.MarkLeft = max(0, u.MarkLeft-dt)
 		u.Stealth = max(0, u.Stealth-dt)
+		u.TauntLeft = max(0, u.TauntLeft-dt)
+		u.ThornsLeft = max(0, u.ThornsLeft-dt)
+		u.HasteLeft = max(0, u.HasteLeft-dt)
 		u.TickSustain(dt)
 		if u.StunLeft == 0 && u.Frozen {
 			u.Frozen, u.Chill = false, 0
@@ -654,10 +697,16 @@ func (s *Sim) died(id skill.EntityID) {
 	if i := s.Floor.Index(a.At); s.occ[i] == id {
 		s.occ[i] = skill.NoEntity
 	}
+	if a.extra() {
+		// A minion or device going down is no kill and drops nothing.
+		a.Used = true
+		return
+	}
 	if id != s.Player {
 		s.Kills++
 		s.earnKill(id)
 		s.dropLoot(id)
+		s.wrecked(id)
 	}
 }
 
@@ -671,7 +720,7 @@ func (s *Sim) adjacentFoe(id skill.EntityID) skill.EntityID {
 			continue
 		}
 		o := s.occ[s.Floor.Index(n)]
-		if o == skill.NoEntity || !s.Actors[o].U.Alive || s.Actors[o].U.Team == a.U.Team {
+		if o == skill.NoEntity || !s.Actors[o].U.Alive || s.Actors[o].U.Team == a.U.Team || s.Actors[o].extra() {
 			continue
 		}
 		// Prefer whatever is in front of us.

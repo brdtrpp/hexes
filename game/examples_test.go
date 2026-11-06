@@ -64,9 +64,9 @@ func TestFieldMedicSustains(t *testing.T) {
 		t.Fatal(err)
 	}
 	ex := Examples(s.Reg)
-	i := len(ex) - 1
-	if ex[i].Name != "Field Medic" {
-		t.Fatalf("last example %q", ex[i].Name)
+	i := exampleNamed(ex, "Field Medic")
+	if i < 0 {
+		t.Fatal("no Field Medic")
 	}
 	if err := s.LoadExample(i); err != nil {
 		t.Fatal(err)
@@ -82,4 +82,13 @@ func TestFieldMedicSustains(t *testing.T) {
 			t.Fatalf("Field Medic has no %s", op)
 		}
 	}
+}
+
+func exampleNamed(ex []Example, name string) int {
+	for i, e := range ex {
+		if e.Name == name {
+			return i
+		}
+	}
+	return -1
 }

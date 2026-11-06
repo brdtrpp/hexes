@@ -113,6 +113,12 @@ func (s *Sim) flushForms(owner skill.EntityID, p *skill.Program, o skill.Outcome
 		case skill.TargetCone:
 			fx.Kind = FXCone
 			fx.DX, fx.DY = float32(f.dx), float32(f.dy)
+		case skill.TargetLine, skill.TargetBoth:
+			fx.Kind = FXBeam
+			fx.DX, fx.DY = float32(f.dx), float32(f.dy)
+			if f.kind == skill.TargetBoth {
+				fx.Slot = 1
+			}
 		case skill.TargetChain:
 			fx.Kind, fx.Life = FXChain, 0.5
 			fx.Pts[0] = [2]float32{float32(f.x), float32(f.y)}

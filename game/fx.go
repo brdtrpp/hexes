@@ -35,6 +35,16 @@ const (
 	FXSignal                // found a signal fragment at At
 	FXMuzzle                // a gunner fired from X, Y along DX, DY
 	FXZap                   // a gunner's shot stopped at X, Y (Hurt: on the player)
+	FXBeam                  // a hex swept a line from X, Y along DX, DY, Value hexes long; Slot 1 both ways
+	FXWreck                 // a wreck at At was used up; Slot is its kind
+	FXRaise                 // a wreck at At got up as a minion; Slot is its kind
+	FXDeploy                // a device was placed at At; Slot is its form
+	FXDeviceFire            // a device at At ran its hex; Slot is its form
+	FXExpire                // a device (or a minion, Value 1) at At ran out
+	FXThorns                // thorns hit back at At, From you
+	FXTaunt                 // a taunt landed on At, From the taunter
+	FXBuff                  // thorns or haste came on at At; Slot is the effect
+	FXAmbush                // a hit out of stealth landed on At
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).
