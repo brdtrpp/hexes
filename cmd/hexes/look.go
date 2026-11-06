@@ -489,7 +489,9 @@ func (g *Game) actorLookOf(i int) actorLook {
 	if l.gx < -s*2 || l.gy < -s*3 || l.gx > float64(g.w)+s*2 || l.gy > float64(g.h)+s*3 {
 		return l
 	}
-	if a.Kind != game.KindPlayer { // out of the light, out of sight (fog.go)
+	if a.Extra() { // yours: they fade as their time runs out
+		l.alpha *= fadeOut(a.Life)
+	} else if a.Kind != game.KindPlayer { // out of the light, out of sight (fog.go)
 		if l.alpha *= g.seeAt(l.x, l.y); l.alpha < 0.02 {
 			return l
 		}
@@ -575,6 +577,12 @@ func (g *Game) drawBody(screen *ebiten.Image, i int) {
 	if !l.visible {
 		return
 	}
+	if a.Kind == game.KindDevice {
+		if a.U.Alive && (a.Dev == skill.FormTurret || a.Dev == skill.FormDrone) {
+			g.drawDevice(screen, a, l)
+		}
+		return
+	}
 	t := float64(g.frame) / 60
 	R, p := l.R, l.p
 	alpha := l.alpha
@@ -620,6 +628,9 @@ func (g *Game) drawBody(screen *ebiten.Image, i int) {
 	op.ColorScale.Reset()
 	op.ColorScale.Scale(min(1, cr)*alpha, min(1, cg)*alpha, min(1, cb)*alpha, alpha)
 	screen.DrawImage(img, op)
+	if a.Minion {
+		minionTint(op, screen, img, alpha)
+	}
 	if a.Flash > 0 || a.U.Frozen {
 		wa := float32(l.hit) * 0.9
 		if a.U.Frozen {
@@ -648,6 +659,9 @@ func (g *Game) drawBody(screen *ebiten.Image, i int) {
 		g.glow(screen, sx+dx*R*0.75, sy+dy*R*0.75, R*p*0.35, 1, 1, 1, 0.6)
 	default:
 		col := enemyCol[a.Kind]
+		if a.Minion {
+			col = colMinion
+		}
 		er, eg, eb := colorF(col)
 		fwd := 0.5
 		if a.Kind == game.KindBrute {
@@ -684,6 +698,9 @@ func (g *Game) drawActorOverlays(screen *ebiten.Image) {
 		R, p, alpha := l.R, l.p, l.alpha
 		if a.Kind == game.KindPlayer {
 			g.drawRigArcs(screen, l.gx, l.gy, R)
+			continue
+		}
+		if a.Extra() { // your devices and minions carry no bars or tells
 			continue
 		}
 		// Elites (above the floor's level) get a turning dashed ring.

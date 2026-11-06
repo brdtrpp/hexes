@@ -747,31 +747,10 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 	if p.Kind == skill.KindCall {
 		detail = "to " + g.callName(g.ed.hex, p, true)
 	}
-	tc := colText
-	switch p.Kind {
-	case skill.KindTrigger:
-		tc = color.RGBA{0xff, 0xe0, 0x60, 0xff}
-	case skill.KindTarget:
-		tc = color.RGBA{0x7d, 0xf0, 0xe0, 0xff}
-	case skill.KindGate:
-		tc = colGate
-	case skill.KindCharge:
-		tc = colCharge
-	case skill.KindCall:
-		tc = colCall
+	tc := partCol(p)
+	if p.Kind == skill.KindCall {
 		if to, ok := game.CallsTo(g.ed.hex, p); ok && p.Call != skill.CallSelf && to < game.MaxSlots {
 			tc = slotCol[to]
-		}
-	case skill.KindEffect:
-		switch {
-		case p.Effect.Typed():
-			tc = typeColor(p.Type)
-		case p.Effect == skill.EffectMend:
-			tc = colMend
-		case p.Effect == skill.EffectShield:
-			tc = colShield
-		case p.Effect == skill.EffectPurge:
-			tc = colPurge
 		}
 	}
 	g.label(dst, g.small, title, x, y-r*0.2, tc, true)

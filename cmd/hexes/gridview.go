@@ -468,8 +468,24 @@ func partCol(p skill.Part) color.RGBA {
 		return colCharge
 	case skill.KindCall:
 		return colCall
+	case skill.KindForm:
+		return colForm
+	case skill.KindCost:
+		return colCost
+	case skill.KindStance:
+		return stanceCol[min(int(p.Stance), skill.NumStances-1)]
 	case skill.KindEffect:
 		switch {
+		case p.Effect == skill.EffectTaunt:
+			return colTaunt
+		case p.Effect == skill.EffectThorns:
+			return colThorns
+		case p.Effect == skill.EffectHaste:
+			return colHaste
+		case p.Effect == skill.EffectBlink:
+			return colBlink
+		case p.Effect == skill.EffectReanimate:
+			return colMinion
 		case p.Effect.Typed():
 			return typeColor(p.Type)
 		case p.Effect == skill.EffectMend:

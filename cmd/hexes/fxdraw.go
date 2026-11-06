@@ -121,6 +121,7 @@ func (g *Game) updateFX(dt float32) {
 		}
 		f.parts.Z = float32(bodyTop(a.Kind) * 0.6)
 		g.auras(a, float32(x), float32(y), dt)
+		g.classAuras(a, float32(x), float32(y), 0.55, dt)
 		f.parts.Z = 0
 	}
 	f.parts.Update(dt)
@@ -252,6 +253,8 @@ func (g *Game) spawn(e *game.FX) {
 		r, gg, b := colorF(colLesson)
 		p.Wave(x, y, 1.5, fx.Shot{Sig: fx.Sig{R: r, G: gg, B: b}, Mag: 1})
 		p.Cast(x, y, 40, 0)
+	default:
+		g.spawnClass(e, shot)
 	}
 }
 
@@ -455,6 +458,9 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 		a := float32(1 - k)
 		x, y := g.toScreen(e.X, e.Y)
 		seed := float64(int(e.X*7) ^ int(e.Y*13))
+		if g.drawClassForm(screen, e, k, x, y, seed) {
+			return
+		}
 		switch e.Kind {
 		case game.FXBolt:
 			sig := g.sigOf(e.Type)

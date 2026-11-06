@@ -389,6 +389,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawLenses(screen)
 	g.drawSalvage(screen)
 	g.drawDecals(screen)
+	g.drawGroundExtras(screen)
+	g.drawStanceRing(screen)
 	g.drawStanding(screen)
 	g.drawActorOverlays(screen)
 	g.drawShots(screen)
@@ -708,6 +710,11 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 				edge = colHot
 				sub = sim.SlotLast[i].String()
 			}
+		}
+		if sim.StanceOn(i) && sim.SlotFlash[i] <= 0 {
+			// A stance that's on holds the card lit until you tap it off.
+			edge, sub = slotCol[i], "on"
+			vector.DrawFilledRect(screen, x, cy, cardW, cardH, fade(slotCol[i], 0.12), false)
 		}
 		if fl := sim.SlotFlash[i]; fl > 0 {
 			fc := slotCol[i]

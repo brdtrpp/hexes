@@ -764,6 +764,9 @@ func (g *Game) partGlyph(dst *ebiten.Image, x, y, r float64, p skill.Part) {
 	m := g.ringMode
 	g.ringMode = ringFlat
 	defer func() { g.ringMode = m }()
+	if g.classGlyph(dst, x, y, r, p) {
+		return
+	}
 	switch {
 	case p.Kind == skill.KindEffect && p.Effect.Typed():
 		g.typeGlyph(dst, x, y, r, p.Type, 0.6)

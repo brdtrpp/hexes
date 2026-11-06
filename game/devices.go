@@ -765,3 +765,15 @@ func (s *Sim) speedMul() float64 {
 	}
 	return m
 }
+
+// IsWreck reports whether actor i lies as a wreck the class parts can use.
+func (s *Sim) IsWreck(i int) bool { return s.wreck(i) }
+
+// Extra reports whether a is a device or a raised minion.
+func (a *Actor) Extra() bool { return a.extra() }
+
+// StanceOn reports whether slot i's stance is on right now.
+func (s *Sim) StanceOn(i int) bool {
+	l := s.Disp.Loadout(s.Player)
+	return l != nil && i >= 0 && i < len(l.On) && l.On[i]
+}
