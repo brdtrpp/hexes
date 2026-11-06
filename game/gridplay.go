@@ -13,7 +13,7 @@ import (
 
 // newGrid rolls a fresh save's grid and owns the middle.
 func (s *Sim) newGrid() {
-	s.GridKept = s.GridKept[:0]
+	s.GridKeep = nil
 	s.Grid = s.genGrid(RingsFor(0))
 	n := len(s.Grid.Nodes)
 	s.Own, s.Seen, s.Glimpse, s.Reclaim = make([]bool, n), make([]bool, n), make([]bool, n), make([]bool, n)

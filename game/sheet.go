@@ -8,9 +8,12 @@ import (
 	"hexes/skill"
 )
 
-// PartSheet is a part's item card: its one plain line and its numbers.
+// PartSheet is a part's item card: its school, its one plain line and
+// its numbers.
 func PartSheet(p skill.Part, reg *skill.Registry) loot.Sheet {
-	return loot.PartSheet(p, reg, firstSentence(PlainHelp(p)))
+	sh := loot.PartSheet(p, reg, firstSentence(PlainHelp(p)))
+	sh.Sub += "  ·  " + SchoolOf(p, reg).Names()
+	return sh
 }
 
 // HexSheet is a hex's item card at a level, compiled with its working.

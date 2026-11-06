@@ -262,6 +262,9 @@ type Save struct {
 	// (owned when an older save first loaded).
 	PartsV int   `json:",omitempty"`
 	Kept   []int `json:",omitempty"`
+	// Cells are the owned cells an older grid's save keeps as they were,
+	// once the wedges became schools (PartsV 2).
+	Cells []KeptCell `json:",omitempty"`
 	// Pads is what the repair pads on floor PadsAt still hold, so a
 	// reload can't refill one (repair.go).
 	Pads   []float32 `json:",omitempty"`
@@ -315,7 +318,7 @@ func (s *Sim) Snapshot() Save {
 		Locker:  append([]skill.Part(nil), s.Locker...),
 		Signals: s.Signals, BoardKeys: s.BoardKeys, GridNewest: s.GridNewest, GridRingsSeen: s.GridRingsSeen,
 		Kit: s.Kit, DraftedTo: s.DraftedTo,
-		PartsV: GridPartsV, Kept: append([]int(nil), s.GridKept...),
+		PartsV: GridPartsV, Cells: append([]KeptCell(nil), s.GridKeep...),
 	}
 	if s.Visit > 0 {
 		// A visit is never saved: a reload is back home, at full hull.
@@ -434,14 +437,24 @@ func (s *Sim) Restore(sv Save) error {
 			s.Mine, s.Example = m, sv.Example
 		}
 	}
-	// A save from before the class parts keeps every cell it owns as it
-	// was, so what you bought still reads the same on the grid.
-	s.GridKept = append(s.GridKept[:0], sv.Kept...)
+	// A save from before schools keeps every cell it owns as it was on
+	// its old grid, so what you bought still reads the same.
+	s.GridKeep = append([]KeptCell(nil), sv.Cells...)
 	if sv.PartsV < GridPartsV {
-		s.GridKept = s.GridKept[:0]
+		kept := sv.Kept
+		if sv.PartsV < 1 { // from before the class parts too
+			kept = nil
+			for _, i := range sv.Own {
+				if i >= RingStart(ClassRing) {
+					kept = append(kept, i)
+				}
+			}
+		}
+		old := genGridV1(s.Reg, s.RunSeed, RingsFor(s.Best), kept)
+		s.GridKeep = nil
 		for _, i := range sv.Own {
-			if i >= RingStart(ClassRing) {
-				s.GridKept = append(s.GridKept, i)
+			if i > 0 && i < len(old.Nodes) && old.Nodes[i].Kind != NodeVoid {
+				s.GridKeep = append(s.GridKeep, KeptCell{I: i, N: old.Nodes[i]})
 			}
 		}
 	}

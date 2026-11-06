@@ -2,6 +2,7 @@ package game
 
 import (
 	"encoding/json"
+	"hexes/loot"
 	"reflect"
 	"testing"
 
@@ -120,7 +121,12 @@ func TestGridRingIdeas(t *testing.T) {
 		bad := false
 		switch n.Ring {
 		case 1:
-			bad = p.Kind != skill.KindEffect || p.Effect != skill.EffectDamage || p.Type == plasma
+			// Each wedge's own type: its damage, or plasma's burn.
+			want := skill.EffectDamage
+			if g.Types[n.Wedge] == plasma {
+				want = skill.EffectStatus
+			}
+			bad = p.Kind != skill.KindEffect || p.Effect != want || p.Type != g.Types[n.Wedge]
 		case 2:
 			bad = p.Kind != skill.KindTarget
 		case 3:
@@ -709,10 +715,145 @@ func TestGridClassParts(t *testing.T) {
 	if err := s2.Restore(sv); err != nil {
 		t.Fatal(err)
 	}
-	if s2.Grid.Nodes[changed].Part != plain.Nodes[changed].Part {
+	if old := genGridV(reg, 77, s2.Grid.Rings, false); s2.Grid.Nodes[changed].Part != old.Nodes[changed].Part {
 		t.Fatal("an old save's owned cell changed")
 	}
-	if s3 := s2.Snapshot(); s3.PartsV != GridPartsV || len(s3.Kept) == 0 {
-		t.Fatalf("kept cells not saved: %d %v", s3.PartsV, s3.Kept)
+	if s3 := s2.Snapshot(); s3.PartsV != GridPartsV || len(s3.Cells) == 0 {
+		t.Fatalf("kept cells not saved: %d %v", s3.PartsV, s3.Cells)
+	}
+}
+
+// Past the shared middle, every wedge holds only its school's parts, and
+// every damage or status part on the grid is its wedge's type.
+func TestGridSchoolsAreHard(t *testing.T) {
+	reg := skill.DefaultRegistry()
+	for seed := uint64(1); seed <= 12; seed++ {
+		g := GenGridKeep(reg, seed, GridRings+3, nil)
+		var per [6]int
+		for i, n := range g.Nodes {
+			if i == 0 || n.Kind != NodePart {
+				continue
+			}
+			p := n.Part
+			sch := g.WedgeSchool(reg, n.Wedge)
+			if Typed(p) && p.Type != g.Types[n.Wedge] {
+				t.Fatalf("seed %d: ring %d %s wedge holds a %s part: %+v", seed, n.Ring, sch, reg.Get(p.Type).Name, p)
+			}
+			if n.Ring > BasicRings && !SchoolOf(p, reg).Has(sch) {
+				t.Fatalf("seed %d: ring %d %s wedge holds a %s part: %+v", seed, n.Ring, sch, SchoolOf(p, reg).Names(), p)
+			}
+			if n.Ring >= ClassRing && loot.FamOf(p) >= 0 {
+				per[n.Wedge]++
+			}
+		}
+		for w, c := range per {
+			if c == 0 {
+				t.Fatalf("seed %d: the %s wedge has no class parts", seed, g.WedgeSchool(reg, w))
+			}
+		}
+		// Each wedge is a different school.
+		var seen SchoolSet
+		for w := 0; w < 6; w++ {
+			seen |= g.WedgeSchool(reg, w).Bit()
+		}
+		if seen != AllSchools {
+			t.Fatalf("seed %d: wedges %b", seed, seen)
+		}
+	}
+}
+
+// A save from before schools keeps every cell it owns as it was, and
+// keeps keeping it after another save and load.
+func TestOldSaveKeepsCellsThroughSchools(t *testing.T) {
+	s := NewVeteran(31)
+	s.Best = 30
+	s.growGrid()
+	old := genGridV1(s.Reg, 31, s.Grid.Rings, nil)
+	sv := s.Snapshot()
+	sv.PartsV, sv.Cells = 1, nil
+	var own []int
+	for i := 1; i < len(old.Nodes) && len(own) < 40; i += 7 {
+		if old.Nodes[i].Kind != NodeVoid {
+			own = append(own, i)
+		}
+	}
+	sv.Own = append(sv.Own, own...)
+	s2 := NewVeteran(31)
+	if err := s2.Restore(sv); err != nil {
+		t.Fatal(err)
+	}
+	s3 := NewVeteran(31)
+	if err := s3.Restore(s2.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range own {
+		a, b := old.Nodes[i], s3.Grid.Nodes[i]
+		if a.Kind != b.Kind || a.Part != b.Part || a.Rarity != b.Rarity {
+			t.Fatalf("owned cell %d changed: %+v to %+v", i, a, b)
+		}
+	}
+}
+
+func TestDropsFollowYourSchools(t *testing.T) {
+	s := NewVeteran(8)
+	// Own a cell in one wedge only, and take the hexes' types out of it.
+	for i := range s.Own {
+		s.Own[i] = i == 0
+	}
+	w := -1
+	for i, n := range s.Grid.Nodes {
+		if n.Ring == 1 && n.Kind == NodePart {
+			s.Own[i], w = true, n.Wedge
+			break
+		}
+	}
+	sch := s.Grid.WedgeSchool(s.Reg, w)
+	for i := 0; i < MaxSlots; i++ {
+		if h := s.Load.Hexes[i]; h != nil {
+			for j := range h.Slots {
+				if Typed(h.Slots[j].Part) {
+					h.Slots[j].Part.Type = SchoolType(s.Reg, sch)
+				}
+			}
+		}
+	}
+	open := s.OpenSchools()
+	if open != sch.Bit() {
+		t.Fatalf("open schools %s, want %s", open.Names(), sch)
+	}
+	var drops []Drop
+	for seed := uint64(1); seed <= 40; seed++ {
+		s.Visits = int(seed)
+		s.load(8, 1)
+		killAll(s, enemyOrder(s, false))
+		drops = append(drops, s.Stash.Drops...)
+	}
+	if len(drops) < 10 {
+		t.Fatalf("only %d drops", len(drops))
+	}
+	if s.OpenSchools() != open {
+		t.Fatalf("the floors changed the open schools to %s", s.OpenSchools().Names())
+	}
+	off := 0
+	for _, d := range drops {
+		if SchoolOf(d.Part, s.Reg)&open == 0 {
+			if Typed(d.Part) {
+				t.Fatalf("a %s drop off your %s school", s.Reg.Get(d.Part.Type).Name, sch)
+			}
+			off++
+		}
+	}
+	t.Logf("%d drops, %d off the %s school", len(drops), off, sch)
+	if off*10 > len(drops) {
+		t.Fatalf("%d of %d drops are off your school", off, len(drops))
+	}
+	// The floor-end pick's parts follow it too.
+	for depth := 2; depth <= 30; depth++ {
+		d := s.rollDraft(depth)
+		for _, p := range d.Picks[:d.N] {
+			if p.Kind == DraftPart && Typed(p.Part) && SchoolOf(p.Part, s.Reg)&open == 0 {
+				t.Fatalf("depth %d: a %s pick off your %s school", depth, s.Reg.Get(p.Part.Type).Name, sch)
+			}
+		}
 	}
 }

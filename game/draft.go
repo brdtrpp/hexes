@@ -247,7 +247,8 @@ func (s *Sim) bestRarity() skill.Rarity {
 }
 
 // draftPart rolls a part of what the ladder has taught at rarity rar
-// (exotic only once quirks are), up to a few times until ok likes it.
+// (exotic only once quirks are) from the schools you've opened, rerolling
+// until ok likes it.
 func (s *Sim) draftPart(r *loot.RNG, rar skill.Rarity, ok func(skill.Part) bool) skill.Part {
 	allow := s.lootAllow()
 	if rar == skill.Exotic && allow.Limit && !allow.Quirks {
@@ -257,11 +258,7 @@ func (s *Sim) draftPart(r *loot.RNG, rar skill.Rarity, ok func(skill.Part) bool)
 	old := t.Allow
 	t.Allow = allow
 	defer func() { t.Allow = old }()
-	p := t.RollTaught(r, rar)
-	for i := 0; i < 6 && ok != nil && !ok(p); i++ {
-		p = t.RollTaught(r, rar)
-	}
-	return p
+	return s.schoolRoll(r, s.OpenSchools(), func() skill.Part { return t.RollTaught(r, rar) }, ok)
 }
 
 // rollShapeKind picks a found shape's kind for a draft.

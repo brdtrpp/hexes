@@ -78,7 +78,7 @@ func (g *Game) gridCenter(i int) {
 
 func (g *Game) gridHelp() string {
 	sim := g.sim
-	t := "Tap a cell to read it. Hold BUY to buy one next to what you own."
+	t := "Tap a cell to read it. Hold BUY to buy one next to what you own. Past the middle each wedge is one school, and drops come from the schools you've opened."
 	if sim.Owned() <= 1 {
 		t = "Your grid. Spend Data on the cells next to the middle: tap one, then hold BUY. Kills, new depths and salvage pay Data."
 	}
@@ -554,6 +554,10 @@ func (g *Game) drawGrid(dst *ebiten.Image) {
 	tile := b.size * 0.93
 	words := tile > 21*k
 	pulse := float32(0.55 + 0.45*math.Sin(float64(g.frame)*0.12))
+	var wedgeCol [6]color.RGBA
+	for w := range wedgeCol {
+		wedgeCol[w] = typeColor(game.SchoolType(sim.Reg, sim.Grid.WedgeSchool(sim.Reg, w)))
+	}
 	for i := range sim.Grid.Nodes {
 		n := &sim.Grid.Nodes[i]
 		cx, cy := b.at(n.At)
@@ -563,7 +567,12 @@ func (g *Game) drawGrid(dst *ebiten.Image) {
 		v := sim.CellView(i)
 		switch v {
 		case game.ViewDark:
-			drawHex(sub, cx, cy, tile, false, colFog, colFogEdg, g.u(1))
+			edg := colFogEdg
+			if n.Ring > game.BasicRings {
+				// Past the shared middle, fog takes its school's colour.
+				edg = fade(wedgeCol[n.Wedge%6], 0.45)
+			}
+			drawHex(sub, cx, cy, tile, false, colFog, edg, g.u(1))
 		case game.ViewVoid:
 			// Nothing there: just the gap.
 			drawHex(sub, cx, cy, tile*0.35, false, color.RGBA{}, fade(colFogEdg, 0.8), g.u(1))
@@ -639,6 +648,8 @@ func (g *Game) drawGrid(dst *ebiten.Image) {
 		}
 	}
 
+	g.drawSchools(sub, &b, wedgeCol)
+
 	// Info bar: the picked cell.
 	g.drawRect(dst, l.info, colPanel, color.RGBA{0x3a, 0x42, 0x58, 0xff})
 	if c := g.gridCard(); c.ok {
@@ -672,6 +683,40 @@ func (g *Game) drawGrid(dst *ebiten.Image) {
 	_ = e
 }
 
+// drawSchools names each wedge's school where the shared middle ends, in
+// the school's colour. The fog past that line takes the colour too.
+func (g *Game) drawSchools(dst *ebiten.Image, b *gridLayout, col [6]color.RGBA) {
+	sim := g.sim
+	// Each wedge's middle on the last shared ring and the first school
+	// ring; the name goes between the two.
+	var sx, sy [6]float64
+	var n [6]int
+	for i := range sim.Grid.Nodes {
+		nd := &sim.Grid.Nodes[i]
+		if nd.Ring != game.BasicRings && nd.Ring != game.BasicRings+1 {
+			continue
+		}
+		x, y := b.at(nd.At)
+		w := nd.Wedge % 6
+		sx[w] += x
+		sy[w] += y
+		n[w]++
+	}
+	for w := 0; w < 6; w++ {
+		if n[w] == 0 {
+			continue
+		}
+		x, y := sx[w]/float64(n[w]), sy[w]/float64(n[w])
+		name := sim.Grid.WedgeSchool(sim.Reg, w).String()
+		f := g.small
+		tw := float64(len(name))*7*g.k + 8*g.k
+		th := 16 * g.k
+		vector.DrawFilledRect(dst, float32(x-tw/2), float32(y-th/2), float32(tw), float32(th), color.RGBA{0x0c, 0x0e, 0x16, 0xd8}, false)
+		vector.StrokeRect(dst, float32(x-tw/2), float32(y-th/2), float32(tw), float32(th), g.u(1), fade(col[w], 0.8), false)
+		g.label(dst, f, name, x, y, col[w], true)
+	}
+}
+
 // gridInfo is the info bar's line for the picked cell.
 func (g *Game) gridInfo() (string, color.RGBA) {
 	e, sim, gv := &g.ed, g.sim, &g.ed.gv
@@ -689,6 +734,9 @@ func (g *Game) gridInfo() (string, color.RGBA) {
 	where := fmt.Sprintf("ring %d", n.Ring)
 	if n.Ring > 0 {
 		where += ", " + game.RingIdea(n.Ring)
+	}
+	if n.Ring > game.BasicRings {
+		where = strings.ToLower(sim.Grid.WedgeSchool(sim.Reg, n.Wedge).String()) + " wedge, " + where
 	}
 	switch sim.CellView(i) {
 	case game.ViewDark:
@@ -732,6 +780,11 @@ func (g *Game) gridCard() edCardView {
 	where := fmt.Sprintf("Ring %d", n.Ring)
 	if n.Ring > 0 {
 		where += ", " + game.RingIdea(n.Ring)
+	}
+	if n.Ring > game.BasicRings {
+		where = upFirst(strings.ToLower(sim.Grid.WedgeSchool(sim.Reg, n.Wedge).String())) + " wedge, " + strings.ToLower(where[:1]) + where[1:]
+	} else if n.Ring > 0 {
+		where = "Shared middle, " + strings.ToLower(where[:1]) + where[1:]
 	}
 	top, tc := "", colText
 	switch {

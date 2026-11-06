@@ -261,9 +261,9 @@ type Sim struct {
 	BoardKeys     int
 	GridNewest    int
 	GridRingsSeen int
-	// GridKept are cells that keep their part from before the class parts
-	// (see GenGridKeep).
-	GridKept []int
+	// GridKeep are cells that keep what they held on an older grid, from
+	// before schools (see genGrid).
+	GridKeep []KeptCell
 	// GridPeek lifts the grid's fog while the GRID tab's TEST is lit. It's
 	// a look only: never saved, and it marks nothing seen.
 	GridPeek bool

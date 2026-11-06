@@ -12,7 +12,9 @@ import (
 // cell is the starter hex. Each ring out opens at a depth (with the
 // teaching ladder for the first eleven) and leans on one new idea, the
 // rest being copies of what came before at better rarity. The six wedges
-// each lean mildly toward one damage type. The grid only changes on a buy,
+// are six schools (see school.go): each wedge's damage and status parts
+// are its school's type, and past the shared middle rings it holds only
+// its school's parts. The grid only changes on a buy,
 // a death or a new ring, never during play, so the game step stays
 // allocation free.
 
@@ -52,7 +54,7 @@ const (
 	GridVoidFrac  = 0.12 // cells cut as voids, ring GridVoidFrom and out
 	GridVoidFrom  = 3
 	GridTeachFrac = 0.4 // at least this share of a ring is its new idea
-	GridLean      = 0.4 // share of a wedge's typed effects that are its type
+	GridLean      = 0.4 // grid v1 only: share of a wedge's typed effects that were its type
 	GridTries     = 24  // void re-rolls before a ring goes without voids
 
 	DataStart     = 15 // a new save's Data: one ring 1 node
@@ -110,7 +112,7 @@ func RingIdea(k int) string {
 	case 0:
 		return "your starter hex"
 	case 1:
-		return "effects: the other five damage types"
+		return "effects: each wedge's damage type"
 	case 2:
 		return "targets: around, nearest, cone and chain"
 	case 3:
@@ -254,15 +256,20 @@ type gridGen struct {
 	reg   *skill.Registry
 	tab   *loot.Table
 	plasm skill.TypeID
+	// hard is the grid since schools: every typed part takes its wedge's
+	// type and past BasicRings a wedge holds only its school's parts.
+	hard bool
 }
 
 // GenGrid rolls the grid for a save seed with r rings. Each ring rolls
 // from its own stream, inside out, so a grid with more rings has the
 // same inner rings as one with fewer.
-func GenGrid(reg *skill.Registry, seed uint64, r int) *Grid {
+func GenGrid(reg *skill.Registry, seed uint64, r int) *Grid { return genGridV(reg, seed, r, true) }
+
+func genGridV(reg *skill.Registry, seed uint64, r int, hard bool) *Grid {
 	r = max(1, r)
 	g := &Grid{Seed: seed, Rings: r, Nodes: make([]Node, GridCells(r)), index: make(map[skill.Coord]int, GridCells(r))}
-	gen := gridGen{g: g, reg: reg, tab: loot.NewTable(reg), plasm: reg.MustID("plasma")}
+	gen := gridGen{g: g, reg: reg, tab: loot.NewTable(reg), plasm: reg.MustID("plasma"), hard: hard}
 	// The wedges' lean: the damage types shuffled.
 	tr := loot.NewRNG(hash(seed ^ 0x9e1d7))
 	var types [skill.MaxTypes]skill.TypeID
@@ -589,6 +596,9 @@ func (gen *gridGen) part(r *loot.RNG, n *Node, id idea, rar skill.Rarity, teach 
 		rar = skill.Rare
 	}
 	t.Allow.Kinds = loot.KindBit(kind)
+	if gen.hard {
+		return gen.schoolPart(r, n, id, kind, rar, teach, ok)
+	}
 	var p skill.Part
 	for try := 0; try < GridTries; try++ {
 		p = t.RollAt(r, rar)
@@ -614,6 +624,56 @@ func (gen *gridGen) part(r *loot.RNG, n *Node, id idea, rar skill.Rarity, teach 
 		}
 	}
 	return p
+}
+
+// schoolPart rolls a part of kind for node n's wedge: one of its school's
+// (any, on the shared middle rings), with any damage or status type the
+// wedge's own.
+func (gen *gridGen) schoolPart(r *loot.RNG, n *Node, id idea, kind skill.PartKind, rar skill.Rarity, teach bool, ok func(skill.Part) bool) skill.Part {
+	k := n.Ring
+	wt := gen.g.Types[n.Wedge]
+	sch := TypeSchool(gen.reg, wt)
+	if teach && k == 1 {
+		// Ring 1 teaches each wedge's type: its damage, or for the
+		// starter's plasma, its burn.
+		want := skill.EffectDamage
+		if wt == gen.plasm {
+			want = skill.EffectStatus
+		}
+		ok = func(p skill.Part) bool { return p.Effect == want }
+	}
+	fit := func(p skill.Part) bool {
+		return p.Kind == kind && ok(p) && (k <= BasicRings || Typed(p) || SchoolOf(p, gen.reg).Has(sch))
+	}
+	var p skill.Part
+	found := false
+	for try := 0; try < 4*GridTries && !found; try++ {
+		p = gen.tab.RollAt(r, rar)
+		found = fit(p)
+	}
+	if !found {
+		if p = gen.fallback(id, k, rar); !fit(p) {
+			p = gen.wedgeDamage(wt, rar)
+		}
+	}
+	return gen.wedgeType(p, wt)
+}
+
+// wedgeType puts a typed part on its wedge's type; a cloak wedge's damage
+// goes into the cloak itself.
+func (gen *gridGen) wedgeType(p skill.Part, wt skill.TypeID) skill.Part {
+	if !Typed(p) {
+		return p
+	}
+	p.Type = wt
+	p, _ = gen.reg.SelfOnly(p)
+	return p
+}
+
+// wedgeDamage is a plain damage effect of a wedge's type.
+func (gen *gridGen) wedgeDamage(wt skill.TypeID, rar skill.Rarity) skill.Part {
+	amt := max(1, float32(int(gen.tab.Damage[wt]+0.5)))
+	return skill.NewDamage(wt, amt).WithRarity(min(rar, skill.Rare))
 }
 
 // fallback is a plain part of idea id when the table never rolled one.
@@ -649,10 +709,18 @@ func (gen *gridGen) guarantees(r *loot.RNG, k int) {
 	lo, hi := RingStart(k), RingStart(k+1)
 	switch k {
 	case 1:
+		cryo := gen.reg.MustID("cryo")
 		i := lo + r.Intn(hi-lo)
+		if gen.hard {
+			for j := lo; j < hi; j++ {
+				if g.Types[g.Nodes[j].Wedge] == cryo {
+					i = j // the cryo wedge's own cell
+				}
+			}
+		}
 		n := &g.Nodes[i]
 		n.Kind, n.Rarity, n.Teach = NodePart, skill.Common, true
-		n.Part = skill.NewDamage(gen.reg.MustID("cryo"), 15)
+		n.Part = skill.NewDamage(cryo, 15)
 	case 2:
 		i := lo + r.Intn(hi-lo)
 		n := &g.Nodes[i]
@@ -721,15 +789,16 @@ func GridCheck(g *Grid, reg *skill.Registry) bool {
 // oaths, rolled from their own stream after the ring itself so the rest
 // of the ring comes out as it always did.
 
-// GridPartsV is the grid's part set: 1 once the class parts are on it.
-const GridPartsV = 1
+// GridPartsV is the grid's part set: 1 once the class parts are on it,
+// 2 once the wedges are hard schools.
+const GridPartsV = 2
 
 // ClassRing is the first ring with class parts on it, and ClassFrac the
 // share of its part cells they take.
 const (
 	ClassRing = 12
 	ClassFrac = 0.35
-	ClassLean = 0.5 // share of a wedge's class cells from its type's family
+	ClassLean = 0.5 // grid v1 only: share of a wedge's class cells from its type's family
 )
 
 // classFams is which families ring k draws class parts from.
@@ -760,10 +829,67 @@ func typeFam(name string) int {
 	return 2
 }
 
+// schoolFams is the class families a school's wedge draws from: its own,
+// and forms where one of them is the school's.
+var schoolFams = [NumSchools]uint16{
+	SchoolMage:      loot.FamForms,
+	SchoolEngineer:  loot.FamDevices,
+	SchoolWarden:    loot.FamOaths | loot.FamForms,
+	SchoolBerserker: loot.FamOaths | loot.FamForms,
+	SchoolNecro:     loot.FamWrecks,
+	SchoolRogue:     loot.FamShadow | loot.FamForms,
+}
+
 // GenGridKeep is GenGrid with the class parts laid over rings ClassRing
-// and out, except on the kept cells.
+// and out, except on the kept cells. Each wedge's class cells come from
+// its school's families, where its ring has them.
 func GenGridKeep(reg *skill.Registry, seed uint64, r int, kept []int) *Grid {
 	g := GenGrid(reg, seed, r)
+	keep := make(map[int]bool, len(kept))
+	for _, i := range kept {
+		keep[i] = true
+	}
+	gen := gridGen{g: g, reg: reg, tab: loot.NewTable(reg), plasm: reg.MustID("plasma"), hard: true}
+	for k := ClassRing; k <= g.Rings; k++ {
+		rr := loot.NewRNG(hash(seed ^ uint64(k)*0x7c1a55 ^ 0xc1a55))
+		fams := classFams(k)
+		for i := RingStart(k); i < RingStart(k+1); i++ {
+			n := &g.Nodes[i]
+			roll := rr.Float()
+			if n.Kind != NodePart || roll >= ClassFrac {
+				continue
+			}
+			wt := g.Types[n.Wedge]
+			sch := TypeSchool(reg, wt)
+			var w [loot.NumFams]int
+			nw := 0
+			for j := 0; j < loot.NumFams; j++ {
+				if fams&schoolFams[sch]&(1<<j) != 0 {
+					w[nw] = j
+					nw++
+				}
+			}
+			if nw == 0 {
+				continue // this school's class parts open on a later ring
+			}
+			var p skill.Part
+			found := false
+			for try := 0; try < GridTries && !found; try++ {
+				p = gen.tab.RollFam(&rr, w[rr.Intn(nw)], n.Rarity)
+				found = Typed(p) || SchoolOf(p, reg).Has(sch)
+			}
+			if found && !keep[i] {
+				n.Part, n.Teach = gen.wedgeType(p, wt), false
+			}
+		}
+	}
+	return g
+}
+
+// genGridV1 is the grid as it was before schools, with the class parts
+// laid over it, so an older save can keep the cells it owns as they were.
+func genGridV1(reg *skill.Registry, seed uint64, r int, kept []int) *Grid {
+	g := genGridV(reg, seed, r, false)
 	keep := make(map[int]bool, len(kept))
 	for _, i := range kept {
 		keep[i] = true
@@ -802,5 +928,23 @@ func GenGridKeep(reg *skill.Registry, seed uint64, r int, kept []int) *Grid {
 	return g
 }
 
-// genGrid rolls this save's grid with r rings.
-func (s *Sim) genGrid(r int) *Grid { return GenGridKeep(s.Reg, s.RunSeed, r, s.GridKept) }
+// genGrid rolls this save's grid with r rings, with the cells it keeps
+// from before schools as they were.
+func (s *Sim) genGrid(r int) *Grid {
+	g := GenGridKeep(s.Reg, s.RunSeed, r, nil)
+	for _, c := range s.GridKeep {
+		if c.I > 0 && c.I < len(g.Nodes) {
+			n := &g.Nodes[c.I]
+			at, ring, wedge := n.At, n.Ring, n.Wedge
+			*n = c.N
+			n.At, n.Ring, n.Wedge = at, ring, wedge
+		}
+	}
+	return g
+}
+
+// KeptCell is a grid cell a save keeps from an older grid.
+type KeptCell struct {
+	I int
+	N Node
+}
