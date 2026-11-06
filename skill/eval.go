@@ -50,6 +50,37 @@ type SustainObserver interface {
 	Sustained(caster, target EntityID, kind EffectKind, amount float32)
 }
 
+// Actions is optional world support for the parts that move the caster,
+// use up wrecks and leave devices behind. A World without it runs a
+// device's hex once on the spot and ignores moves and wreck use.
+type Actions interface {
+	// Move moves id up to hexes in the given mode, relative to at
+	// (NoEntity: the nearest foe, or straight ahead).
+	Move(id, at EntityID, hexes float32, mode MoveMode)
+	// Consume uses up wreck id; false if it's no wreck.
+	Consume(id EntityID) bool
+	// Wrecks reports whether n wrecks lie near id, and with take uses
+	// them up.
+	Wrecks(id EntityID, n int, take bool) bool
+	// Deploy places a device; false if it can't.
+	Deploy(d Deployment) bool
+	// Reanimate raises wreck id as owner's drone for seconds.
+	Reanimate(id, owner EntityID, seconds float32) bool
+}
+
+// Deployment is a device a hex places: it runs Prog.Steps[Lo:Hi] from
+// where it stands until it's done.
+type Deployment struct {
+	Caster EntityID
+	// At is where it goes: the caster, or the foe a zone lands on.
+	At   EntityID
+	Form FormKind
+	Rule uint8
+	Prog *Program
+	Lo   int
+	Hi   int
+}
+
 // Ctx is the moment a program fires.
 type Ctx struct {
 	Caster EntityID
@@ -152,6 +183,34 @@ func (e *Evaluator) Run(p *Program, w World, ctx Ctx) Result {
 	e.scratch2(&ctx)
 	e.qHead, e.qLen, e.dropped = 0, 0, 0
 	e.start(p, w, &ctx, ctx.Subject, 0, 1, &res)
+	e.calls(w, &ctx, &res)
+	return res
+}
+
+// RunAt runs steps lo to hi of p as a device standing at origin: its
+// targets pick around the device, and with no subject it lands on the
+// foe nearest the device. Then any calls it queued run.
+func (e *Evaluator) RunAt(p *Program, lo, hi int, w World, ctx Ctx, origin EntityID) Result {
+	var res Result
+	if p == nil || lo < 0 || hi > len(p.Steps) || lo >= hi {
+		return res
+	}
+	e.scratch2(&ctx)
+	e.qHead, e.qLen, e.dropped = 0, 0, 0
+	e.prepare(p, w, &ctx, ctx.Subject, 0, 1)
+	e.regs[RegOrigin][0] = origin
+	if ctx.Subject == NoEntity {
+		e.n[RegSubject] = uint8(w.Select(TargetNearest, origin, ctx.Caster, 0, e.regs[RegSubject][:1]))
+	}
+	e.killBase = res.Kills
+	e.exec(p.Steps[lo:hi], w, &ctx, &res)
+	e.calls(w, &ctx, &res)
+	return res
+}
+
+// calls runs every hex the running one queued, in order, until the
+// queue is empty or a limit stops it.
+func (e *Evaluator) calls(w World, ctx *Ctx, res *Result) {
 	for e.qLen > 0 {
 		c := e.queue[e.qHead]
 		e.qHead = (e.qHead + 1) % MaxPending
@@ -164,7 +223,7 @@ func (e *Evaluator) Run(p *Program, w World, ctx Ctx) Result {
 		if c.code > 0 && c.code <= 8 {
 			res.Called |= 1 << (c.code - 1)
 		}
-		e.start(c.prog, w, &ctx, c.subject, c.code, c.heat, &res)
+		e.start(c.prog, w, ctx, c.subject, c.code, c.heat, res)
 		if r := ctx.Rig; r != nil && r.Locked() && e.qLen > 0 {
 			// That call tipped the rig over: like any overheat, it ran,
 			// and nothing more does.
@@ -174,7 +233,6 @@ func (e *Evaluator) Run(p *Program, w World, ctx Ctx) Result {
 	}
 	e.qLen = 0
 	res.Dropped = e.dropped
-	return res
 }
 
 // scratch2 gives a run without banks of its own empty stand-ins.
@@ -301,7 +359,7 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 				continue
 			}
 			limit := MaxTargets
-			if s.Target == TargetNearest || s.Target == TargetChain {
+			if s.Target.Counted() {
 				limit = int(s.Count)
 			}
 			if s.Flag&FlagCrowd != 0 {
@@ -328,12 +386,31 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			e.n[s.Dst] = uint8(n)
 		case OpDamage:
 			v := e.bent(ctx, s)
+			c := w.Unit(ctx.Caster)
+			if c != nil {
+				if c.Might > 0 {
+					v *= c.Might
+				}
+				if c.Ambush || c.Stealth > 0 {
+					v *= AmbushMult
+				}
+			}
 			for i := 0; i < int(e.n[s.Src]); i++ {
 				before := res.Damage
-				e.damage(w, ctx, e.regs[s.Src][i], v, s.Type, res)
+				id := e.regs[s.Src][i]
+				hit := v
+				if s.Bonus > 0 {
+					if u := w.Unit(id); u != nil && u.MarkLeft > 0 {
+						hit *= s.Bonus
+					}
+				}
+				e.damage(w, ctx, id, hit, s.Type, res)
 				if r := ctx.Rig; s.Flag&FlagLeech != 0 && r != nil {
 					r.Power = min(r.MaxPower, r.Power+(res.Damage-before)*LeechFrac)
 				}
+			}
+			if c != nil && e.n[s.Src] > 0 && c.Stealth > 0 {
+				c.Stealth = 0 // a hit gives you away
 			}
 		case OpPush:
 			hexes := int(e.bent(ctx, s) + 0.5)
@@ -394,6 +471,98 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 			res.Purged += got
 			if so, ok := e.Obs.(SustainObserver); ok {
 				so.Sustained(ctx.Caster, ctx.Caster, EffectPurge, got)
+			}
+		case OpTaunt:
+			so, _ := e.Obs.(SustainObserver)
+			for i := 0; i < int(e.n[s.Src]); i++ {
+				u := w.Unit(e.regs[s.Src][i])
+				if u == nil || !u.Alive || u.ID == ctx.Caster {
+					continue
+				}
+				u.TauntLeft = max(u.TauntLeft, s.Value)
+				u.TauntBy = ctx.Caster
+				res.Statuses++
+				if so != nil {
+					so.Sustained(ctx.Caster, u.ID, EffectTaunt, s.Value)
+				}
+			}
+		case OpBuff:
+			c := w.Unit(ctx.Caster)
+			if e.n[s.Src2] == 0 || c == nil || !c.Alive {
+				continue
+			}
+			kind := EffectKind(s.Count)
+			switch kind {
+			case EffectThorns:
+				c.ThornsLeft = max(c.ThornsLeft, s.Value)
+			case EffectHaste:
+				c.HasteLeft = max(c.HasteLeft, s.Value)
+			}
+			res.Statuses++
+			if so, ok := e.Obs.(SustainObserver); ok {
+				so.Sustained(ctx.Caster, ctx.Caster, kind, s.Value)
+			}
+		case OpRaise:
+			a, _ := w.(Actions)
+			for i := 0; i < int(e.n[s.Src]); i++ {
+				id := e.regs[s.Src][i]
+				u := w.Unit(id)
+				if u == nil || u.Alive {
+					continue
+				}
+				ok := false
+				if a != nil {
+					ok = a.Reanimate(id, ctx.Caster, s.Value)
+				} else {
+					ok = w.Raise(id, ctx.Caster)
+				}
+				if ok {
+					res.Raised++
+				}
+			}
+		case OpMove:
+			a, ok := w.(Actions)
+			if !ok || e.n[s.Src2] == 0 {
+				continue
+			}
+			at := NoEntity
+			if e.n[s.Src] > 0 {
+				at = e.regs[s.Src][0]
+				if MoveMode(s.Count) == MoveDash {
+					at = e.regs[s.Src][e.n[s.Src]-1] // to the far end of the line
+				}
+			}
+			a.Move(ctx.Caster, at, s.Value, MoveMode(s.Count))
+		case OpConsume:
+			if a, ok := w.(Actions); ok {
+				for i := 0; i < int(e.n[s.Src]); i++ {
+					a.Consume(e.regs[s.Src][i])
+				}
+			}
+		case OpDeploy:
+			a, ok := w.(Actions)
+			if !ok {
+				continue // no devices here: run the body once, on the spot
+			}
+			at := ctx.Caster
+			if FormKind(s.Count) == FormZone && e.n[RegSubject] > 0 {
+				at = e.regs[RegSubject][0]
+			}
+			// Where this step sits in the program: steps may be a slice of
+			// it (a watch hex's body).
+			lo := -1
+			if e.cur != nil {
+				for i := range e.cur.Steps {
+					if &e.cur.Steps[i] == &steps[pc] {
+						lo = i + 1
+						break
+					}
+				}
+			}
+			if lo >= 0 && a.Deploy(Deployment{Caster: ctx.Caster, At: at, Form: FormKind(s.Count), Rule: s.Bank,
+				Prog: e.cur, Lo: lo, Hi: lo + int(s.Span)}) {
+				res.Statuses++
+				pc += int(s.Span)
 			}
 		case OpForEach:
 			body := steps[pc+1 : pc+1+int(s.Span)]
@@ -637,6 +806,9 @@ func (e *Evaluator) casterTest(w World, ctx *Ctx, s *Step) bool {
 	case GateStatus: // a cloak type: the caster is stealthed right now
 		u := w.Unit(ctx.Caster)
 		return u != nil && u.Stealth > 0
+	case GateHurt:
+		u := w.Unit(ctx.Caster)
+		return u != nil && u.HP < s.Value*u.MaxHP
 	}
 	return false
 }
@@ -654,6 +826,10 @@ func (e *Evaluator) foeTest(w World, ctx *Ctx, s *Step, id EntityID) bool {
 		return w.Select(TargetAdjacent, id, ctx.Caster, s.Value, e.scratch[:]) >= int(s.Count)
 	case GateStatus:
 		return e.hasStatus(u, s.Type)
+	case GateBehind:
+		if sn, ok := w.(Senses); ok {
+			return sn.Behind(ctx.Caster, id)
+		}
 	}
 	return false
 }

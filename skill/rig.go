@@ -49,6 +49,9 @@ type Rig struct {
 	Light float32
 	// ShutdownLeft is seconds until an overheated rig can fire again.
 	ShutdownLeft float32
+	// ChargeMul and CoolMul scale recharge and cooling (zero is 1), for
+	// stances.
+	ChargeMul, CoolMul float32
 }
 
 // OverheatShutdown is how long a rig is locked after hitting max heat.
@@ -97,8 +100,15 @@ func (r *Rig) AddHeat(h float32) {
 
 // Tick recharges and vents.
 func (r *Rig) Tick(dt float32) {
-	r.Power = min(r.MaxPower, r.Power+r.RechargeRate*dt)
-	r.Heat = max(0, r.Heat-r.CoolRate*dt)
+	charge, cool := r.RechargeRate, r.CoolRate
+	if r.ChargeMul > 0 {
+		charge *= r.ChargeMul
+	}
+	if r.CoolMul > 0 {
+		cool *= r.CoolMul
+	}
+	r.Power = min(r.MaxPower, r.Power+charge*dt)
+	r.Heat = max(0, r.Heat-cool*dt)
 	r.ShutdownLeft = max(0, r.ShutdownLeft-dt)
 }
 

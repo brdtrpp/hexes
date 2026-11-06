@@ -104,6 +104,10 @@ type Allow struct {
 	Sustain bool
 	Spend   bool
 	Quirks  bool
+	// New is which families of the class parts may roll, one bit each
+	// (FamForms and on; see newparts.go). They roll only when it's set,
+	// whatever Limit says, so a table without it rolls exactly as before.
+	New uint16
 }
 
 // KindBit is a part kind's bit in Allow.Kinds.
@@ -229,7 +233,11 @@ func (t *Table) Roll(r *RNG, depth int) skill.Part {
 	if !t.Allow.quirks() {
 		w[skill.Exotic] = 0
 	}
-	return t.RollAt(r, skill.Rarity(r.pick(w[:])))
+	rar := skill.Rarity(r.pick(w[:]))
+	if t.Allow.New != 0 && r.Float() < NewChance {
+		return t.RollNew(r, rar)
+	}
+	return t.RollAt(r, rar)
 }
 
 // RollAt makes one part of a given tier.

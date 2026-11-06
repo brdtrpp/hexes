@@ -83,7 +83,7 @@ func (s *Sim) movePlayer(dt float32) {
 	if l > 1 {
 		mx, my = mx/l, my/l
 	}
-	speed := PlayerSpeed * tileSpan
+	speed := PlayerSpeed * tileSpan * s.speedMul()
 	if p.U.SlowLeft > 0 {
 		speed *= float64(1 - p.U.SlowFrac)
 	}

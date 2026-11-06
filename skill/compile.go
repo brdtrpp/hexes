@@ -116,8 +116,31 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 			return nil, err
 		}
 	}
+	// A placed form in the hex makes it a device: find it first, so an
+	// aura in it centers on the device.
+	for _, i := range func() []int { o, n := h.Flow(trig); return o[:n] }() {
+		if sl := h.Slots[i]; sl.Kind == SlotPart && sl.Part.Kind == KindForm && sl.Part.Form.Placed() {
+			c.device, c.deviceRule = uint8(sl.Part.Form)+1, sl.Part.Rule()
+			break
+		}
+	}
 	if err := c.level(h, trig, 0, RegOrigin, landing, seen); err != nil {
 		return nil, err
+	}
+	if c.device != 0 {
+		// Everything after the watch check runs from the device, not here.
+		at := c.p.WatchSteps
+		body := len(c.p.Steps) - at
+		if body > 0xffff {
+			return nil, errors.New("device hex too large")
+		}
+		if FormKind(c.device-1) == FormZone {
+			c.scale(span{at, len(c.p.Steps), body > 0}, VerbDamage, ZoneScale)
+		}
+		c.p.Steps = append(c.p.Steps, Step{})
+		copy(c.p.Steps[at+1:], c.p.Steps[at:])
+		c.p.Steps[at] = Step{Op: OpDeploy, Count: c.device - 1, Bank: c.deviceRule, Span: uint16(body)}
+		c.p.Device = c.device
 	}
 	if t.Quirk == QuirkEcho {
 		// Run the whole body twice. Spans are relative, so a plain copy
@@ -148,7 +171,24 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	if c.overflow {
 		c.p.LockExtra = OverflowLock
 	}
-	c.p.Inert = !acts(c.p.Steps[c.p.WatchSteps:])
+	if c.pay != nil {
+		switch c.pay.Cost {
+		case CostBlood:
+			if c.p.Heat > 0 {
+				c.p.HullCost = c.p.Heat * BloodPerHeat
+				c.p.Heat = 0
+			}
+		case CostWrecks:
+			c.p.WreckCost = WreckCostN
+			c.p.Heat = min(c.p.Heat, 0)
+		}
+	}
+	if c.stance != nil {
+		c.p.Stance = uint8(c.stance.Stance) + 1
+		c.p.StanceKeep = c.stance.Rarity >= Rare
+		c.p.Pulses = acts(c.p.Steps[c.p.WatchSteps:])
+	}
+	c.p.Inert = !acts(c.p.Steps[c.p.WatchSteps:]) && c.p.Stance == 0
 	c.p.Docked = uint8(c.docked)
 	c.p.Shape = shape.Kind
 	c.p.Regs = int(c.next)
@@ -176,6 +216,15 @@ type compiler struct {
 	ret     uint8
 	// overflow is set once an Overflow frame is compiled in.
 	overflow bool
+	// device is 1 + the placed form the hex leaves (zero for none), at
+	// rule deviceRule. back is the move a rare dash makes at the end.
+	device     uint8
+	deviceRule uint8
+	back       MoveMode
+	backSet    bool
+	// pay is the hex's first cost part, stance its first stance part.
+	pay    *Part
+	stance *Part
 }
 
 func (c *compiler) alloc() (uint8, error) {
@@ -272,14 +321,33 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 
 	// Pass 1: targets. They depend on nothing but the origin, so they all
 	// select up front and any effect can read them.
+	var allies [Slots]int // an aura's allies, for Mend and Shield beside it
+	for i := range allies {
+		allies[i] = -1
+	}
 	for _, s := range order[:n] {
 		sl := h.Slots[s]
-		if sl.Kind != SlotPart || sl.Part.Kind != KindTarget {
+		if sl.Kind != SlotPart || (sl.Part.Kind != KindTarget && sl.Part.Kind != KindForm) {
 			continue
 		}
 		p := sl.Part
 		fr := frames[s]
 		pw, ht := c.p.Power, c.p.Heat
+		if p.Kind == KindForm {
+			i := len(c.p.Steps)
+			r, al, err := c.form(p, origin, depth)
+			if err != nil {
+				return err
+			}
+			tgt[s], carry[s], allies[s] = int(r), int(r), al
+			fed[s] = span{i, len(c.p.Steps), true}
+			c.cost(p, depth)
+			if fr.Bend == BendSurge {
+				c.scale(fed[s], VerbAll, SurgeScale)
+			}
+			c.frameCost(fr, pw, ht)
+			continue
+		}
 		r, err := c.alloc()
 		if err != nil {
 			return err
@@ -418,6 +486,51 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			if p.Call < 16 {
 				c.p.Calls |= 1 << p.Call
 			}
+		case sl.Kind == SlotPart && sl.Part.Kind == KindCost:
+			p := sl.Part
+			c.cost(p, depth)
+			if c.pay == nil {
+				c.pay = &p
+			}
+		case sl.Kind == SlotPart && sl.Part.Kind == KindStance:
+			p := sl.Part
+			c.cost(p, depth)
+			if c.stance == nil {
+				c.stance = &p
+			}
+		case sl.Kind == SlotPart && sl.Part.Kind == KindEffect && sl.Part.Effect > EffectShield:
+			p := sl.Part
+			src, guard, err := land(s)
+			if err != nil {
+				return err
+			}
+			st := Step{Src: src, Src2: guard, Value: p.Value * p.Rarity.Scale()}
+			switch p.Effect {
+			case EffectTaunt:
+				st.Op = OpTaunt
+			case EffectThorns, EffectHaste:
+				st.Op, st.Src, st.Count = OpBuff, RegCaster, uint8(p.Effect)
+			case EffectReanimate:
+				st.Op = OpRaise
+				if guard == RegCaster && src == landing && (depth > 0 || (c.trig.Trigger != OnKill && c.trig.Trigger != OnWreck)) {
+					// Nothing beside it: the nearest wreck.
+					r, err := c.alloc()
+					if err != nil {
+						return err
+					}
+					c.emit(Step{Op: OpSelect, Target: TargetWreck, Src: origin, Dst: r, Count: 1, Value: WreckReach})
+					st.Src = r
+				}
+			case EffectBlink:
+				st.Op, st.Count = OpMove, uint8(MoveToward)
+				if guard == RegCaster && src == landing {
+					st.Count = uint8(MoveAway)
+				}
+			}
+			i := c.emit(st)
+			fed[s] = span{min(i, at), len(c.p.Steps), true}
+			carry[s] = int(src)
+			c.cost(p, depth)
 		case sl.Kind == SlotPart && sl.Part.Kind == KindEffect:
 			p := sl.Part
 			src, guard, err := land(s)
@@ -432,7 +545,9 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				// Mend and Shield land on the targets beside them, or the
 				// caster with none; in a branch, on the caster when the
 				// branch holds anyone. Purge only ever cools the rig.
-				if guard != RegCaster || src == landing || p.Effect == EffectPurge {
+				if a := c.alliesOf(h, s, order[:n], allies); a >= 0 && guard == RegCaster && p.Effect != EffectPurge {
+					st.Src = uint8(a) // beside an aura: you and your allies
+				} else if guard != RegCaster || src == landing || p.Effect == EffectPurge {
 					st.Src = RegCaster
 				}
 				st.Type = 0
@@ -478,6 +593,9 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				if err := c.relay(st); err != nil {
 					return err
 				}
+			}
+			if p.Quirk == QuirkRider {
+				c.rider(st)
 			}
 			fed[s] = span{i, len(c.p.Steps), true}
 			carry[s] = int(src)
@@ -576,8 +694,8 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			c.cost(p, depth)
 		}
 		c.frameCost(fr, pw, ht)
-		over := fr.Bend == BendOverflow
-		c.overflow = c.overflow || over
+		c.overflow = c.overflow || fr.Bend == BendOverflow
+		over := fr.Bend == BendOverflow || p.Quirk == QuirkHeated
 		if p.Quirk == QuirkRadiant {
 			// Bends the "part just before it" rule: the whole ring.
 			f := span{first, len(c.p.Steps), len(c.p.Steps) > first}
@@ -640,6 +758,12 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		if over {
 			c.flag(f, p.Verb, FlagOverflow)
 		}
+	}
+
+	// A rare dash carries you back once the hex is done.
+	if depth == 0 && c.calling == 0 && c.docking == 0 && c.backSet {
+		c.emit(Step{Op: OpMove, Src: RegCaster, Src2: RegCaster, Count: uint8(c.back)})
+		c.backSet = false
 	}
 
 	// Hexes docked to its ways out run next, on what the port carries.
@@ -792,7 +916,8 @@ func (c *compiler) watch(h *Hex, trig int, t Part, seen map[*Hex]bool) (uint8, e
 func acts(steps []Step) bool {
 	for _, s := range steps {
 		switch s.Op {
-		case OpDamage, OpPush, OpStatus, OpCharge, OpCall, OpMend, OpShield, OpPurge:
+		case OpDamage, OpPush, OpStatus, OpCharge, OpCall, OpMend, OpShield, OpPurge,
+			OpTaunt, OpBuff, OpRaise, OpMove, OpConsume:
 			return true
 		}
 	}
@@ -812,8 +937,10 @@ func finderOnly(lib *Hex) string {
 		case sl.Kind != SlotPart:
 		case sl.Part.Kind == KindEffect:
 			return "acts in slot " + lib.SlotName(i)
-		case sl.Part.Kind == KindCharge, sl.Part.Kind == KindCall:
+		case sl.Part.Kind == KindCharge, sl.Part.Kind == KindCall, sl.Part.Kind == KindCost, sl.Part.Kind == KindStance:
 			return "has a " + sl.Part.Kind.String() + " in slot " + lib.SlotName(i)
+		case sl.Part.Kind == KindForm && (sl.Part.Form == FormDash || sl.Part.Form == FormDetonate || sl.Part.Form.Placed()):
+			return "acts in slot " + lib.SlotName(i)
 		case sl.Part.Kind == KindGate && sl.Part.Gate == GateSpend:
 			return "spends a bank in slot " + lib.SlotName(i)
 		}
@@ -884,19 +1011,25 @@ func (c *compiler) scale(f span, v Verb, x float32) {
 			if all || v == VerbDamage {
 				st.Value *= x
 			}
-		case OpPush:
+			if v == VerbMarked && st.Op == OpDamage {
+				if st.Bonus == 0 {
+					st.Bonus = 1
+				}
+				st.Bonus *= x
+			}
+		case OpPush, OpMove:
 			if all || v == VerbPush {
 				st.Value *= x
 			}
-		case OpStatus:
+		case OpStatus, OpTaunt, OpBuff, OpRaise:
 			if all || v == VerbDuration {
 				st.Value *= x
 			}
 		case OpSelect:
-			if (all || v == VerbCount) && (st.Target == TargetNearest || st.Target == TargetChain) {
+			if (all || v == VerbCount) && st.Target.Counted() && st.Count < MaxTargets {
 				st.Count = clampCount(int(float32(st.Count)*x + 0.5))
 			}
-			if (all || v == VerbRadius) && st.Target != TargetSelf && st.Target != TargetNearest {
+			if (all || v == VerbRadius) && st.Target.Ranged() {
 				st.Value *= x
 			}
 		}
@@ -910,7 +1043,7 @@ func (c *compiler) flag(f span, v Verb, fl uint8) {
 	for i := f.lo; i < f.hi; i++ {
 		st := &c.p.Steps[i]
 		switch {
-		case st.Op == OpDamage && (all || v == VerbDamage),
+		case st.Op == OpDamage && (all || v == VerbDamage || v == VerbMarked),
 			st.Op == OpPush && (all || v == VerbPush),
 			st.Op == OpStatus && (all || v == VerbDuration):
 			st.Flag |= fl
@@ -944,4 +1077,177 @@ func clampCount(n int) uint8 {
 		return MaxTargets
 	}
 	return uint8(n)
+}
+
+// form compiles a form part in a target slot: the selects that pick who
+// the slots beside it hit, plus what it does on its own (a dash's move,
+// a detonation using up its wreck). It returns the register of foes and,
+// for an aura, the register of allies (else -1).
+func (c *compiler) form(p Part, origin uint8, depth int) (uint8, int, error) {
+	rule := p.Rule()
+	sel := func(t TargetKind, src uint8, v float32, n int) (uint8, error) {
+		r, err := c.alloc()
+		if err != nil {
+			return 0, err
+		}
+		c.emit(Step{Op: OpSelect, Target: t, Src: src, Dst: r, Count: clampCount(n), Value: v})
+		return r, nil
+	}
+	union := func(a, b uint8) (uint8, error) {
+		r, err := c.alloc()
+		if err != nil {
+			return 0, err
+		}
+		c.emit(Step{Op: OpUnion, Src: a, Src2: b, Dst: r})
+		return r, nil
+	}
+	both := func(a, b uint8, err error) (uint8, int, error) {
+		if err != nil {
+			return 0, -1, err
+		}
+		r, err := union(a, b)
+		return r, -1, err
+	}
+	one := func(r uint8, err error) (uint8, int, error) { return r, -1, err }
+	switch p.Form {
+	case FormBolt:
+		switch rule {
+		case 0:
+			return one(sel(TargetNearest, origin, 0, 1))
+		case 1:
+			return one(sel(TargetLine, origin, BoltReach, MaxTargets))
+		}
+		line, err := sel(TargetLine, origin, BoltReach, MaxTargets)
+		if err != nil {
+			return 0, -1, err
+		}
+		split, err := sel(TargetAdjacent, line, 1.5, MaxTargets)
+		return both(line, split, err)
+	case FormBeam:
+		switch rule {
+		case 0:
+			return one(sel(TargetLine, origin, BeamLength, MaxTargets))
+		case 1:
+			return one(sel(TargetBoth, origin, BeamLength, MaxTargets))
+		}
+		return one(sel(TargetCone, origin, BeamLength, MaxTargets))
+	case FormAura:
+		home := uint8(RegCaster)
+		if c.device != 0 {
+			home = RegOrigin // a totem: round the device
+		}
+		kind := TargetAdjacent
+		if rule >= 1 {
+			kind = TargetAura
+		}
+		foes, err := sel(kind, home, AuraRadius, MaxTargets)
+		if err != nil {
+			return 0, -1, err
+		}
+		if rule == 2 {
+			marked, err := sel(TargetMarked, home, NearestReach, MaxTargets)
+			if err != nil {
+				return 0, -1, err
+			}
+			if foes, err = union(foes, marked); err != nil {
+				return 0, -1, err
+			}
+		}
+		al, err := sel(TargetAllies, home, AuraRadius, MaxTargets)
+		return foes, int(al), err
+	case FormNova:
+		rad := float32(NovaRadius)
+		if rule == 2 {
+			rad++
+		}
+		ring, err := sel(TargetAdjacent, origin, rad, MaxTargets)
+		if err != nil || rule == 0 {
+			return ring, -1, err
+		}
+		mine, err := sel(TargetAdjacent, RegCaster, rad, MaxTargets)
+		return both(ring, mine, err)
+	case FormDash:
+		line, err := sel(TargetLine, origin, DashLength, MaxTargets)
+		if err != nil {
+			return 0, -1, err
+		}
+		c.emit(Step{Op: OpMove, Src: line, Src2: RegCaster, Count: uint8(MoveDash), Value: DashLength})
+		if rule > 0 && depth == 0 {
+			c.back, c.backSet = MoveBack, true
+			if rule == 2 {
+				c.back = MoveHide
+			}
+		}
+		return line, -1, nil
+	case FormDetonate:
+		rad := float32(BlastRadius)
+		if rule == 2 {
+			rad++
+		}
+		w, err := sel(TargetWreck, origin, WreckReach, 1)
+		if err != nil {
+			return 0, -1, err
+		}
+		hit, err := sel(TargetAdjacent, w, rad, MaxTargets)
+		if err != nil {
+			return 0, -1, err
+		}
+		if rule >= 1 {
+			w2, err := sel(TargetWreck, w, WreckReach, 1)
+			if err != nil {
+				return 0, -1, err
+			}
+			hit2, err := sel(TargetAdjacent, w2, rad, MaxTargets)
+			if err != nil {
+				return 0, -1, err
+			}
+			if hit, err = union(hit, hit2); err != nil {
+				return 0, -1, err
+			}
+			c.emit(Step{Op: OpConsume, Src: w2})
+		}
+		c.emit(Step{Op: OpConsume, Src: w})
+		return hit, -1, nil
+	case FormZone:
+		return one(sel(TargetAdjacent, origin, ZoneRadius, MaxTargets))
+	case FormTrap:
+		return one(sel(TargetAdjacent, origin, TrapRadius, MaxTargets))
+	}
+	// Turret and drone: the foe nearest the device.
+	return one(sel(TargetNearest, origin, 0, 1))
+}
+
+// NearestReach is how far a marked aura looks for marked foes.
+const NearestReach = 9
+
+// alliesOf is the allies register of an aura feeding slot s, or -1.
+func (c *compiler) alliesOf(h *Hex, s int, order []int, allies [Slots]int) int {
+	for _, a := range order {
+		if allies[a] >= 0 && h.Feeds(a, s) {
+			return allies[a]
+		}
+	}
+	return -1
+}
+
+// rider follows a Rider effect with its second effect: damage leaves its
+// type's status, a status deals a little damage of its type.
+func (c *compiler) rider(st Step) {
+	r := st
+	r.Bonus = 0
+	r.Flag &^= FlagLeech
+	switch st.Op {
+	case OpDamage:
+		if c.reg.Get(st.Type).Status == StatusNone || c.reg.Get(st.Type).Status == StatusCloak {
+			return
+		}
+		r.Op, r.Value = OpStatus, RiderTime
+	case OpStatus:
+		r.Op, r.Value = OpDamage, RiderHit
+	default:
+		return
+	}
+	c.emit(r)
+	c.p.Power += RiderCost * 4
+	c.p.Heat += RiderCost * 3
 }

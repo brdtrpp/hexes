@@ -208,6 +208,92 @@ func Examples(reg *skill.Registry) []Example {
 					3: skill.NewPurge(20),
 				}), "Coolant", "every 2s, purge 20 Heat over half"},
 			}},
+		{Name: "Rogue", Blurb: "cloak, a dash, a behind gate and a combo",
+			Hexes: []ExampleHex{
+				{exHex("Vanish", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetSelf, 0, 0),
+					2: skill.NewStatus(ty("cloak"), 3),
+					3: skill.NewHaste(3),
+				}), "Vanish", "unseen and quick; your next hit lands double"},
+				{exHex("Backstab", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormDash).WithRarity(skill.Rare),
+					2: skill.NewBehindGate(),
+					3: skill.NewDamage(ty("kinetic"), 45),
+					4: skill.NewDamage(ty("kinetic"), 18),
+				}), "Backstab", "dash through, then back; heavy from behind"},
+				{exHex("Rot", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnHit),
+					1: skill.NewCombo(skill.Common),
+					2: skill.NewFinisher(skill.Common),
+					3: skill.NewStatus(ty("nanite"), 4),
+				}), "Rot", "every 3rd hit corrodes"},
+			}},
+		{Name: "Necromancer", Blurb: "wrecks: raise them, blow them up, spend them",
+			Hexes: []ExampleHex{
+				{exHex("Raise", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnKill),
+					1: skill.NewReanimate(12),
+				}), "Raise", "every kill gets up and fights for you"},
+				{exHex("Corpse Blast", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormDetonate),
+					2: skill.NewDamage(ty("plasma"), 40),
+				}), "Corpse Blast", "blow up the nearest wreck"},
+				{exHex("Curse", ring, false, map[int]skill.Part{
+					0: skill.NewPeriodic(3),
+					1: skill.NewForm(skill.FormAura),
+					2: skill.NewStatus(ty("nanite"), 3),
+				}), "Curse", "every 3s, corrode everyone near you"},
+				{exHex("Grave Pact", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetNearest, 0, 3),
+					2: skill.NewDamage(ty("nanite"), 55),
+					3: skill.NewCost(skill.CostWrecks).WithRarity(skill.Rare),
+				}), "Grave Pact", "no Heat: it eats a wreck instead"},
+			}},
+		{Name: "Engineer", Blurb: "a turret, a trap and a drone",
+			Hexes: []ExampleHex{
+				{exHex("Sentry", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormTurret),
+					2: skill.NewDamage(ty("plasma"), 14),
+				}), "Sentry", "a turret that shoots the nearest foe"},
+				{exHex("Snare", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormTrap).WithRarity(skill.Rare),
+					2: skill.NewStatus(ty("cryo"), 2.5),
+					3: skill.NewDamage(ty("kinetic"), 30),
+				}), "Snare", "a trap that freezes three times"},
+				{exHex("Wasp", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormDrone),
+					2: skill.NewDamage(ty("drone"), 10),
+				}), "Wasp", "a drone at your shoulder"},
+			}},
+		{Name: "Warden", Blurb: "oaths: taunt, thorns, a stance and blood",
+			Hexes: []ExampleHex{
+				{exHex("Challenge", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormNova),
+					2: skill.NewTaunt(4),
+					3: skill.NewThorns(4),
+				}), "Challenge", "pull them in, hand their hits back"},
+				{exHex("Bulwark", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewStance(skill.StanceBulwark),
+					2: skill.NewShield(0.05),
+				}), "Bulwark", "a stance: tougher, slower; tap again to drop it"},
+				{exHex("Blood Price", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetAdjacent, 2, 0),
+					2: skill.NewHurtGate(0.5),
+					3: skill.NewDamage(ty("kinetic"), 70),
+					4: skill.NewDamage(ty("kinetic"), 30),
+					5: skill.NewCost(skill.CostBlood),
+				}), "Blood Price", "paid in hull; hits harder when you're low"},
+			}},
 	}
 }
 

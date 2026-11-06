@@ -57,6 +57,9 @@ type Shot struct {
 	Owner        skill.EntityID
 	Age          float32
 	Type         skill.TypeID
+	// Near is set once it passes close to you; Dodged once that passing
+	// has counted as a dodge.
+	Near, Dodged bool
 }
 
 // formSquads picks each pack's leader: its brute if it has one, else its
@@ -150,7 +153,7 @@ func (s *Sim) enemies(dt float32) {
 	p := s.P()
 	for i := range s.Actors {
 		a := &s.Actors[i]
-		if skill.EntityID(i) == s.Player || !a.U.Alive || a.U.Team == p.U.Team {
+		if skill.EntityID(i) == s.Player || !a.U.Alive || a.U.Team == p.U.Team || a.extra() {
 			continue
 		}
 		a.AtkCD -= dt
@@ -172,12 +175,20 @@ func (s *Sim) enemies(dt float32) {
 			a.WakeIn -= dt
 			continue
 		}
-		// Hurt badly: fall back once.
-		if !a.Fled && a.U.HP < a.U.MaxHP*fleeAt[a.Kind] && fleeAt[a.Kind] > 0 {
+		// Unseen, you're lost to them: they hold where they are.
+		if p.U.Stealth > 0 && a.U.TauntLeft == 0 {
+			a.Aim = 0
+			continue
+		}
+		// Hurt badly: fall back once (a taunted foe doesn't).
+		if a.U.TauntLeft > 0 {
+			a.Flee = 0
+		}
+		if a.U.TauntLeft == 0 && !a.Fled && a.U.HP < a.U.MaxHP*fleeAt[a.Kind] && fleeAt[a.Kind] > 0 {
 			a.Fled, a.Flee = true, FleeTime
 			a.Aim = 0
 		}
-		if a.Kind == KindGunner {
+		if a.Kind == KindGunner && a.U.TauntLeft == 0 {
 			s.gunner(skill.EntityID(i), d, dt)
 			continue
 		}
@@ -671,9 +682,17 @@ func (s *Sim) stepShots(dt float32) {
 		}
 		if !gone && p.U.Alive {
 			px, py := p.Pos()
-			if math.Hypot(px-sh.X, py-sh.Y) < ShotHitRadius {
+			d := math.Hypot(px-sh.X, py-sh.Y)
+			switch {
+			case d < ShotHitRadius:
 				gone = true
 				s.shotHit(sh)
+			case d < ShotHitRadius+DodgeRadius && !sh.Near:
+				sh.Near = true
+			case d >= ShotHitRadius+DodgeRadius && sh.Near && !sh.Dodged:
+				// It came close and went past: a dodge.
+				sh.Dodged = true
+				s.dodged(sh)
 			}
 		}
 		if gone {
@@ -692,7 +711,7 @@ func (s *Sim) shotHit(sh *Shot) {
 	if int(sh.Owner) < len(s.Actors) {
 		lvl = s.Actors[sh.Owner].U.Level
 	}
-	hit := min(sh.Dmg, s.Rules.HitCap(lvl, p.U.Level, p.U.MaxHP))
+	hit := min(s.taunted(sh.Owner, sh.Dmg)*s.guard(), s.Rules.HitCap(lvl, p.U.Level, p.U.MaxHP))
 	left := p.U.Soak(hit)
 	dealt := min(left, p.U.HP)
 	p.U.HP -= dealt
@@ -708,6 +727,7 @@ func (s *Sim) shotHit(sh *Shot) {
 	}
 	s.FX.Add(FX{Kind: FXZap, At: p.At, X: sh.X, Y: sh.Y, DX: float32(sh.VX), DY: float32(sh.VY), Hurt: true, Life: 0.3})
 	if p.U.Alive && int(sh.Owner) < len(s.Actors) {
+		s.thorns(sh.Owner, hit)
 		s.Disp.Hurt(s.Player, sh.Owner)
 	}
 }

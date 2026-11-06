@@ -89,6 +89,8 @@ func checkLoot(t *testing.T, s *Sim) {
 			bad = "charge"
 		case p.Kind == skill.KindCall && u&UCalls == 0:
 			bad = "call"
+		case (p.Kind == skill.KindForm || p.Kind == skill.KindCost || p.Kind == skill.KindStance) && u&(UForms|UWrecks|UDevices|UOaths) == 0:
+			bad = "class part"
 		case (p.Quirk != skill.QuirkNone || p.Rarity == skill.Exotic) && u&UQuirks == 0:
 			bad = "quirk or exotic"
 		case p.Kind == skill.KindTrigger && (p.Trigger == skill.Channel || p.Trigger == skill.Watch) && u&UQuirks == 0:
@@ -105,7 +107,7 @@ func checkLoot(t *testing.T, s *Sim) {
 func TestLadderArrivesFloorByFloor(t *testing.T) {
 	s := New(5)
 	seen := 1
-	for depth := 1; depth <= 16; depth++ {
+	for depth := 1; depth <= Ladder[len(Ladder)-1].Depth+1; depth++ {
 		if depth > 1 {
 			s.load(depth, 1)
 		}
@@ -117,6 +119,9 @@ func TestLadderArrivesFloorByFloor(t *testing.T) {
 			}
 			if idx != seen {
 				t.Fatalf("lesson %d out of order (want %d)", idx, seen)
+			}
+			if loot.InventorySize-s.Stash.Inv.Count() < 2 {
+				s.Stash.Inv.Clear() // a player would have fitted or dropped some
 			}
 			before := s.Stash.Inv.Count()
 			takeLesson(t, s)
@@ -255,7 +260,7 @@ func TestTestSwitchUnlocksTheLadder(t *testing.T) {
 	if err := s.SetTestShapes(true); err != nil {
 		t.Fatal(err)
 	}
-	if s.Unlocks() != UAll || s.HexesOpen() != MaxSlots || !s.BenchOn(0) || s.lootAllow() != (loot.Allow{}) {
+	if s.Unlocks() != UAll || s.HexesOpen() != MaxSlots || !s.BenchOn(0) || s.lootAllow() != (loot.Allow{New: loot.FamAll}) {
 		t.Fatal("TEST didn't unlock everything")
 	}
 	if err := s.SetTestShapes(false); err != nil {

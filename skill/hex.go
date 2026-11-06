@@ -36,11 +36,11 @@ func (s SocketKind) Accepts(k PartKind) bool {
 	case SocketTrigger:
 		return k == KindTrigger
 	case SocketTarget:
-		return k == KindTarget || k == KindGate
+		return k == KindTarget || k == KindGate || k == KindForm
 	case SocketEffect:
-		return k == KindEffect || k == KindMult || k == KindCharge || k == KindCall
+		return k == KindEffect || k == KindMult || k == KindCharge || k == KindCall || k == KindCost || k == KindStance
 	case SocketWild:
-		return k == KindTarget || k == KindEffect || k == KindMult || k == KindGate || k == KindCharge || k == KindCall
+		return k != KindNone && k != KindTrigger
 	}
 	return false
 }

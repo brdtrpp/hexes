@@ -33,6 +33,8 @@ type Event struct {
 	// Slot, if 0 or more, fires only that slot (periodic timers and button
 	// casts); -1 fires every matching slot.
 	Slot int8
+	// Pulse is a stance hex's pulse while it's on, not a toggle.
+	Pulse bool
 }
 
 // Outcome is what happened when a slot tried to fire.
@@ -44,9 +46,11 @@ const (
 	Locked             // rig overheated or venting
 	OnCooldown         // proc cooldown still running
 	Empty              // nothing in the slot, or wrong trigger for the call
+	NoFuel             // a sacrifice with too little hull, or a wreck cost with no wreck
+	Off                // a stance hex switched off
 )
 
-var outcomeNames = [...]string{"fired", "no power", "locked", "cooldown", "empty"}
+var outcomeNames = [...]string{"fired", "no power", "locked", "cooldown", "empty", "no fuel", "off"}
 
 func (o Outcome) String() string { return outcomeNames[o] }
 
@@ -83,6 +87,19 @@ type Loadout struct {
 	Board *BoardBank
 	// Hold is whether CAST is held down, for channel hexes.
 	Hold bool
+	// On is which stance hexes are on.
+	On [MaxEquip]bool
+}
+
+// Stances is the stances on right now, one bit per StanceKind.
+func (l *Loadout) Stances() uint8 {
+	var m uint8
+	for s, p := range l.Progs {
+		if k, ok := p.StanceKind(); ok && l.On[s] {
+			m |= 1 << k
+		}
+	}
+	return m
 }
 
 // Bank is slot's charge banks.
@@ -222,6 +239,18 @@ func (d *Dispatcher) Update(dt float32) {
 				continue
 			}
 			l.Cool[s] = max(0, l.Cool[s]-dt)
+			if p.Stance != 0 {
+				if l.On[s] && p.Pulses {
+					l.Timer[s] -= dt
+					if l.Timer[s] <= 0 {
+						l.Timer[s] = StancePulse
+						d.push(Event{Trigger: p.Trigger, Actor: l.Owner, Subject: NoEntity, Slot: int8(s), Pulse: true})
+					}
+				}
+				if p.Trigger != Periodic && p.Trigger != Watch && p.Trigger != Channel {
+					continue
+				}
+			}
 			switch p.Trigger {
 			case Channel:
 				d.channel(l, s, dt)
@@ -300,8 +329,46 @@ func (d *Dispatcher) Cast(owner EntityID, slot int, subject EntityID) Outcome {
 	}
 	d.surprise(owner, subject)
 	o := d.fire(l, slot, Event{Trigger: OnCast, Actor: owner, Subject: subject, Slot: int8(slot)})
+	d.unambush(owner)
 	d.drain()
 	return o
+}
+
+// unambush ends the ambush a cast or strike out of stealth had.
+func (d *Dispatcher) unambush(owner EntityID) {
+	if u := d.World.Unit(owner); u != nil {
+		u.Ambush = false
+	}
+}
+
+// Post queues an event without running the queue: for game-side causes
+// that happen while a hex is running (a wreck falling mid-firing). The
+// next Update, cast or event runs it.
+func (d *Dispatcher) Post(ev Event) { d.push(ev) }
+
+// RunDevice runs a placed device's hex from where it stands, on its
+// owner's rig and banks, then runs whatever its hits set off. subject is
+// who it lands on with nothing else beside it (NoEntity: the foe nearest
+// the device). It costs nothing: the hex paid when it was placed.
+func (d *Dispatcher) RunDevice(dep Deployment, origin, subject EntityID) Result {
+	var res Result
+	u := d.World.Unit(dep.Caster)
+	if u == nil || !u.Alive || dep.Prog == nil {
+		return res
+	}
+	ctx := Ctx{Caster: dep.Caster, Subject: subject, Level: u.Level}
+	if l := d.Loadout(dep.Caster); l != nil {
+		ctx.Rig, ctx.Calls, ctx.Board = l.Rig, &l.Progs, l.Board
+		for s, p := range l.Progs {
+			if p == dep.Prog {
+				ctx.Bank = l.Bank(s)
+			}
+		}
+	}
+	d.chain = 1
+	res = d.Eval.RunAt(dep.Prog, dep.Lo, dep.Hi, d.World, ctx, origin)
+	d.drain()
+	return res
 }
 
 // Strike runs a basic attack: p fires for free (no Power, no Heat, no
@@ -323,6 +390,7 @@ func (d *Dispatcher) Strike(owner EntityID, p *Program, subject EntityID) Result
 		}
 		res = d.Eval.Run(p, d.World, ctx)
 	}
+	d.unambush(owner)
 	d.drain()
 	return res
 }
@@ -386,6 +454,7 @@ func (d *Dispatcher) surprise(owner, subject EntityID) {
 	}
 	if u.Stealth > 0 {
 		u.Stealth = 0
+		u.Ambush = true // this attack lands at AmbushMult
 		d.push(Event{Trigger: FromStealth, Actor: owner, Subject: subject, Slot: -1})
 	}
 	if subject != NoEntity && d.senses != nil && d.senses.Behind(owner, subject) {
@@ -442,7 +511,13 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 	}
 	var o Outcome
 	var res Result
+	act, _ := d.World.(Actions)
+	toggle := p.Stance != 0 && !ev.Pulse
 	switch {
+	case toggle && l.On[slot] && ev.Trigger == OnCast:
+		// A cast stance switches off for free.
+		l.On[slot] = false
+		o = Off
 	case p.Inert:
 		o = Empty
 	case l.Cool[slot] > 0:
@@ -451,10 +526,32 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 	case l.Rig.Locked():
 		o = Locked
 		d.Stats.Locked++
+	case p.HullCost > 0 && u.HP <= p.HullCost*u.MaxHP:
+		o = NoFuel
+	case p.WreckCost > 0 && (act == nil || !act.Wrecks(l.Owner, int(p.WreckCost), false)):
+		o = NoFuel
 	case !l.Rig.TryFire(p):
 		o = NoPower
 		d.Stats.NoPower++
 	default:
+		if p.HullCost > 0 {
+			u.HP = max(1, u.HP-p.HullCost*u.MaxHP)
+		}
+		if p.WreckCost > 0 {
+			act.Wrecks(l.Owner, int(p.WreckCost), true)
+		}
+		if toggle {
+			// A stance comes on: a common one turns the others off.
+			l.On[slot] = true
+			l.Timer[slot] = StancePulse
+			if !p.StanceKeep {
+				for s, q := range l.Progs {
+					if s != slot && q != nil && q.Stance != 0 && !q.StanceKeep {
+						l.On[s] = false
+					}
+				}
+			}
+		}
 		o = Fired
 		d.Stats.Fired++
 		l.Cool[slot] = d.ProcCooldown[p.Trigger]

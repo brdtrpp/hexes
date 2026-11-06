@@ -48,6 +48,18 @@ type Unit struct {
 	ShieldLeft   float32
 	MendStrain   float32
 	ShieldStrain float32
+
+	// TauntLeft is seconds this foe is held on TauntBy (see EffectTaunt).
+	TauntLeft float32
+	TauntBy   EntityID
+	// ThornsLeft and HasteLeft are seconds of thorns and haste left.
+	ThornsLeft float32
+	HasteLeft  float32
+	// Might scales the damage this unit's hexes deal (zero is 1), for
+	// stances. Ambush is set while a cast or strike out of stealth runs:
+	// its damage lands at AmbushMult.
+	Might  float32
+	Ambush bool
 }
 
 // Mend restores share of max hull, divided by 1 + mend strain, then adds

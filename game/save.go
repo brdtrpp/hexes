@@ -251,6 +251,11 @@ type Save struct {
 	// their best as drafted.
 	Kit       int `json:",omitempty"`
 	DraftedTo int `json:",omitempty"`
+	// PartsV is the grid's part set when saved: GridPartsV once the class
+	// parts are on it. Kept are the cells that keep what they held before
+	// (owned when an older save first loaded).
+	PartsV int   `json:",omitempty"`
+	Kept   []int `json:",omitempty"`
 }
 
 // marks lists the set entries of b.
@@ -300,6 +305,7 @@ func (s *Sim) Snapshot() Save {
 		Locker:  append([]skill.Part(nil), s.Locker...),
 		Signals: s.Signals, BoardKeys: s.BoardKeys, GridNewest: s.GridNewest, GridRingsSeen: s.GridRingsSeen,
 		Kit: s.Kit, DraftedTo: s.DraftedTo,
+		PartsV: GridPartsV, Kept: append([]int(nil), s.GridKept...),
 	}
 	switch s.State {
 	case Dead:
@@ -406,7 +412,18 @@ func (s *Sim) Restore(sv Save) error {
 			s.Mine, s.Example = m, sv.Example
 		}
 	}
-	s.Grid = GenGrid(s.Reg, s.RunSeed, RingsFor(s.Best))
+	// A save from before the class parts keeps every cell it owns as it
+	// was, so what you bought still reads the same on the grid.
+	s.GridKept = append(s.GridKept[:0], sv.Kept...)
+	if sv.PartsV < GridPartsV {
+		s.GridKept = s.GridKept[:0]
+		for _, i := range sv.Own {
+			if i >= RingStart(ClassRing) {
+				s.GridKept = append(s.GridKept, i)
+			}
+		}
+	}
+	s.Grid = s.genGrid(RingsFor(s.Best))
 	n := len(s.Grid.Nodes)
 	s.Own, s.Seen = setMarks(n, sv.Own), setMarks(n, sv.Seen)
 	s.Glimpse, s.Reclaim = setMarks(n, sv.Glimpse), setMarks(n, sv.Reclaim)

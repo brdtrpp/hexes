@@ -53,9 +53,39 @@ const (
 	// OpPurge takes Value Heat off the caster's rig, once, while guard
 	// register Src2 holds someone.
 	OpPurge
+	// OpTaunt holds every foe in Src on the caster for Value seconds.
+	OpTaunt
+	// OpBuff puts effect Count (thorns or haste) on the caster for Value
+	// seconds, guarded by Src2.
+	OpBuff
+	// OpRaise raises every wreck in Src as the caster's drone for Value
+	// seconds.
+	OpRaise
+	// OpMove moves the caster up to Value hexes in mode Count (see
+	// MoveMode), toward or away from the first entity in Src. Guarded by
+	// Src2.
+	OpMove
+	// OpConsume uses up every wreck in Src.
+	OpConsume
+	// OpDeploy places form Count (rule Bank) and skips the Span steps
+	// after it: the device runs them from where it stands (see
+	// Deployment). A world that can't place devices runs them here once.
+	OpDeploy
 )
 
-var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge", "call", "ifkill", "mend", "shield", "purge"}
+var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge", "call", "ifkill", "mend", "shield", "purge",
+	"taunt", "buff", "raise", "move", "consume", "deploy"}
+
+// MoveMode is how OpMove moves the caster.
+type MoveMode uint8
+
+const (
+	MoveDash   MoveMode = iota // along the line to the target, up to Value
+	MoveToward                 // a jump to beside the target
+	MoveAway                   // a jump away from the target
+	MoveBack                   // back to where the last dash started
+	MoveHide                   // back, and unseen for a moment
+)
 
 // Step flags: runtime bends a frame puts on one step.
 const (
@@ -96,6 +126,9 @@ type Step struct {
 	Span   uint16
 	Flag   uint8 // frame bends that act at run time (Flag...)
 	Value  float32
+	// Bonus, on damage, multiplies it on marked foes (a marked
+	// multiplier). Zero means none.
+	Bonus float32
 }
 
 // Program is a compiled hex.
@@ -141,6 +174,28 @@ type Program struct {
 	// LockExtra is seconds added to an overheat this hex's firing causes
 	// (an Overflow frame).
 	LockExtra float32
+	// HullCost is the share of max hull a sacrifice hex takes each firing
+	// in place of Heat; WreckCost is how many wrecks a wreck-cost hex uses
+	// up. See CostKind.
+	HullCost  float32
+	WreckCost uint8
+	// Stance is 1 + the StanceKind of a stance hex, zero for the rest.
+	// StanceKeep is set when it can stay on beside another stance.
+	Stance     uint8
+	StanceKeep bool
+	// Pulses is set on a stance hex with something to pulse.
+	Pulses bool
+	// Device is 1 + the FormKind of a hex that places a device, zero for
+	// the rest.
+	Device uint8
+}
+
+// StanceKind is a stance hex's stance; ok is false for other hexes.
+func (p *Program) StanceKind() (StanceKind, bool) {
+	if p == nil || p.Stance == 0 {
+		return 0, false
+	}
+	return StanceKind(p.Stance - 1), true
 }
 
 // CallsHex reports whether the program has a Call aimed at target
@@ -165,16 +220,19 @@ func (p *Program) String() string {
 		switch s.Op {
 		case OpSelect:
 			fmt.Fprintf(&b, "r%d = select %s from r%d", s.Dst, s.Target, s.Src)
-			if s.Target == TargetNearest || s.Target == TargetChain {
+			if s.Target.Counted() {
 				fmt.Fprintf(&b, " count=%d", s.Count)
 			}
-			if s.Target != TargetSelf && s.Target != TargetNearest {
+			if s.Target.Ranged() {
 				fmt.Fprintf(&b, " radius=%.2f", s.Value)
 			}
 		case OpUnion:
 			fmt.Fprintf(&b, "r%d = r%d + r%d", s.Dst, s.Src, s.Src2)
 		case OpDamage:
 			fmt.Fprintf(&b, "damage r%d type=%d amount=%.2f", s.Src, s.Type, s.Value)
+			if s.Bonus != 0 {
+				fmt.Fprintf(&b, " marked x%.2f", s.Bonus)
+			}
 		case OpPush:
 			fmt.Fprintf(&b, "push r%d hexes=%.2f", s.Src, s.Value)
 		case OpStatus:
@@ -210,6 +268,19 @@ func (p *Program) String() string {
 			fmt.Fprintf(&b, "purge heat=%.2f if r%d", s.Value, s.Src2)
 		case OpIfKill:
 			fmt.Fprintf(&b, "if killed (%d steps)", s.Span)
+			ends = append(ends, i+1+int(s.Span))
+		case OpTaunt:
+			fmt.Fprintf(&b, "taunt r%d seconds=%.2f", s.Src, s.Value)
+		case OpBuff:
+			fmt.Fprintf(&b, "%s self seconds=%.2f if r%d", EffectKind(s.Count), s.Value, s.Src2)
+		case OpRaise:
+			fmt.Fprintf(&b, "raise r%d seconds=%.2f", s.Src, s.Value)
+		case OpMove:
+			fmt.Fprintf(&b, "move mode=%d at r%d hexes=%.2f if r%d", s.Count, s.Src, s.Value, s.Src2)
+		case OpConsume:
+			fmt.Fprintf(&b, "consume r%d", s.Src)
+		case OpDeploy:
+			fmt.Fprintf(&b, "deploy %s rule=%d (%d steps)", FormKind(s.Count), s.Bank, s.Span)
 			ends = append(ends, i+1+int(s.Span))
 		}
 		for f, name := range [...]string{"leech", "lonely", "overflow", "crowd"} {

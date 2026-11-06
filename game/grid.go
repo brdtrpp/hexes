@@ -129,6 +129,12 @@ func RingIdea(k int) string {
 		return "charges, drains, spend and empty gates"
 	case 10:
 		return "calls and board cells"
+	case 12:
+		return "forms, and the rogue's cloak, combos and behind gate"
+	case 13:
+		return "wrecks, reanimate, turrets, traps and drones"
+	case 14:
+		return "oaths: taunt, thorns, sacrifice and stances"
 	}
 	return "everything: quirks, exotics and logic tiles"
 }
@@ -707,3 +713,92 @@ func GridCheck(g *Grid, reg *skill.Registry) bool {
 	all := [6]bool{true, true, true, true, true, true}
 	return hasCryo && hasAround && eff == all && trig == all
 }
+
+// The class parts on the grid. Rings ClassRing and out trade a share of
+// their part cells for forms, the rogue's, the necromancer's, devices and
+// oaths, rolled from their own stream after the ring itself so the rest
+// of the ring comes out as it always did.
+
+// GridPartsV is the grid's part set: 1 once the class parts are on it.
+const GridPartsV = 1
+
+// ClassRing is the first ring with class parts on it, and ClassFrac the
+// share of its part cells they take.
+const (
+	ClassRing = 12
+	ClassFrac = 0.35
+	ClassLean = 0.5 // share of a wedge's class cells from its type's family
+)
+
+// classFams is which families ring k draws class parts from.
+func classFams(k int) uint16 {
+	switch k {
+	case ClassRing:
+		return loot.FamForms | loot.FamShadow
+	case ClassRing + 1:
+		return loot.FamWrecks | loot.FamDevices
+	case ClassRing + 2:
+		return loot.FamOaths | loot.FamForms
+	}
+	return loot.FamAll
+}
+
+// typeFam is the family a damage type's wedge leans to: cloak to the
+// rogue, drone to devices, kinetic and plasma to oaths, nanite to the
+// rogue's corrosion, cryo to traps and zones, anything else to wrecks.
+func typeFam(name string) int {
+	switch name {
+	case "cloak", "nanite":
+		return 1
+	case "drone", "cryo":
+		return 3
+	case "kinetic", "plasma":
+		return 4
+	}
+	return 2
+}
+
+// GenGridKeep is GenGrid with the class parts laid over rings ClassRing
+// and out, except on the kept cells.
+func GenGridKeep(reg *skill.Registry, seed uint64, r int, kept []int) *Grid {
+	g := GenGrid(reg, seed, r)
+	keep := make(map[int]bool, len(kept))
+	for _, i := range kept {
+		keep[i] = true
+	}
+	tab := loot.NewTable(reg)
+	for k := ClassRing; k <= g.Rings; k++ {
+		rr := loot.NewRNG(hash(seed ^ uint64(k)*0x7c1a55 ^ 0xc1a55))
+		fams := classFams(k)
+		for i := RingStart(k); i < RingStart(k+1); i++ {
+			n := &g.Nodes[i]
+			roll := rr.Float()
+			if n.Kind != NodePart || roll >= ClassFrac {
+				continue
+			}
+			f := -1
+			if lean := typeFam(reg.Get(g.Types[n.Wedge]).Name); fams&(1<<lean) != 0 && rr.Float() < ClassLean {
+				f = lean
+			}
+			if f < 0 {
+				var w [loot.NumFams]int
+				nw := 0
+				for j := 0; j < loot.NumFams; j++ {
+					if fams&(1<<j) != 0 {
+						w[nw] = j
+						nw++
+					}
+				}
+				f = w[rr.Intn(nw)]
+			}
+			p := tab.RollFam(&rr, f, n.Rarity)
+			if !keep[i] {
+				n.Part, n.Teach = p, false
+			}
+		}
+	}
+	return g
+}
+
+// genGrid rolls this save's grid with r rings.
+func (s *Sim) genGrid(r int) *Grid { return GenGridKeep(s.Reg, s.RunSeed, r, s.GridKept) }
