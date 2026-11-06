@@ -688,6 +688,16 @@ func NewTarget(k TargetKind, radius float32, count uint8) Part {
 		if p.Value == 0 {
 			p.Value = 3
 		}
+	case TargetWeakest, TargetMarked, TargetWreck:
+		// Choosier than nearest, so dearer: picking the weakest foe or
+		// only the marked ones is worth more than the closest.
+		p.Power = 2
+		if p.Count == 0 {
+			p.Count = 1
+		}
+		if p.Value == 0 && k == TargetWeakest {
+			p.Value = NearestReach // a reach a radius multiplier can stretch
+		}
 	}
 	return p
 }
@@ -938,26 +948,31 @@ func (f FormKind) Placed() bool { return f >= FormZone }
 
 // Form and device tuning (placeholders to tune in play).
 const (
-	BoltReach   = 9   // a piercing bolt's line
-	BeamLength  = 5   // a beam's line
-	AuraRadius  = 2   // round you
-	NovaRadius  = 2   // round where it fires
-	DashLength  = 4   // hexes a dash carries you
-	BlastRadius = 2   // round a detonated wreck
-	WreckReach  = 6   // how far a form or reanimate looks for a wreck
-	ZoneRadius  = 1.5 // a zone's field
-	ZoneEvery   = 0.5
-	ZoneLife    = 6
-	ZoneScale   = 0.35 // a zone's numbers, it runs often
-	TurretEvery = 1
-	TurretLife  = 12
-	TrapLife    = 25
-	TrapRadius  = 1
-	DroneEvery  = 1.2
-	DroneLife   = 14
-	FormPower   = 1 // a form's Power beyond what it replaces
-	DevicePower = 4 // a placed form's Power
-	DeviceHeat  = 2
+	BoltReach    = 9   // a piercing bolt's line
+	BeamLength   = 5   // a beam's line
+	AuraRadius   = 2   // round you
+	NovaRadius   = 2   // round where it fires
+	DashLength   = 4   // hexes a dash carries you
+	BlastRadius  = 2   // round a detonated wreck
+	WreckReach   = 6   // how far a form or reanimate looks for a wreck
+	WreckBurst   = 2   // a wreck target hits foes this close to the wreck
+	ZoneRadius   = 1.5 // a zone's field
+	ZoneEvery    = 0.5
+	ZoneLife     = 6
+	ZoneScale    = 0.35 // a zone's numbers, it runs often
+	TurretEvery  = 1
+	TurretLife   = 12
+	TrapLife     = 25
+	TrapRadius   = 1
+	TrapArms     = 4 // springs a trap has, TrapArmsRare from rare up
+	TrapArmsRare = 8
+	TrapPower    = 3 // a trap only runs when stepped on, so it's cheaper
+	TrapHeat     = 1
+	DroneEvery   = 1.2
+	DroneLife    = 14
+	FormPower    = 1 // a form's Power beyond what it replaces
+	DevicePower  = 4 // a placed form's Power
+	DeviceHeat   = 2
 )
 
 // Rule is what a form part's tier adds: 0 below rare, 1 rare, 2 exotic.
@@ -984,6 +999,8 @@ func NewForm(f FormKind) Part {
 		p.Power, p.Heat = 3, 2
 	case FormDetonate:
 		p.Power, p.Heat = 2, 1
+	case FormTrap:
+		p.Power, p.Heat = TrapPower, TrapHeat
 	default:
 		p.Power, p.Heat = DevicePower, DeviceHeat
 	}
@@ -1053,6 +1070,7 @@ const (
 	FurnaceCool   = 2
 	FurnaceCharge = 0.5
 	StancePower   = 2
+	StanceUpkeep  = 3 // Heat a bare stance adds every StancePulse while on
 )
 
 // NewStance makes a stance part.

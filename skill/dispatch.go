@@ -240,11 +240,22 @@ func (d *Dispatcher) Update(dt float32) {
 			}
 			l.Cool[s] = max(0, l.Cool[s]-dt)
 			if p.Stance != 0 {
-				if l.On[s] && p.Pulses {
+				if l.On[s] && l.Rig.Overheated() {
+					// An overheat drops every stance: holding one is a Heat
+					// budget, not a free switch. A vent keeps them.
+					l.On[s] = false
+				}
+				if l.On[s] {
 					l.Timer[s] -= dt
 					if l.Timer[s] <= 0 {
 						l.Timer[s] = StancePulse
-						d.push(Event{Trigger: p.Trigger, Actor: l.Owner, Subject: NoEntity, Slot: int8(s), Pulse: true})
+						if p.Pulses {
+							// The pulse pays the whole hex again.
+							d.push(Event{Trigger: p.Trigger, Actor: l.Owner, Subject: NoEntity, Slot: int8(s), Pulse: true})
+						} else {
+							// A bare stance pays its upkeep in Heat.
+							l.Rig.AddHeat(StanceUpkeep)
+						}
 					}
 				}
 				if p.Trigger != Periodic && p.Trigger != Watch && p.Trigger != Channel {
@@ -533,14 +544,16 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 	case l.Cool[slot] > 0:
 		o = OnCooldown
 		d.Stats.OnCooldown++
-	case l.Rig.Locked():
+	case l.Rig.Locked() && ev.Trigger != OnVent:
+		// A vent locks the rig, but its own on-vent hexes are the point of
+		// venting: they still fire, into the Heat the vent just dumped.
 		o = Locked
 		d.Stats.Locked++
 	case p.HullCost > 0 && u.HP <= p.HullCost*u.MaxHP:
 		o = NoFuel
 	case p.WreckCost > 0 && (act == nil || !act.Wrecks(l.Owner, int(p.WreckCost), false)):
 		o = NoFuel
-	case !l.Rig.TryFire(p):
+	case !l.Rig.TryFire(p) && (ev.Trigger != OnVent || !l.Rig.Pay(p)):
 		o = NoPower
 		d.Stats.NoPower++
 	default:

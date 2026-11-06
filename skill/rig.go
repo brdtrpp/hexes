@@ -76,7 +76,16 @@ func NewRig(p Points) Rig {
 // down or short on Power. Reaching max heat fires the hex but shuts the
 // rig down.
 func (r *Rig) TryFire(p *Program) bool {
-	if r.ShutdownLeft > 0 || r.Power < p.Power {
+	if r.ShutdownLeft > 0 {
+		return false
+	}
+	return r.Pay(p)
+}
+
+// Pay is TryFire without the lock check, for an on-vent hex firing into
+// the lock its own vent started. It still needs the Power.
+func (r *Rig) Pay(p *Program) bool {
+	if r.Power < p.Power {
 		return false
 	}
 	r.Power -= p.Power
@@ -126,6 +135,10 @@ func (r *Rig) Vent() bool {
 	r.ShutdownLeft = VentLock
 	return true
 }
+
+// Overheated reports a lock from overheating rather than a vent: an
+// overheat locks for OverheatShutdown, longer than a vent's VentLock.
+func (r *Rig) Overheated() bool { return r.ShutdownLeft > VentLock }
 
 // Locked reports whether the rig is shut down (overheat or vent).
 func (r *Rig) Locked() bool { return r.ShutdownLeft > 0 }

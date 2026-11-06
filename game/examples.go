@@ -265,7 +265,7 @@ func Examples(reg *skill.Registry) []Example {
 					1: skill.NewForm(skill.FormTrap).WithRarity(skill.Rare),
 					2: skill.NewStatus(ty("cryo"), 2.5),
 					3: skill.NewDamage(ty("kinetic"), 30),
-				}), "Snare", "a trap that freezes three times"},
+				}), "Snare", "a trap that freezes eight times"},
 				{exHex("Wasp", ring, false, map[int]skill.Part{
 					0: skill.NewTrigger(skill.OnCast),
 					1: skill.NewForm(skill.FormDrone),

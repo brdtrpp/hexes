@@ -93,6 +93,7 @@ const (
 	FlagLonely               // damage, push, status: LonelyHit on one foe, LonelyMiss on more
 	FlagOverflow             // damage, push, status: grows with Heat over OverflowAt
 	FlagCrowd                // select: +1 per foe within CrowdRadius, no elites
+	FlagLive                 // select: keep Src when it's alive, else the nearest live one to it
 )
 
 func (o Op) String() string { return opNames[o] }

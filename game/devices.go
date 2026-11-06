@@ -83,8 +83,12 @@ func (s *Sim) selectMore(kind skill.TargetKind, origin, caster skill.EntityID, r
 			return d, d <= float64(radius)+0.5
 		})
 	case skill.TargetWeakest:
+		reach := float64(NearestRange)
+		if radius > 0 {
+			reach = float64(radius) + 0.5 // a radius multiplier reaches further
+		}
 		n := s.closest(out, func(i int) (float64, bool) {
-			if !s.foe(caster, i) || s.distF(o, &s.Actors[i]) > NearestRange {
+			if !s.foe(caster, i) || s.distF(o, &s.Actors[i]) > reach {
 				return 0, false
 			}
 			u := &s.Actors[i].U
@@ -461,9 +465,9 @@ func (s *Sim) Deploy(d skill.Deployment) bool {
 	case skill.FormTurret:
 		life, every = skill.TurretLife, skill.TurretEvery
 	case skill.FormTrap:
-		life = skill.TrapLife
+		life, arms = skill.TrapLife, skill.TrapArms
 		if d.Rule >= 1 {
-			arms = 3
+			arms = skill.TrapArmsRare
 		}
 	case skill.FormDrone:
 		life, every = skill.DroneLife, skill.DroneEvery

@@ -14,6 +14,8 @@ type Working struct {
 	// Totals is what changed the whole hex's cost after the parts were
 	// added up: an echo, the shape, a frame, a sacrifice.
 	Totals []CostWork
+	// Warnings are things a hex does that a player likely didn't mean.
+	Warnings []string
 }
 
 // EffectWork is one effect in a compiled hex.

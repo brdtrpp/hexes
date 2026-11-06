@@ -4,5 +4,5 @@
   {"name": "kinetic", "status": "stagger", "push_per_hit": 1, "wall_impact_frac": 0.15},
   {"name": "nanite",  "status": "toxin",   "status_power": 2, "ticks": 8},
   {"name": "drone",   "status": "mark",    "raise_on_kill": true},
-  {"name": "cloak",   "status": "cloak",   "stealth_mult": 2.0, "heat_offset": 4}
+  {"name": "cloak",   "status": "cloak",   "stealth_mult": 2.0}
 ]

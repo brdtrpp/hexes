@@ -172,7 +172,11 @@ func (s *Sim) Push(id, from skill.EntityID, hexes int) skill.Terrain {
 		next := a.At.Add(skill.HexDirs[dir])
 		t := s.Floor.At(next)
 		if t == dungeon.Wall {
-			result = skill.TerrainWall
+			if i > 0 {
+				// A slam needs the shove to carry it: a foe already pinned
+				// to the wall isn't slammed again by every hit.
+				result = skill.TerrainWall
+			}
 			break
 		}
 		if s.occupied(next) {

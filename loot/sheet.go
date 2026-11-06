@@ -136,7 +136,8 @@ func partLines(p skill.Part, reg *skill.Registry) []Line {
 		case skill.TargetAdjacent:
 			stat("Radius", hexes(p.Value), "")
 		case skill.TargetWreck:
-			stat("Range", hexes(p.Value), "nearest wreck")
+			stat("Range", hexes(p.Value), "to the nearest wreck")
+			stat("Hits", "foes within "+hexes(skill.WreckBurst), "of that wreck")
 		case skill.TargetSelf:
 			stat("Targets", "you", "")
 		}
@@ -203,12 +204,13 @@ func partLines(p skill.Part, reg *skill.Registry) []Line {
 		stat("Shape", formDetail(p), "")
 	case skill.KindCost:
 		if p.Cost == skill.CostWrecks {
-			stat("Pays", "1 wreck a cast", "in place of its Heat")
+			stat("Pays", "1 wreck a cast", fmt.Sprintf("and cuts its Heat by %s%%", num(100*skill.WreckHeatCut)))
 		} else {
 			stat("Pays", fmt.Sprintf("%s%% hull per Heat", num(100*skill.BloodPerHeat)), "in place of its Heat")
 		}
 	case skill.KindStance:
 		stat("Pulses every", num(skill.StancePulse)+" s", "while on")
+		stat("Upkeep", num(skill.StanceUpkeep)+" Heat a pulse", "on a bare stance; with more in the hex, each pulse pays the hex again. An overheat drops it")
 	}
 	// Costs: the values come from the compiler's own PartCost, the math
 	// says how.
@@ -219,7 +221,11 @@ func partLines(p skill.Part, reg *skill.Registry) []Line {
 	}
 	h0 := p.Heat
 	if p.Kind == skill.KindEffect && p.Effect.Typed() {
-		if off := reg.Get(p.Type).HeatOffset; off != 0 {
+		off := reg.Get(p.Type).HeatOffset
+		if reg.Cloak(p.Type) {
+			off += skill.CloakHeat
+		}
+		if off != 0 {
 			hm = append(hm, fmt.Sprintf("%s base %+.0f %s", num(p.Heat), off, reg.Get(p.Type).Name))
 			h0 += off
 		}
@@ -380,6 +386,9 @@ func HexSheet(h *skill.Hex, p *skill.Program, w *skill.Working, reg *skill.Regis
 	if p.Heat > 0 {
 		n := int(100 / p.Heat)
 		s.Lines = append(s.Lines, Line{Label: "Casts to overheat", Value: fmt.Sprint(n), Math: fmt.Sprintf("100 Heat / %s a cast, before it cools", num(p.Heat))})
+	}
+	for _, wn := range w.Warnings {
+		s.Lines = append(s.Lines, Line{Label: wn, Tone: ToneRule})
 	}
 	for i, sl := range h.Slots {
 		if sl.Kind == skill.SlotPart && sl.Part.Quirk != skill.QuirkNone {

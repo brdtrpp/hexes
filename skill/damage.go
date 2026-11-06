@@ -165,6 +165,7 @@ const (
 	CloakTimeMin   float32 = 1.5
 	CloakTimeMax   float32 = 4.5
 	CloakPerDamage float32 = 3.0 / 16
+	CloakHeat      float32 = 4 // a cloak's Heat on top of its status cost
 )
 
 // StatusOf finds the first type whose status is st.

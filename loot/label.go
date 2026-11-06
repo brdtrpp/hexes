@@ -66,7 +66,7 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 		case skill.TargetChain:
 			return "CHAIN", plural(int(p.Count), "hop")
 		case skill.TargetWreck:
-			return "WRECK", "nearest body"
+			return "WRECK", "foes by a body"
 		case skill.TargetWeakest:
 			return "WEAKEST", plural(int(p.Count), "foe")
 		case skill.TargetMarked:
@@ -186,7 +186,7 @@ func formDetail(p skill.Part) string {
 	case skill.FormTurret:
 		return [...]string{"1 stands", "2 stand", "3 stand"}[rule]
 	case skill.FormTrap:
-		return [...]string{"1 trigger", "3 triggers", "3, stuns"}[rule]
+		return [...]string{"4 springs", "8 springs", "8, stuns"}[rule]
 	case skill.FormDrone:
 		return [...]string{"1 flies", "2 fly", "bursts at end"}[rule]
 	}
@@ -336,16 +336,16 @@ func ClassText(p skill.Part) string {
 	case skill.KindTrigger:
 		switch p.Trigger {
 		case skill.OnWreck:
-			return fmt.Sprintf("Fires when a foe falls within %d hexes, on its wreck", skill.WreckRange)
+			return fmt.Sprintf("Fires when a foe falls within %d hexes. With no target, it hits the nearest live foe to the wreck", skill.WreckRange)
 		case skill.OnDodge:
 			return "Fires when a shot passes close by you without hitting"
 		case skill.OnVent:
-			return "Fires when you VENT"
+			return "Fires when you VENT, even though the vent locks your rig, into the Heat it just dumped"
 		}
 	case skill.KindTarget:
 		switch p.Target {
 		case skill.TargetWreck:
-			return fmt.Sprintf("Picks the nearest wreck within %g hexes: a foe's body, for %g s after it falls. Reanimate and detonate use it up", p.Value, float32(25))
+			return fmt.Sprintf("Finds the nearest wreck within %g hexes (a foe's body, for %g s after it falls) and hits the foes within %d hexes of it. A Reanimate beside it raises the wreck itself", p.Value, float32(25), skill.WreckBurst)
 		case skill.TargetWeakest:
 			return "Picks the foes in reach with the least hull left, by share"
 		case skill.TargetMarked:
@@ -403,7 +403,7 @@ func ClassText(p skill.Part) string {
 		if p.Rarity >= skill.Rare {
 			keep = "Stays on beside another stance"
 		}
-		return fmt.Sprintf("A stance: cast it to switch it on, again to switch it off. While on: %s, and the rest of the hex runs every %g s. %s", what, float32(skill.StancePulse), keep)
+		return fmt.Sprintf("A stance: cast it to switch it on, again to switch it off. While on: %s, and the rest of the hex runs (and pays) every %g s; a bare stance costs %g Heat a pulse instead. An overheat drops it. %s", what, float32(skill.StancePulse), float32(skill.StanceUpkeep), keep)
 	}
 	return ""
 }
@@ -427,7 +427,7 @@ func formText(f skill.FormKind) string {
 	case skill.FormTurret:
 		return fmt.Sprintf("Places a turret beside you that runs the hex at the nearest foe every %g s for %g s. With an aura, it's a totem. Rare: two stand. Exotic: three", float32(skill.TurretEvery), float32(skill.TurretLife))
 	case skill.FormTrap:
-		return fmt.Sprintf("Leaves a trap where you stand that runs the hex on the first foe to step on it, for %g s. Rare: three triggers. Exotic: and it stuns", float32(skill.TrapLife))
+		return fmt.Sprintf("Leaves a trap where you stand that runs the hex on each foe that steps on it, %d times, for %g s. Rare: %d times. Exotic: and it stuns", skill.TrapArms, float32(skill.TrapLife), skill.TrapArmsRare)
 	case skill.FormDrone:
 		return fmt.Sprintf("Launches a drone that follows you and runs the hex at the nearest foe every %g s for %g s. Rare: two fly. Exotic: one last burst when it ends", float32(skill.DroneEvery), float32(skill.DroneLife))
 	}

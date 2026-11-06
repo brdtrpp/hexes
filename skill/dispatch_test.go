@@ -291,3 +291,47 @@ func TestCloakGateAndRest(t *testing.T) {
 		t.Fatal("a cloak didn't hide you after the rest")
 	}
 }
+
+// A bare stance pays Heat while it's on, and an overheat drops it.
+func TestStanceUpkeep(t *testing.T) {
+	_, c, d, rig, _ := setup(t)
+	hold := mk(t, "hold", NewTrigger(OnCast), NewStance(StanceHunter))
+	if hold.Pulses {
+		t.Fatal("a bare stance shouldn't pulse")
+	}
+	l := d.Equip(c, rig, hold)
+	if o := d.Cast(c, 0, NoEntity); o != Fired {
+		t.Fatalf("cast %s", o)
+	}
+	rig.CoolRate = 0
+	heat := rig.Heat
+	for i := 0; i < 25; i++ {
+		d.Update(0.1)
+	}
+	if rig.Heat < heat+StanceUpkeep {
+		t.Fatalf("no upkeep: heat %.1f -> %.1f", heat, rig.Heat)
+	}
+	if !l.On[0] {
+		t.Fatal("stance dropped on its own")
+	}
+	rig.AddHeat(rig.MaxHeat)
+	d.Update(0.1)
+	if l.On[0] {
+		t.Fatal("overheat kept the stance")
+	}
+}
+
+// Mend beside a foe target heals that foe, and the working says so.
+func TestMendOnFoesWarns(t *testing.T) {
+	h := NewHex("oops", [6]SocketKind{T, W, W, W, W, W})
+	h.Slots[0] = Slot{Kind: SlotPart, Part: NewTrigger(OnCast)}
+	h.Slots[1] = Slot{Kind: SlotPart, Part: NewTarget(TargetNearest, 0, 1)}
+	h.Slots[2] = Slot{Kind: SlotPart, Part: NewMend(0.1)}
+	_, w, err := Explain(h, reg, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Warnings) != 1 {
+		t.Fatalf("warnings %q", w.Warnings)
+	}
+}

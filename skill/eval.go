@@ -381,6 +381,13 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 				e.n[s.Dst] = e.crowd(w, ctx, s, limit)
 				continue
 			}
+			if s.Flag&FlagLive != 0 {
+				if u := w.Unit(e.regs[s.Src][0]); u != nil && u.Alive {
+					e.regs[s.Dst][0] = e.regs[s.Src][0]
+					e.n[s.Dst] = 1
+					continue
+				}
+			}
 			e.n[s.Dst] = uint8(w.Select(s.Target, e.regs[s.Src][0], ctx.Caster, s.Value, e.regs[s.Dst][:limit]))
 		case OpUnion:
 			dst := &e.regs[s.Dst]

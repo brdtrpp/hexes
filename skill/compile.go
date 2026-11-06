@@ -130,6 +130,17 @@ func build(h *Hex, reg *Registry, maxDepth int, work *Working) (*Program, error)
 			break
 		}
 	}
+	if t.Trigger == OnKill || t.Trigger == OnWreck {
+		// The subject of a kill or a wreck is dead, and damage, statuses
+		// and pushes skip the dead: untargeted, they land on the nearest
+		// live foe to the body instead. Reanimate still reads the body.
+		r, err := c.alloc()
+		if err != nil {
+			return nil, err
+		}
+		c.emit(Step{Op: OpSelect, Target: TargetNearest, Src: RegSubject, Dst: r, Count: 1, Value: NearestReach, Flag: FlagLive})
+		landing = r
+	}
 	if err := c.level(h, trig, 0, RegOrigin, landing, seen); err != nil {
 		return nil, err
 	}
@@ -216,10 +227,13 @@ func build(h *Hex, reg *Registry, maxDepth int, work *Working) (*Program, error)
 }
 
 type compiler struct {
-	reg  *Registry
-	trig Part
-	p    *Program
-	next uint8
+	reg *Registry
+	// wreckOf maps a wreck target's foes to the wreck they were found
+	// around, for a reanimate beside it.
+	wreckOf map[uint8]uint8
+	trig    Part
+	p       *Program
+	next    uint8
 	// loop is set when a Loop's last slot carries someone back to its
 	// first: loopSrc is the register holding them.
 	loop    bool
@@ -282,6 +296,9 @@ func PartCost(p Part, reg *Registry) (power, heat float32) {
 	heat = p.Heat
 	if p.Kind == KindEffect && p.Effect.Typed() && reg != nil {
 		heat += reg.Get(p.Type).HeatOffset
+		if reg.Cloak(p.Type) {
+			heat += CloakHeat // hiding is worth a lot; it runs hot
+		}
 	}
 	power = p.Power
 	switch p.Kind {
@@ -425,7 +442,21 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		i := c.emit(st)
 		tgt[s] = int(r)
 		carry[s] = int(r)
-		fed[s] = span{i, i + 1, true}
+		if p.Target == TargetWreck {
+			// A wreck target hits the foes standing around the wreck; a
+			// reanimate beside it still reads the wreck.
+			foes, err := c.alloc()
+			if err != nil {
+				return err
+			}
+			c.emit(Step{Op: OpSelect, Target: TargetAdjacent, Src: r, Dst: foes, Count: MaxTargets, Value: WreckBurst})
+			if c.wreckOf == nil {
+				c.wreckOf = map[uint8]uint8{}
+			}
+			c.wreckOf[foes] = r
+			tgt[s], carry[s] = int(foes), int(foes)
+		}
+		fed[s] = span{i, len(c.p.Steps), true}
 		c.cost(p, depth)
 		if fr.Bend == BendSurge {
 			c.why = "surge frame"
@@ -576,7 +607,11 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				st.Op, st.Src, st.Count = OpBuff, RegCaster, uint8(p.Effect)
 			case EffectReanimate:
 				st.Op = OpRaise
-				if guard == RegCaster && src == landing && (depth > 0 || (c.trig.Trigger != OnKill && c.trig.Trigger != OnWreck)) {
+				if guard == RegCaster && src == landing && depth == 0 && (c.trig.Trigger == OnKill || c.trig.Trigger == OnWreck) {
+					st.Src = RegSubject // the body that just fell
+				} else if w, ok := c.wreckOf[src]; ok {
+					st.Src = w // beside a wreck target: that wreck
+				} else if guard == RegCaster && src == landing {
 					// Nothing beside it: the nearest wreck.
 					r, err := c.alloc()
 					if err != nil {
@@ -616,6 +651,9 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 					st.Src = uint8(a) // beside an aura: you and your allies
 				} else if guard != RegCaster || src == landing || p.Effect == EffectPurge {
 					st.Src = RegCaster
+				} else if c.work != nil && depth == 0 {
+					c.work.Warnings = append(c.work.Warnings, fmt.Sprintf(
+						"Slot %d: this %s lands on the targets beside it, so it helps foes", s+1, p.Effect))
 				}
 				st.Type = 0
 				switch p.Effect {
