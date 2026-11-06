@@ -162,6 +162,7 @@ func newGame() *Game {
 	g.stickMode = loadPref(stickPref) == "stick"
 	g.stick.Deadzone = 0.15
 	g.loadSave()
+	g.sim.OfferKits()
 	g.initFX()
 	g.initSound()
 	return g
@@ -199,6 +200,9 @@ func (g *Game) Update() error {
 	g.autosave()
 	if g.updateMenu() {
 		return nil // paused while the menu is open
+	}
+	if g.updateDraft() {
+		return nil // the game waits on the pick
 	}
 	edTap := g.ed.on && (len(inpututil.AppendJustPressedTouchIDs(nil)) > 0 || inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft))
 	edMsg := g.ed.msg
@@ -404,6 +408,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.ed.on {
 		g.drawEditor(screen)
 	}
+	g.drawDraft(screen)
 	if g.menu != menuClosed {
 		g.drawMenu(screen)
 	}

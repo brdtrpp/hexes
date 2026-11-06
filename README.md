@@ -354,6 +354,25 @@ Cast buttons: every hex whose trigger is on cast or hold gets a cast button, 1 t
 
 Workbenches: hexes are only rewired at a workbench, a purple console on the floor. Every floor has two, on open ground beside where you arrive and beside the stairs, picked by a fixed direction order so a floor's benches never move. Standing on one or any hex touching it lights the HEX button and opens the editor (Tab or HEX); anywhere else HEX is grey and says where the benches are. So you set up on the way in, rework with the floor's loot on the way out, and fight with the build you walked in with. Benches show on the minimap once seen. You arrive beside one after stairs, a reload or a death, so HEX > TEST still works right away.
 
+## Floor-end draft (`game/draft.go`, `cmd/hexes/draft.go`)
+
+The first time you step on a floor's stairs, the game stops and offers 3 cards (4 on every 5th depth); one tap keeps one and you go down. Keys 1 to 4 pick too, and TAKE NONE (0 or X) banks about a third of a Data offer instead. Cards ignore taps for 0.35 s so a tap already on its way doesn't pick. The cards lean three ways, as the doc "Hexes: control without a plan" lays out:
+
+- LEANS IN: a free grid cell next to yours of your main damage type (any free neighbour if none fits), else a part, else Data.
+- OFF TO THE SIDE: a part one rarity above your best, off your main type (signals before the workbench lesson).
+- WILD: a frame once frames are taught, a shape once shapes are, an exotic part once quirks are, signals, or a big Data bundle.
+- CHECKPOINT (4th card on depth 5, 10, ...): a rare frame once frames are taught, else a rare part, else double Data.
+
+Offers keep to the teaching ladder: nothing the ladder hasn't unlocked shows. Drafted Data is banked, a drafted grid cell is free and counts as bought, parts go to the locker. A floor only drafts once (`DraftedTo` in the save), so dying and walking it again doesn't farm it; saves from before drafts count every floor they have already gone down from as drafted. Closing the game with the cards up loses nothing: the floor stays undrafted, and the stairs offer the same cards again. The offers are rolled from the save seed and the depth, so a reload shows the same cards.
+
+## Starter kits (`game/kit.go`)
+
+A fresh save opens on PICK YOUR RIG: three kits rolled from the save's seed, each with a different starter damage type (plasma, cryo, kinetic, nanite) and a different rig spread (Balanced, Battery 12/4/0, Coolant 6/6/4, Quick 4/12/0, all with Processing 5). The kit also sets the types of the three hexes the ladder hands over later and of the EFFECTS lesson's part. Every kit keeps the ladder's shape: a Triangle with OnCast, one damage effect and an empty last slot, so floor 1 still teaches casting. Only the kit's number is saved; saves from before kits keep the old Spark, Jolt, Frost Ring, Swarm opening and never see the pick. START FRESH deals a new pick.
+
+## Gunners in corridors (`game/squad.go`)
+
+Gunners kite to range 3 to 5. When a packmate blocks the way back in a narrow tunnel they now, in order: swap places with a melee ally behind them, ask the gunner behind to shuffle back (up to 4 deep), or sidestep to a free tile no closer to you, preferring one with a clear line. While allies still block the retreat they hold fire rather than shoot point blank. Only a gunner with nowhere to go fights close: a rifle-butt swing at 60% damage when adjacent, or a slow 0.9 s aim at range 2.
+
 ## Defaults I picked
 
 None of these are decided. All are one constant or one JSON field to change.
@@ -564,4 +583,4 @@ Drop rolls and pickup run inside the sim step with no allocations. Recompiling o
 - More rule-bending parts (ignite neighbors, open a nested slot, bridge a broken edge).
 - Line of sight and fog of war. Enemies sense you through walls by walking distance.
 - Enemies carrying hexes of their own. Right now they only claw.
-- Spending attribute points (the rig's points save, but the slice still starts everyone on the same rig). Art and audio: everything on screen is flat shapes.
+- Spending attribute points (the rig's points save; starter kits roll the spread, but you can't respend it yet). Art and audio: everything on screen is flat shapes.

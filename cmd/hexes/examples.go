@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -14,17 +15,24 @@ import (
 // switch off.
 
 type testMenu struct {
-	on  bool
-	msg string
-	bad bool
+	on   bool
+	msg  string
+	bad  bool
+	page int // which page of examples shows, when they don't all fit
 }
 
 type testLayout struct {
 	panel               rect
-	rows                []rect
+	rows                []rect // the examples on this page
+	first               int    // the example the first row shows
 	mine, off, closeBtn rect
+	more                rect // turns the page; zero when everything fits
+	page, pages         int
 	titleY, msgY        float64
 }
+
+// testRowMin is the shortest an example row gets, in css px.
+const testRowMin = 40
 
 func (g *Game) testLayout(n int) testLayout {
 	var l testLayout
@@ -40,18 +48,36 @@ func (g *Game) testLayout(n int) testLayout {
 	top := l.msgY + 16*k
 	bh := 44 * k
 	by := H - pad - bh
-	bw := (pw - 2*gap) / 3
-	l.mine = rect{px, by, bw, bh}
-	l.off = rect{px + bw + gap, by, bw, bh}
-	l.closeBtn = rect{px + 2*(bw+gap), by, bw, bh}
 	cols := 1
 	if W > H*1.1 {
 		cols = 2
 	}
+	// Rows stay tall enough to tap: when the examples don't fit at that
+	// height, they go on pages and a MORE button turns them.
+	avail := by - 8*k - top
+	fit := max(1, int((avail+gap)/(testRowMin*k+gap)))
 	per := (n + cols - 1) / cols
-	rh := math.Min(58*k, (by-8*k-top-float64(per-1)*gap)/float64(per))
+	shown := n
+	if per > fit {
+		per, shown = fit, fit*cols
+	}
+	nb := 3.0
+	if shown < n {
+		nb = 4
+	}
+	bw := (pw - (nb-1)*gap) / nb
+	l.mine = rect{px, by, bw, bh}
+	l.off = rect{px + bw + gap, by, bw, bh}
+	l.closeBtn = rect{px + 2*(bw+gap), by, bw, bh}
+	if shown < n {
+		l.more = rect{px + 3*(bw+gap), by, bw, bh}
+		pages := (n + shown - 1) / shown
+		l.page, l.pages = g.tm.page%pages, pages
+		l.first = l.page * shown
+	}
+	rh := math.Min(58*k, (avail-float64(per-1)*gap)/float64(per))
 	cw := (pw - float64(cols-1)*gap) / float64(cols)
-	for i := 0; i < n; i++ {
+	for i := 0; i < shown && l.first+i < n; i++ {
 		c, r := i/per, i%per
 		l.rows = append(l.rows, rect{px + float64(c)*(cw+gap), top + float64(r)*(rh+gap), cw, rh})
 	}
@@ -106,10 +132,15 @@ func (g *Game) testTap(x, y float64) {
 		e.bad = false
 		return
 	}
-	for i, r := range l.rows {
+	if l.more.w > 0 && l.more.hit(x, y) {
+		tm.page++
+		return
+	}
+	for j, r := range l.rows {
 		if !r.hit(x, y) {
 			continue
 		}
+		i := l.first + j
 		if err := sim.LoadExample(i); err != nil {
 			tm.msg, tm.bad = err.Error()+".", true
 			return
@@ -138,8 +169,8 @@ func (g *Game) drawTestMenu(screen *ebiten.Image) {
 		msg = "Loading one swaps it into your hexes. Your own build waits until you want it back."
 	}
 	g.label(screen, g.small, msg, l.panel.x, l.msgY, c, false)
-	for i, r := range l.rows {
-		e := ex[i]
+	for j, r := range l.rows {
+		e := ex[l.first+j]
 		fill, edge := colPanel, fade(colShape, 0.6)
 		if e.Name == sim.Example {
 			fill, edge = fade(colShape, 0.35), colShape
@@ -160,4 +191,7 @@ func (g *Game) drawTestMenu(screen *ebiten.Image) {
 	btn(l.mine, "MY BUILD", sim.Mine != nil)
 	btn(l.off, "TEST OFF", true)
 	btn(l.closeBtn, "CLOSE", true)
+	if l.more.w > 0 {
+		btn(l.more, fmt.Sprintf("MORE  %d/%d", l.page+1, l.pages), true)
+	}
 }

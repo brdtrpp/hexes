@@ -12,5 +12,6 @@ type devState struct{}
 
 func (g *Game) devInput(in *game.Input)      {}
 func (g *Game) devShot(screen *ebiten.Image) {}
+func (g *Game) devDraft() (int, bool)        { return 0, false }
 
 func devWindow() (int, int) { return 1100, 720 }

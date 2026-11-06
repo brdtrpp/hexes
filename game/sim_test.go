@@ -69,6 +69,11 @@ func TestBotPlays(t *testing.T) {
 			before := s.Disp.Stats.Fired
 			s.Step(1.0 / 60)
 			_ = before
+			if s.State == Drafting {
+				if err := s.TakeDraft(int(seed) % 3); err != nil {
+					t.Fatalf("seed %d: draft pick: %v", seed, err)
+				}
+			}
 			for i := range s.SlotFlash {
 				if s.SlotFlash[i] == 0.4-1.0/60 || (s.SlotFlash[i] > 0.38 && s.SlotLast[i] == skill.Fired) {
 					b.fired[i]++

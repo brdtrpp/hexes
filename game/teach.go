@@ -236,29 +236,11 @@ func offlineHex() *skill.Hex {
 	return starterHex(OfflineName, skill.Shape{Kind: skill.ShapeTriangle}, skill.NewTrigger(skill.OnHit))
 }
 
-// ladderHex is hex i as the ladder hands it over.
-func ladderHex(reg *skill.Registry, i int) (h *skill.Hex, name, blurb string) {
-	ty := reg.MustID
-	tri, ring := skill.Shape{Kind: skill.ShapeTriangle}, skill.Shape{Kind: skill.ShapeRing}
-	switch i {
-	case 0:
-		return starterHex("Spark", tri, skill.NewTrigger(skill.OnCast), skill.NewDamage(ty("plasma"), 24)), "Spark", "plasma at the nearest foe"
-	case 1:
-		return starterHex("Jolt", tri, skill.NewTrigger(skill.OnHit), skill.NewDamage(ty("kinetic"), 10)), "Jolt", "every hit, a kinetic jolt"
-	case 2:
-		return starterHex("Frost Ring", ring, skill.NewTrigger(skill.OnKill), skill.NewTarget(skill.TargetAdjacent, 2, 0),
-			skill.NewStatus(ty("cryo"), 2.5)), "Frost Ring", "a kill chills foes around it"
-	default:
-		return starterHex("Swarm", ring, skill.NewPeriodic(4), skill.NewTarget(skill.TargetAdjacent, 2, 0),
-			skill.NewDamage(ty("nanite"), 20)), "Swarm", "every 4 s, toxin around you"
-	}
-}
-
-// LadderLoadout is a fresh save's build: Spark on button 1, the other
-// three hexes offline.
-func LadderLoadout(reg *skill.Registry, level, maxDepth int) Loadout {
+// LadderLoadout is a fresh save's build: the kit's starter on button 1,
+// the other three hexes offline.
+func LadderLoadout(reg *skill.Registry, k Kit, level, maxDepth int) Loadout {
 	var l Loadout
-	l.Hexes[0], l.Names[0], l.Blurb[0] = ladderHex(reg, 0)
+	l.Hexes[0], l.Names[0], l.Blurb[0] = kitHex(reg, k, 0)
 	for i := 1; i < MaxSlots; i++ {
 		l.Hexes[i], l.Names[i], l.Blurb[i] = offlineHex(), OfflineName, "not online yet"
 	}
@@ -277,7 +259,7 @@ func (s *Sim) lessonParts(idx int) (out [2]skill.Part, n int) {
 	add := func(p skill.Part) { out[n] = p; n++ }
 	switch Ladder[idx].Name {
 	case "EFFECTS":
-		add(skill.NewDamage(ty("cryo"), 22))
+		add(s.lessonEffect())
 	case "TARGETS":
 		add(skill.NewTarget(skill.TargetAdjacent, 2, 0))
 	case "MULTIPLIERS":
@@ -477,7 +459,7 @@ func (s *Sim) bringOnline(i int) {
 	if hexes[i] == nil || hexes[i].Name != OfflineName || edited[i] {
 		return
 	}
-	hexes[i], names[i], blurbs[i] = ladderHex(s.Reg, i)
+	hexes[i], names[i], blurbs[i] = s.ladderHex(i)
 }
 
 // PlainHelp is one plain sentence on what a part does, for the editor's

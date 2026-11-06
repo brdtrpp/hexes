@@ -230,7 +230,23 @@ func TestTestMenuFits(t *testing.T) {
 		g := &Game{sim: game.New(1), w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
 		n := len(game.Examples(g.sim.Reg))
 		l := g.testLayout(n)
+		// Every example is on some page.
+		seen := map[int]bool{}
+		for pg := 0; pg < max(1, l.pages); pg++ {
+			g.tm.page = pg
+			pl := g.testLayout(n)
+			for j := range pl.rows {
+				seen[pl.first+j] = true
+			}
+		}
+		if len(seen) != n {
+			t.Errorf("%s: pages show %d of %d examples", sc.name, len(seen), n)
+		}
+		g.tm.page = 0
 		rs := append([]rect{l.mine, l.off, l.closeBtn}, l.rows...)
+		if l.more.w > 0 {
+			rs = append(rs, l.more)
+		}
 		W, H := float64(g.w), float64(g.h)
 		for i, a := range rs {
 			if a.x < 0 || a.y < 0 || a.x+a.w > W+0.5 || a.y+a.h > H+0.5 {

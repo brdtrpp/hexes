@@ -15,6 +15,9 @@ package main
 // HEXES_FRAMES=bench stands still beside the start bench.
 // HEXES_FRAMES=grid opens the skill grid on a save a few floors in;
 // HEXES_FRAMES=locker opens the locker on that save.
+// HEXES_FRAMES=draft opens a checkpoint's floor-end draft on that save
+// (HEXES_DEPTH, default 5); HEXES_FRAMES=kits leaves a fresh save's kit
+// pick up. Any other mode takes the first card of every draft.
 // Without HEXES_SHOTS it does nothing.
 
 import (
@@ -47,23 +50,46 @@ func envInt(k string, d int) int {
 	return d
 }
 
+// devDraft is the autopilot's pick on a draft: none while a draft or
+// kit pick is the thing being shot, the first card otherwise.
+func (g *Game) devDraft() (int, bool) {
+	g.devInit()
+	if g.dev.dir == "" {
+		return 0, false
+	}
+	m := os.Getenv("HEXES_FRAMES")
+	return 0, m != "draft" && m != "kits"
+}
+
 func (g *Game) devInput(in *game.Input) {
+	g.devInit()
+	g.devPilot(in)
+}
+
+func (g *Game) devInit() {
 	d := &g.dev
 	if !d.ready {
 		d.ready = true
 		d.dir = os.Getenv("HEXES_SHOTS")
 		d.every, d.count = envInt("HEXES_EVERY", 12), envInt("HEXES_COUNT", 24)
 		if d.dir != "" {
+			if g.sim.Draft.Kits && os.Getenv("HEXES_FRAMES") != "kits" {
+				_ = g.sim.TakeDraft(0) // the first kit, then the mode's setup
+			}
 			if n := envInt("HEXES_EXAMPLE", -1); n >= 0 {
 				_ = g.sim.SetTestShapes(true)
 				_ = g.sim.LoadExample(n)
 			}
 			g.devFrames(os.Getenv("HEXES_FRAMES"))
 			m := os.Getenv("HEXES_FRAMES")
-			d.still = m == "bench" || m == "grid" || m == "locker"
+			d.still = m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits"
 			d.gallery = m == "kinds" || m == "grades"
 		}
 	}
+}
+
+func (g *Game) devPilot(in *game.Input) {
+	d := &g.dev
 	if d.gallery {
 		g.devGallery(os.Getenv("HEXES_FRAMES"))
 		return
@@ -155,7 +181,9 @@ func (g *Game) devFrames(mode string) {
 			g.ed.hex = 1
 			g.edBind()
 		}
-	case "grid", "locker":
+	case "kits":
+		// A fresh save: the kit pick is already up.
+	case "grid", "locker", "draft":
 		// A save a few floors in: the ladder at frames, Data to spend, a
 		// path bought out along one wedge, one cell lost to a death.
 		s.Taught, s.Best = 7, 6
@@ -170,6 +198,12 @@ func (g *Game) devFrames(mode string) {
 			}
 		}
 		s.Data = 140
+		if mode == "draft" {
+			s.Kit = 1
+			s.DevDraft(envInt("HEXES_DEPTH", 5))
+			g.camX, g.camY = s.P().Pos()
+			return
+		}
 		g.openEditor()
 		if mode == "grid" {
 			g.setGrid(true)

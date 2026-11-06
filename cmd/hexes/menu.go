@@ -141,6 +141,7 @@ func (g *Game) updateMenu() bool {
 		case l.left.hit(t[0], t[1]) && g.menu == menuConfirm:
 			g.sim.NewRun(uint64(time.Now().UnixNano()))
 			g.resetTeach()
+			g.sim.OfferKits()
 			g.camX, g.camY = g.sim.P().Pos()
 			g.menu = menuClosed
 		case l.right.hit(t[0], t[1]) && g.menu == menuConfirm:

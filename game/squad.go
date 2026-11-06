@@ -34,6 +34,9 @@ const (
 	GunMin        = 3    // a gunner backs off inside this many hexes
 	GunMax        = 6    // and closes in past this many
 	GunAim        = 0.5  // seconds a gunner lines up before it fires
+	GunAimClose   = 0.9  // and from inside GunMin, when it can't get out
+	GunButt       = 0.6  // a cornered gunner's swing, share of its shot
+	UnjamDepth    = 4    // packmates down a queue a jammed gunner can shuffle back
 	ShotSpeed     = 8.5  // hex units per second
 	ShotLife      = 1.6  // seconds a shot flies
 	ShotHitRadius = 0.7  // hex units from the player's middle
@@ -457,10 +460,23 @@ func (s *Sim) gunner(id skill.EntityID, d int32, dt float32) {
 	if !a.Arrived() || d < 0 {
 		return
 	}
+	cornered := false
 	switch {
 	case a.Flee > 0 || hd < GunMin:
 		if dir, ok := s.backOff(id, d); ok {
 			s.startMove(id, dir, st.speed*1.15, false)
+			return
+		}
+		// Jammed: packmates fill the way back. Trade places with the one
+		// behind, make room by moving the queue back, or sidestep; only
+		// with all of that shut does it fight from where it stands.
+		if s.unjam(id, d) {
+			return
+		}
+		// Packmates in the way will move soon: hold fire and wait. Only
+		// walls all round make it cornered.
+		cornered = hd < GunMin && !s.allyBehind(id, d)
+		if hd < GunMin && !cornered {
 			return
 		}
 	case hd > GunMax || !line:
@@ -469,7 +485,25 @@ func (s *Sim) gunner(id skill.EntityID, d int32, dt float32) {
 			return
 		}
 	}
-	if line && hd <= GunMax+1 && a.AtkCD <= 0 && p.U.Alive {
+	if cornered {
+		if hd <= 1 {
+			// Point blank with nowhere to go: a rifle-butt swing, not a shot.
+			a.Facing = dirTo(a.At, p.At)
+			if a.AtkCD <= 0 && p.U.Alive {
+				s.claw(id, st.dmg*GunButt*scale(a.U.Level))
+				a.AtkCD = st.cd
+			}
+			return
+		}
+		if line && a.AtkCD <= 0 && p.U.Alive {
+			a.Aim = GunAimClose // a slow wind-up, so a close shot can still be dodged
+			a.Facing = dirTo(a.At, p.At)
+		}
+		return
+	}
+	// Never line up a shot from inside the range band's near edge: a
+	// gunner that got there is still trying to get out.
+	if line && hd >= GunMin && hd <= GunMax+1 && a.AtkCD <= 0 && p.U.Alive {
 		a.Aim = GunAim
 		a.Facing = dirTo(a.At, p.At)
 		return
@@ -489,6 +523,126 @@ func (s *Sim) gunner(id skill.EntityID, d int32, dt float32) {
 			}
 		}
 	}
+}
+
+// unjam gets a gunner that's too close and can't back off moving: it
+// trades places with an ally that's further from you and wants to come
+// in, asks a queue of gunners behind it to step back, or sidesteps to a
+// tile no nearer you. It reports whether anything moved.
+func (s *Sim) unjam(id skill.EntityID, d int32) bool {
+	a := &s.Actors[id]
+	f := s.Floor
+	st := enemyTable[KindGunner]
+	// The packmate behind.
+	for _, dir := range skill.HexDirs {
+		n := a.At.Add(dir)
+		if !f.In(n) {
+			continue
+		}
+		o := s.occ[f.Index(n)]
+		if o == skill.NoEntity || o == s.Player || o == id {
+			continue
+		}
+		b := &s.Actors[o]
+		if !b.U.Alive || b.U.Team != a.U.Team || !b.Arrived() || b.U.StunLeft > 0 || s.dist[f.Index(n)] <= d {
+			continue
+		}
+		if b.Kind != KindGunner && b.Flee == 0 {
+			// A melee ally wants to be where the gunner is.
+			s.swap(id, o, st.speed*1.15, enemyTable[b.Kind].speed)
+			return true
+		}
+		if b.Kind == KindGunner && s.shuffleBack(o, UnjamDepth) {
+			return true
+		}
+	}
+	// Sidestep: any free tile no nearer you, keeping a line if it can.
+	p := s.P()
+	best, bestScore := -1, int32(math.MaxInt32)
+	hd := skill.Dist(a.At, p.At)
+	for k, dir := range skill.HexDirs {
+		n := a.At.Add(dir)
+		if !f.In(n) || s.occupied(n) || f.At(n) == dungeon.Hazard || !f.At(n).Walkable() {
+			continue
+		}
+		nd := s.dist[f.Index(n)]
+		if nd < d || skill.Dist(n, p.At) < hd {
+			continue
+		}
+		sc := s.crowd(n, id) * 2
+		if !clearLine(f, n, p.At) {
+			sc += 3
+		}
+		if sc < bestScore {
+			best, bestScore = k, sc
+		}
+	}
+	if best >= 0 {
+		return s.startMove(id, uint8(best), st.speed, false)
+	}
+	return false
+}
+
+// shuffleBack steps gunner id one tile further from you, first asking the
+// gunner behind it to do the same, up to depth gunners down the queue.
+func (s *Sim) shuffleBack(id skill.EntityID, depth int) bool {
+	a := &s.Actors[id]
+	if depth <= 0 || !a.Arrived() || a.U.StunLeft > 0 {
+		return false
+	}
+	f := s.Floor
+	d := s.dist[f.Index(a.At)]
+	if dir, ok := s.backOff(id, d); ok {
+		a.Aim = 0 // making room comes first
+		return s.startMove(id, dir, enemyTable[KindGunner].speed*1.15, false)
+	}
+	for _, dir := range skill.HexDirs {
+		n := a.At.Add(dir)
+		if !f.In(n) || s.dist[f.Index(n)] <= d {
+			continue
+		}
+		o := s.occ[f.Index(n)]
+		if o != skill.NoEntity && o != s.Player && o != id && s.Actors[o].U.Alive && s.Actors[o].Kind == KindGunner &&
+			s.Actors[o].U.Team == a.U.Team && s.shuffleBack(o, depth-1) {
+			return true
+		}
+	}
+	return false
+}
+
+// allyBehind reports whether a living packmate stands on a tile next to
+// actor id that's further from you than d.
+func (s *Sim) allyBehind(id skill.EntityID, d int32) bool {
+	a := &s.Actors[id]
+	f := s.Floor
+	for _, dir := range skill.HexDirs {
+		n := a.At.Add(dir)
+		if !f.In(n) || s.dist[f.Index(n)] <= d {
+			continue
+		}
+		if o := s.occ[f.Index(n)]; o != skill.NoEntity && o != s.Player && o != id && s.Actors[o].U.Alive && s.Actors[o].U.Team == a.U.Team {
+			return true
+		}
+	}
+	return false
+}
+
+// swap trades two actors' tiles, each stepping at its own speed.
+func (s *Sim) swap(x, y skill.EntityID, vx, vy float32) {
+	a, b := &s.Actors[x], &s.Actors[y]
+	f := s.Floor
+	ax, bx := a.At, b.At
+	s.occ[f.Index(ax)], s.occ[f.Index(bx)] = y, x
+	a.From, a.At = ax, bx
+	b.From, b.At = bx, ax
+	if a.U.SlowLeft > 0 {
+		vx *= 1 - a.U.SlowFrac
+	}
+	if b.U.SlowLeft > 0 {
+		vy *= 1 - b.U.SlowFrac
+	}
+	a.MoveT, a.MoveDur, a.Facing = 0, 1/vx, dirTo(ax, bx)
+	b.MoveT, b.MoveDur, b.Facing = 0, 1/vy, dirTo(bx, ax)
 }
 
 // fire looses a gunner's shot at where you are now.
