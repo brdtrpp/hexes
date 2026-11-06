@@ -30,6 +30,12 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			title = "STEALTH"
 		case skill.FromBehind:
 			title = "BEHIND"
+		case skill.OnWreck:
+			title = "ON WRECK"
+		case skill.OnDodge:
+			title = "ON DODGE"
+		case skill.OnVent:
+			title = "ON VENT"
 		case skill.Periodic:
 			return "EVERY", fmt.Sprintf("%gs", p.Period)
 		case skill.Channel:
@@ -59,6 +65,12 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			return "AROUND", fmt.Sprintf("%g hex", p.Value)
 		case skill.TargetChain:
 			return "CHAIN", plural(int(p.Count), "hop")
+		case skill.TargetWreck:
+			return "WRECK", "nearest body"
+		case skill.TargetWeakest:
+			return "WEAKEST", plural(int(p.Count), "foe")
+		case skill.TargetMarked:
+			return "MARKED", plural(int(p.Count), "foe")
 		}
 	case skill.KindEffect:
 		name := strings.ToUpper(reg.Get(p.Type).Name)
@@ -75,8 +87,21 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			return "SHIELD", fmt.Sprintf("%.0f%% hull", 100*p.Value*sc)
 		case skill.EffectPurge:
 			return "PURGE", fmt.Sprintf("-%.0f heat", p.Value*sc)
+		case skill.EffectTaunt:
+			return "TAUNT", fmt.Sprintf("%.1fs", p.Value*sc)
+		case skill.EffectThorns:
+			return "THORNS", fmt.Sprintf("%.1fs", p.Value*sc)
+		case skill.EffectReanimate:
+			return "REANIMATE", fmt.Sprintf("%.0fs", p.Value*sc)
+		case skill.EffectHaste:
+			return "HASTE", fmt.Sprintf("%.1fs", p.Value*sc)
+		case skill.EffectBlink:
+			return "BLINK", fmt.Sprintf("%.1f hex", p.Value*sc)
 		}
 	case skill.KindMult:
+		if p.Verb == skill.VerbMarked {
+			return fmt.Sprintf("x%.2f", 1+(p.Value-1)*sc), "on marked"
+		}
 		return fmt.Sprintf("x%.2f", 1+(p.Value-1)*sc), p.Verb.String()
 	case skill.KindGate:
 		switch p.Gate {
@@ -94,14 +119,33 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			return "IF " + strings.ToUpper(dt.Status.String()), dt.Name
 		case skill.GateCrowd:
 			return "IF CROWD", fmt.Sprintf("%d+ in %g", p.Count, p.Value)
+		case skill.GateBehind:
+			return "IF BEHIND", "foe faces away"
+		case skill.GateHurt:
+			return "IF HURT", fmt.Sprintf("you < %.0f%%", p.Value*100)
 		case skill.GateSpend:
+			if p.Name == "finisher" {
+				return "FINISHER", fmt.Sprintf("%d on %s", p.Count, skill.BankName(p.Bank))
+			}
 			return "SPEND " + skill.BankName(p.Bank), fmt.Sprintf("at %d", p.Count)
 		case skill.GateEmpty:
 			return "IF " + skill.BankName(p.Bank) + " EMPTY", "bank " + skill.BankName(p.Bank)
 		case skill.GateCond:
 			return "IF", CondShort(p.Cond, reg)
 		}
+	case skill.KindForm:
+		return strings.ToUpper(p.Form.String()), formDetail(p)
+	case skill.KindCost:
+		if p.Cost == skill.CostWrecks {
+			return "WRECK COST", "1 wreck"
+		}
+		return "SACRIFICE", "pays in hull"
+	case skill.KindStance:
+		return strings.ToUpper(p.Stance.String()), "stance"
 	case skill.KindCharge:
+		if p.Name == "combo" {
+			return "COMBO", "+1 on " + skill.BankName(p.Bank)
+		}
 		if p.Charge == skill.ChargeDrain {
 			return "DRAIN " + skill.BankName(p.Bank), fmt.Sprintf("-%g", p.Value)
 		}
@@ -116,6 +160,34 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 		return "CALL", skill.CallName(p.Call)
 	}
 	return "EMPTY", ""
+}
+
+// formDetail is a form's second line: what its tier makes it do.
+func formDetail(p skill.Part) string {
+	rule := p.Rule()
+	switch p.Form {
+	case skill.FormBolt:
+		return [...]string{"nearest", "pierces", "pierce+split"}[rule]
+	case skill.FormBeam:
+		return [...]string{"line", "both ways", "fan"}[rule]
+	case skill.FormAura:
+		return [...]string{"round you", "+ allies", "+ marked"}[rule]
+	case skill.FormNova:
+		return [...]string{"burst", "twin burst", "wide"}[rule]
+	case skill.FormDash:
+		return [...]string{"dash in", "in and back", "back unseen"}[rule]
+	case skill.FormDetonate:
+		return [...]string{"1 wreck", "2 wrecks", "2, wide"}[rule]
+	case skill.FormZone:
+		return [...]string{"field", "drifts", "drifts, chills"}[rule]
+	case skill.FormTurret:
+		return [...]string{"1 stands", "2 stand", "3 stand"}[rule]
+	case skill.FormTrap:
+		return [...]string{"1 trigger", "3 triggers", "3, stuns"}[rule]
+	case skill.FormDrone:
+		return [...]string{"1 flies", "2 fly", "bursts at end"}[rule]
+	}
+	return ""
 }
 
 func plural(n int, s string) string {
@@ -171,6 +243,11 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 		fmt.Fprintf(&b, ". When this hex finishes it runs again, on whoever reached the call. Each run adds its Heat (%.2gx). Put it behind a gate or it loops until you overheat", 1/p.Rarity.Scale())
 	case p.Kind == skill.KindCall:
 		fmt.Fprintf(&b, ". When this hex finishes, %s runs too, on whoever reached the call. Each run adds that hex's Heat (%.2gx)", skill.CallName(p.Call), 1/p.Rarity.Scale())
+	default:
+		if t := ClassText(p); t != "" {
+			b.WriteString(". ")
+			b.WriteString(t)
+		}
 	}
 	if p.UsesBank() {
 		b.WriteString(". In a hex, tap the center plate to switch its bank")
@@ -194,6 +271,10 @@ func QuirkText(q skill.Quirk) string {
 		return "Relay: arcs on to everything next to each target."
 	case skill.QuirkEcho:
 		return "Echo: the whole hex runs twice."
+	case skill.QuirkRider:
+		return "Rider: it also leaves its type's status, or a status also stings."
+	case skill.QuirkHeated:
+		return "Heated: grows with your Heat, up to double near the top."
 	}
 	return ""
 }
@@ -241,4 +322,109 @@ func CondShort(c skill.Cond, reg *skill.Registry) string {
 		return fmt.Sprintf("%s +%d", first, n-1)
 	}
 	return first
+}
+
+// ClassText says what a class part does, in a sentence or two, or "" for
+// a part from the original set.
+func ClassText(p skill.Part) string {
+	switch p.Kind {
+	case skill.KindTrigger:
+		switch p.Trigger {
+		case skill.OnWreck:
+			return fmt.Sprintf("Fires when a foe falls within %d hexes, on its wreck", skill.WreckRange)
+		case skill.OnDodge:
+			return "Fires when a shot passes close by you without hitting"
+		case skill.OnVent:
+			return "Fires when you VENT"
+		}
+	case skill.KindTarget:
+		switch p.Target {
+		case skill.TargetWreck:
+			return fmt.Sprintf("Picks the nearest wreck within %g hexes: a foe's body, for %g s after it falls. Reanimate and detonate use it up", p.Value, float32(25))
+		case skill.TargetWeakest:
+			return "Picks the foes in reach with the least hull left, by share"
+		case skill.TargetMarked:
+			return "Picks marked foes in reach, nearest first"
+		}
+	case skill.KindEffect:
+		switch p.Effect {
+		case skill.EffectTaunt:
+			return fmt.Sprintf("Holds the foes it lands on to you: they come at you, never flee, and hit %.0f%% softer", 100*skill.TauntCut)
+		case skill.EffectThorns:
+			return fmt.Sprintf("On you, wherever it sits: hands back %.0f%% of every hit you take", 100*skill.ThornsFrac)
+		case skill.EffectReanimate:
+			return fmt.Sprintf("Raises the wreck it lands on (or the nearest one) to fight for you. Up to %d at once", skill.MinionMax)
+		case skill.EffectHaste:
+			return fmt.Sprintf("On you, wherever it sits: %.0f%% faster", 100*skill.HasteFrac)
+		case skill.EffectBlink:
+			return "Jumps you toward the foe it lands on, or away from danger when nothing's beside it"
+		}
+	case skill.KindMult:
+		if p.Verb == skill.VerbMarked {
+			return "Multiplies the damage before it, on marked foes only"
+		}
+	case skill.KindGate:
+		switch p.Gate {
+		case skill.GateBehind:
+			return "Next slot clockwise hits the foes facing away from you, the slot after it the rest"
+		case skill.GateHurt:
+			return fmt.Sprintf("Next slot clockwise fires while your hull is under %.0f%%, the slot after it otherwise", p.Value*100)
+		}
+		if p.Name == "finisher" {
+			return fmt.Sprintf("Pays out once the combo on %s holds %d, then the next slot clockwise fires", skill.BankName(p.Bank), p.Count)
+		}
+	case skill.KindCharge:
+		if p.Name == "combo" {
+			return fmt.Sprintf("Builds a point on %s each time it runs; a finisher spends them", skill.BankName(p.Bank))
+		}
+	case skill.KindForm:
+		return formText(p.Form)
+	case skill.KindCost:
+		if p.Cost == skill.CostWrecks {
+			return "The hex adds no Heat: it uses up a wreck near you instead, and won't fire without one"
+		}
+		return fmt.Sprintf("The hex adds no Heat: it takes %.1f%% of your max hull per Heat instead, and won't fire on your last", 100*skill.BloodPerHeat)
+	case skill.KindStance:
+		var what string
+		switch p.Stance {
+		case skill.StanceBulwark:
+			what = fmt.Sprintf("take %.0f%% less, move %.0f%% slower", 100*skill.BulwarkGuard, 100*skill.BulwarkSlow)
+		case skill.StanceHunter:
+			what = fmt.Sprintf("deal %.0f%% more, move %.0f%% faster, take %.0f%% more", 100*skill.HunterMight, 100*skill.HunterSpeed, 100*skill.HunterFrail)
+		case skill.StanceFurnace:
+			what = fmt.Sprintf("Heat cools %gx as fast, Power comes back at %gx", float32(skill.FurnaceCool), float32(skill.FurnaceCharge))
+		}
+		keep := "One stance at a time"
+		if p.Rarity >= skill.Rare {
+			keep = "Stays on beside another stance"
+		}
+		return fmt.Sprintf("A stance: cast it to switch it on, again to switch it off. While on: %s, and the rest of the hex runs every %g s. %s", what, float32(skill.StancePulse), keep)
+	}
+	return ""
+}
+
+func formText(f skill.FormKind) string {
+	switch f {
+	case skill.FormBolt:
+		return "Hits the nearest foe. Rare: pierces the whole line. Exotic: pierces and splits"
+	case skill.FormBeam:
+		return "Hits every foe on a short line. Rare: both ways. Exotic: a wedge"
+	case skill.FormAura:
+		return "Hits every foe close round you; beside Mend or Shield it lands on you and your allies. Rare: round your allies too. Exotic: and every marked foe"
+	case skill.FormNova:
+		return "Bursts round where the hex fires from. Rare: round you too. Exotic: wider"
+	case skill.FormDash:
+		return "Carries you along a line to the nearest foe, hitting all of it. Rare: you dash back. Exotic: back, unseen"
+	case skill.FormDetonate:
+		return "Blows up the nearest wreck, hitting everything round it, and uses it up. Rare: the next wreck too. Exotic: both, wider"
+	case skill.FormZone:
+		return fmt.Sprintf("Leaves a field on the nearest foe that runs the hex every %g s for %g s, at %.0f%%. Rare: it drifts after foes. Exotic: and chills", float32(skill.ZoneEvery), float32(skill.ZoneLife), 100*skill.ZoneScale)
+	case skill.FormTurret:
+		return fmt.Sprintf("Places a turret beside you that runs the hex at the nearest foe every %g s for %g s. With an aura, it's a totem. Rare: two stand. Exotic: three", float32(skill.TurretEvery), float32(skill.TurretLife))
+	case skill.FormTrap:
+		return fmt.Sprintf("Leaves a trap where you stand that runs the hex on the first foe to step on it, for %g s. Rare: three triggers. Exotic: and it stuns", float32(skill.TrapLife))
+	case skill.FormDrone:
+		return fmt.Sprintf("Launches a drone that follows you and runs the hex at the nearest foe every %g s for %g s. Rare: two fly. Exotic: one last burst when it ends", float32(skill.DroneEvery), float32(skill.DroneLife))
+	}
+	return ""
 }

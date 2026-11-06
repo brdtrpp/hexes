@@ -250,6 +250,9 @@ type Sim struct {
 	BoardKeys     int
 	GridNewest    int
 	GridRingsSeen int
+	// GridKept are cells that keep their part from before the class parts
+	// (see GenGridKeep).
+	GridKept []int
 	// gridDist is each node's steps from the nearest owned node,
 	// recomputed when what you own changes.
 	gridDist []int16

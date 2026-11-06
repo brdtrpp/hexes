@@ -593,3 +593,56 @@ func TestGridStepAllocFree(t *testing.T) {
 		t.Fatalf("step allocates %.1f times", allocs)
 	}
 }
+
+// Class parts fill part of every ring from ClassRing out, the rings
+// inside are untouched, and a save from before them keeps what it owns.
+func TestGridClassParts(t *testing.T) {
+	reg := skill.DefaultRegistry()
+	plain := GenGrid(reg, 77, GridRings)
+	g := GenGridKeep(reg, 77, GridRings, nil)
+	for i := 0; i < RingStart(ClassRing); i++ {
+		if g.Nodes[i].Part != plain.Nodes[i].Part {
+			t.Fatalf("node %d inside ring %d changed", i, ClassRing)
+		}
+	}
+	seen := map[skill.PartKind]int{}
+	changed := -1
+	for k := ClassRing; k <= GridRings; k++ {
+		n := 0
+		for i := RingStart(k); i < RingStart(k+1); i++ {
+			if g.Nodes[i].Part != plain.Nodes[i].Part {
+				n++
+				seen[g.Nodes[i].Part.Kind]++
+				changed = i
+			}
+		}
+		if n == 0 {
+			t.Fatalf("ring %d has no class parts", k)
+		}
+	}
+	if seen[skill.KindForm] == 0 {
+		t.Fatalf("no forms on the grid: %v", seen)
+	}
+	kept := GenGridKeep(reg, 77, GridRings, []int{changed})
+	if kept.Nodes[changed].Part != plain.Nodes[changed].Part {
+		t.Fatal("a kept cell took a class part")
+	}
+
+	// An older save owning that cell keeps it through a load.
+	s := NewVeteran(77)
+	s.Best = 30
+	s.growGrid()
+	sv := s.Snapshot()
+	sv.PartsV, sv.Kept = 0, nil
+	sv.Own = append(sv.Own, changed)
+	s2 := NewVeteran(77)
+	if err := s2.Restore(sv); err != nil {
+		t.Fatal(err)
+	}
+	if s2.Grid.Nodes[changed].Part != plain.Nodes[changed].Part {
+		t.Fatal("an old save's owned cell changed")
+	}
+	if s3 := s2.Snapshot(); s3.PartsV != GridPartsV || len(s3.Kept) == 0 {
+		t.Fatalf("kept cells not saved: %d %v", s3.PartsV, s3.Kept)
+	}
+}

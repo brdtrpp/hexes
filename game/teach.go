@@ -44,6 +44,17 @@ const (
 	// UQuirks: quirks, exotic parts, channel and watch triggers, logic
 	// tiles and the condition builder.
 	UQuirks
+	// UForms: form parts that act at once (bolt, beam, aura, nova, dash).
+	UForms
+	// UShadow: the rogue's parts: weakest and marked targets, the
+	// behind gate, combos, blink, the dodge trigger.
+	UShadow
+	// UWrecks: the necromancer's: wrecks, reanimate, detonate, wreck cost.
+	UWrecks
+	// UDevices: zones, turrets, traps and drones.
+	UDevices
+	// UOaths: taunt, thorns, haste, the hurt gate, sacrifice, stances.
+	UOaths
 
 	// UAll is every idea.
 	UAll Unlock = 1<<iota - 1
@@ -88,6 +99,16 @@ var Ladder = [...]Lesson{
 		Card: "A Call runs another hex from inside this one. Hex 4 is online, and HEX, BOARD docks hexes."},
 	{Depth: 15, Name: "EVERYTHING", Gives: UQuirks, Hexes: 4,
 		Card: "Everything drops now: quirks, exotic parts and logic tiles. Tap a gate twice to build its test."},
+	{Depth: 17, Name: "FORMS", Gives: UForms, Hexes: 4, Trial: true,
+		Card: "A form is how a hex shows up: a bolt, a beam, a nova. It sits where a target would. Rare forms bend their rule."},
+	{Depth: 19, Name: "SHADOWS", Gives: UShadow, Hexes: 4, Trial: true,
+		Card: "Hit from cloak for double. The behind gate splits foes by which way they face; a combo builds to a finisher."},
+	{Depth: 21, Name: "WRECKS", Gives: UWrecks, Hexes: 4, Trial: true,
+		Card: "A fallen foe leaves a wreck for a while. Reanimate gets it up on your side; detonate blows it up."},
+	{Depth: 23, Name: "DEVICES", Gives: UDevices, Hexes: 4,
+		Card: "A turret, trap, zone or drone stays behind and keeps running the hex. Your turret shoots for 12 s."},
+	{Depth: 25, Name: "OATHS", Gives: UOaths, Hexes: 4, Trial: true,
+		Card: "Taunt pulls foes onto you and thorns hands their hits back. A stance stays on until you cast it again."},
 }
 
 // Teaching tuning.
@@ -160,7 +181,7 @@ func (s *Sim) NextLesson() int {
 func (s *Sim) lootAllow() loot.Allow {
 	u := s.Unlocks()
 	if u == UAll {
-		return loot.Allow{}
+		return loot.Allow{New: loot.FamAll}
 	}
 	a := loot.Allow{Limit: true, Kinds: loot.KindBit(skill.KindEffect)}
 	add := func(need Unlock, k skill.PartKind) {
@@ -177,7 +198,19 @@ func (s *Sim) lootAllow() loot.Allow {
 	a.Sustain = u&USustain != 0
 	a.Spend = u&UCharges != 0
 	a.Quirks = u&UQuirks != 0
+	a.New = famsOf(u)
 	return a
+}
+
+// famsOf is which class part families u lets drop.
+func famsOf(u Unlock) uint16 {
+	var f uint16
+	for i, need := range [loot.NumFams]Unlock{UForms, UShadow, UWrecks, UDevices, UOaths} {
+		if u&need != 0 {
+			f |= 1 << i
+		}
+	}
+	return f
 }
 
 // Starter hexes: the one a save starts with, the ones the ladder hands
@@ -262,6 +295,20 @@ func (s *Sim) lessonParts(idx int) (out [2]skill.Part, n int) {
 		p := skill.NewDamage(ty("plasma"), 18).WithRarity(skill.Rare)
 		p.Quirk = skill.QuirkRelay
 		add(p)
+	case "FORMS":
+		add(skill.NewForm(skill.FormNova))
+		add(skill.NewForm(skill.FormBolt).WithRarity(skill.Rare))
+	case "SHADOWS":
+		add(skill.NewBehindGate())
+		add(skill.NewStatus(ty("cloak"), 3))
+	case "WRECKS":
+		add(skill.NewReanimate(12))
+		add(skill.NewForm(skill.FormDetonate))
+	case "DEVICES":
+		add(skill.NewForm(skill.FormTurret))
+	case "OATHS":
+		add(skill.NewTaunt(3))
+		add(skill.NewThorns(4))
 	}
 	return out, n
 }
@@ -436,6 +483,9 @@ func (s *Sim) bringOnline(i int) {
 // PlainHelp is one plain sentence on what a part does, for the editor's
 // ? button: no numbers, no rules, just the idea.
 func PlainHelp(p skill.Part) string {
+	if t := loot.ClassText(p); t != "" {
+		return t + "."
+	}
 	switch p.Kind {
 	case skill.KindTrigger:
 		switch p.Trigger {
