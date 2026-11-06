@@ -194,3 +194,18 @@ func TestSustainEffectsSpawn(t *testing.T) {
 		}
 	}
 }
+
+// Each of the built-in damage kinds leads with its own look.
+func TestArchPerKind(t *testing.T) {
+	reg := skill.DefaultRegistry()
+	seen := map[Arch]string{}
+	for i := 0; i < reg.Len(); i++ {
+		dt := *reg.Get(skill.TypeID(i))
+		a := SigOf(dt, 1, 1, 1).Arch()
+		if prev, ok := seen[a]; ok {
+			t.Errorf("%s and %s both look %s", prev, dt.Name, a)
+		}
+		seen[a] = dt.Name
+		t.Logf("%s: %s", dt.Name, a)
+	}
+}

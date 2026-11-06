@@ -33,6 +33,8 @@ const (
 	FXLesson                // took a lesson pickup at At; Slot is its rung on the Ladder
 	FXData                  // earned Value Data at At
 	FXSignal                // found a signal fragment at At
+	FXMuzzle                // a gunner fired from X, Y along DX, DY
+	FXZap                   // a gunner's shot stopped at X, Y (Hurt: on the player)
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).
@@ -67,6 +69,10 @@ type FX struct {
 	// Impact marks an FXBolt that landed inside an area form: draw the
 	// hit, not a line back to the caster.
 	Impact bool
+	// Grade is how much hex made it, 0 to 3: the renderer adds structure
+	// (echoes, forks, sparks, a hotter palette) as it climbs. Set on a
+	// hex's hits and forms when it fires.
+	Grade uint8
 	// Seen is set by the renderer once it has spawned this effect's
 	// particles, so each effect bursts once however often it's drawn.
 	Seen bool
@@ -109,6 +115,15 @@ func (b *FXBuf) Each(fn func(*FX)) {
 		f := &b.buf[(b.head+i)%MaxFX]
 		if f.Age < f.Life {
 			fn(f)
+		}
+	}
+}
+
+// Back calls fn for every effect, newest first, until fn returns false.
+func (b *FXBuf) Back(fn func(*FX) bool) {
+	for i := b.n - 1; i >= 0; i-- {
+		if !fn(&b.buf[(b.head+i)%MaxFX]) {
+			return
 		}
 	}
 }

@@ -742,6 +742,7 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 	if !has {
 		return
 	}
+	g.partGlyph(dst, x, y, r*0.6, p)
 	title, detail := loot.Label(p, g.sim.Reg)
 	if p.Kind == skill.KindCall {
 		detail = "to " + g.callName(g.ed.hex, p, true)

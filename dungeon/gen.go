@@ -381,6 +381,8 @@ func (g *Generator) spawn(f *Floor, rng *rng, p Params, exitRoom int) {
 			kind = Brute
 		case f.Depth >= 2 && roll < 0.40:
 			kind = Skitter
+		case f.Depth >= 3 && roll < 0.55:
+			kind = Gunner
 		}
 		lvl := p.EnemyLevel
 		if rng.float() < p.EliteChance {

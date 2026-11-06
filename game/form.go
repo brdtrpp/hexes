@@ -34,6 +34,21 @@ func magOf(dealt, maxHP float32) float32 {
 	return min(max(dealt/maxHP*4, 0.15), 3)
 }
 
+// gradeOf is an effect's Grade from the Power its hex cost and how hard
+// it landed: a cheap tap is 0, a big build hitting hard is 3.
+func gradeOf(power, mag float32) uint8 {
+	g := power/9 + mag*0.9
+	switch {
+	case g >= 3:
+		return 3
+	case g >= 2:
+		return 2
+	case g >= 1:
+		return 1
+	}
+	return 0
+}
+
 // noteForm records a pick. Self picks aren't areas and aren't noted.
 func (s *Sim) noteForm(kind skill.TargetKind, origin, caster skill.EntityID, radius float32, dx, dy float64, ids []skill.EntityID) {
 	if kind == skill.TargetSelf || origin < 0 || int(origin) >= len(s.Actors) {
@@ -91,7 +106,7 @@ func (s *Sim) flushForms(owner skill.EntityID, p *skill.Program, o skill.Outcome
 		if !f.landed {
 			continue
 		}
-		fx := FX{Type: f.typ, Mag: f.mag, Heat: heat, Power: power, Value: f.radius, X: f.x, Y: f.y, Life: 0.55}
+		fx := FX{Type: f.typ, Mag: f.mag, Heat: heat, Power: power, Value: f.radius, X: f.x, Y: f.y, Life: 0.55, Grade: gradeOf(power, f.mag)}
 		switch f.kind {
 		case skill.TargetAdjacent:
 			fx.Kind = FXWave

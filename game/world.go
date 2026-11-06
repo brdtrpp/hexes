@@ -239,7 +239,11 @@ func (s *Sim) Behind(attacker, target skill.EntityID) bool {
 func (s *Sim) Hit(caster, target skill.EntityID, dealt float32, t skill.TypeID, terrain bool) {
 	a := &s.Actors[target]
 	a.Flash = 0.15
-	a.Awake = true
+	if target == s.Player {
+		a.Awake = true
+	} else {
+		s.wake(target, true) // a hit foe calls its pack
+	}
 	mag := magOf(dealt, a.U.MaxHP)
 	if !terrain {
 		a.LastHit = t
@@ -291,6 +295,21 @@ func (s *Sim) Killed(caster, target skill.EntityID) {
 // caster.
 func (s *Sim) Fired(owner skill.EntityID, slot int, p *skill.Program, o skill.Outcome, res skill.Result) {
 	s.flushForms(owner, p, o)
+	if p != nil && o == skill.Fired {
+		// Grade the bolts this firing just threw, newest first, back to
+		// the first effect from before this frame.
+		from := s.Actors[owner].At
+		s.FX.Back(func(f *FX) bool {
+			if f.Age > 0 {
+				return false
+			}
+			if f.Kind == FXBolt && f.From == from && f.Grade == 0 {
+				f.Grade = gradeOf(p.Power, f.Mag)
+				f.Power = p.Power
+			}
+			return true
+		})
+	}
 	if owner != s.Player || slot >= MaxSlots {
 		return
 	}
@@ -301,7 +320,7 @@ func (s *Sim) Fired(owner skill.EntityID, slot int, p *skill.Program, o skill.Ou
 	}
 	s.SlotFlash[slot], s.SlotLast[slot] = 0.4, o
 	if o == skill.Fired {
-		s.addFX(FX{Kind: FXRing, At: s.Actors[owner].At, Slot: slot, Power: p.Power, Heat: p.Heat, Life: 0.4})
+		s.addFX(FX{Kind: FXRing, At: s.Actors[owner].At, Slot: slot, Power: p.Power, Heat: p.Heat, Life: 0.4, Grade: gradeOf(p.Power, 0.5)})
 	}
 	// Hexes it called flash as if they fired too.
 	for i := 0; i < MaxSlots; i++ {

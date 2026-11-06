@@ -45,9 +45,10 @@ const (
 	Grunt   EnemyKind = iota // melee, average
 	Skitter                  // fast, fragile
 	Brute                    // slow, tough, hits hard
+	Gunner                   // keeps its distance and shoots
 )
 
-var enemyNames = [...]string{"grunt", "skitter", "brute"}
+var enemyNames = [...]string{"grunt", "skitter", "brute", "gunner"}
 
 func (k EnemyKind) String() string { return enemyNames[k] }
 

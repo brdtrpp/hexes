@@ -121,3 +121,36 @@ func (s Sig) Jag() float32 {
 func (s Sig) Plainness() float32 {
 	return clamp01(1 - (s.Hot + s.Cold + s.Force + s.Swarm + s.Mark + s.Veil))
 }
+
+// Arch is the one look a signature leads with, so each damage kind reads
+// by shape and motion as well as color: plasma burns, cryo shatters into
+// crystal, kinetic hits as a hard ring, nanites swarm, drones lock on,
+// cloak shimmers.
+type Arch uint8
+
+const (
+	ArchPlain Arch = iota
+	ArchHot
+	ArchCold
+	ArchForce
+	ArchSwarm
+	ArchMark
+	ArchVeil
+	NumArch
+)
+
+var archNames = [...]string{"plain", "hot", "cold", "force", "swarm", "mark", "veil"}
+
+func (a Arch) String() string { return archNames[a] }
+
+// Arch is the facet the signature has most of, or Plain when none has
+// much.
+func (s Sig) Arch() Arch {
+	best, v := ArchPlain, float32(0.3)
+	for i, w := range [...]float32{s.Hot, s.Cold, s.Force, s.Swarm, s.Mark, s.Veil} {
+		if w > v {
+			best, v = Arch(i+1), w
+		}
+	}
+	return best
+}

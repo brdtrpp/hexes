@@ -65,6 +65,7 @@ var (
 		game.KindGrunt:   {0xe5, 0x48, 0x4d, 0xff},
 		game.KindSkitter: {0xf2, 0xc1, 0x3d, 0xff},
 		game.KindBrute:   {0xa8, 0x5c, 0xf0, 0xff},
+		game.KindGunner:  {0xff, 0x6f, 0xb0, 0xff},
 	}
 	// Damage type colors, in default_types.json order.
 	typeCol = []color.RGBA{
@@ -139,6 +140,8 @@ type Game struct {
 	mm        minimap    // explored-floor chart (minimap.go)
 	fog       fogState   // what the lamp lights and what's remembered (fog.go)
 	teach     teachState // new unlocks to pulse (teach.go)
+	ringMode  uint8      // how ringPath lays rings: flat UI, on the floor, or local (fxdraw.go)
+	decals    decalState // marks skills leave on the floor (skin.go)
 }
 
 func newGame() *Game {
@@ -248,9 +251,12 @@ func (g *Game) Update() error {
 	// plants a thumb joystick there.
 	px, py := g.playerScreen()
 	steer := func(x, y float64) {
-		dx, dy := x-px, y-py
-		if math.Hypot(dx, dy) > g.size*0.7 {
-			in.MoveX, in.MoveY = dx, dy
+		if math.Hypot(x-px, y-py) > g.size*0.7 {
+			// Walk toward the floor point under the finger, through the
+			// tilted camera.
+			wx, wy := g.unproject(x, y)
+			ox, oy := g.sim.P().Pos()
+			in.MoveX, in.MoveY = wx-ox, wy-oy
 		}
 	}
 	onButton := func(x, y float64) bool {
@@ -328,7 +334,10 @@ func (g *Game) Update() error {
 		g.stick.End()
 	}
 	if sx, sy := g.stick.Vector(); sx != 0 || sy != 0 {
-		in.MoveX, in.MoveY = sx, sy
+		// The stick points on screen; the floor runs squashed under it.
+		wx, wy := sx, sy/viewCos
+		m := math.Hypot(sx, sy) / math.Hypot(wx, wy)
+		in.MoveX, in.MoveY = wx*m, wy*m
 	}
 
 	g.devInput(&in)
@@ -346,6 +355,7 @@ func (g *Game) Update() error {
 	if math.Abs(x-g.camX) > 8 || math.Abs(y-g.camY) > 8 { // new floor: snap
 		g.camX, g.camY = x, y
 		g.fxs.parts.Clear()
+		g.decals.clear()
 	}
 	g.updateSound(dt)
 	g.updateFX(dt)
@@ -358,9 +368,11 @@ func (g *Game) playerScreen() (float64, float64) {
 	return g.toScreen(x, y)
 }
 
-// toScreen maps hex-unit world space to pixels.
+// toScreen maps a point on the floor, in hex units, to pixels (through
+// the tilted camera, view.go).
 func (g *Game) toScreen(x, y float64) (float64, float64) {
-	return (x-g.camX)*g.size + float64(g.w)/2 + g.look.shx, (y-g.camY)*g.size + float64(g.h)/2 + g.look.shy
+	sx, sy, _ := g.project(x, y)
+	return sx, sy
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -369,17 +381,22 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.buildTiles()
 	}
 	g.shakeCamera()
+	g.ringMode = ringGround
 	g.drawFloor(screen)
 	g.drawDrops(screen)
 	g.drawLesson(screen)
 	g.drawBenches(screen)
 	g.drawLenses(screen)
 	g.drawSalvage(screen)
-	g.drawActors(screen)
+	g.drawDecals(screen)
+	g.drawStanding(screen)
+	g.drawActorOverlays(screen)
+	g.drawShots(screen)
 	g.drawLight(screen)
 	g.drawForms(screen)
 	g.drawParticles(screen)
 	g.drawLabels(screen)
+	g.ringMode = ringFlat
 	g.drawHUD(screen)
 	g.drawMinimap(screen)
 	if g.ed.on {
@@ -449,7 +466,7 @@ func (g *Game) drawLabels(screen *ebiten.Image) {
 	g.sim.FX.Each(func(f *game.FX) {
 		k := f.Age / f.Life // 0 to 1
 		a := 1 - k
-		x, y := g.toScreen(f.X, f.Y)
+		x, y, _ := g.lifted(f.X, f.Y, chestLift)
 		switch f.Kind {
 		case game.FXSlam:
 			wx, wy := g.toScreen(f.FromX, f.FromY)

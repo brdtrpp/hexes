@@ -19,6 +19,9 @@ const (
 	KindGrunt
 	KindSkitter
 	KindBrute
+	KindGunner
+	// NumKinds is how many actor kinds exist.
+	NumKinds
 )
 
 // Actor is one creature on the floor.
@@ -44,6 +47,19 @@ type Actor struct {
 	Free         bool
 	X, Y         float64
 	FaceX, FaceY float64
+
+	// Squad tactics (squad.go). Squad is the pack it spawned with (0 for
+	// none). Alert counts down from spotting you or being called by a
+	// packmate; WakeIn is the beat before a called foe moves. Flee is
+	// seconds left of falling back hurt, and Fled marks that it has.
+	// Aim counts down while a gunner lines up a shot.
+	Squad  uint8
+	Alert  float32
+	WakeIn float32
+	Flee   float32
+	Fled   bool
+	Aim    float32
+	Shots  uint16
 }
 
 // Arrived reports whether the actor has finished its current step.
@@ -100,10 +116,11 @@ type enemyStats struct {
 	hp, dmg, speed, cd float32
 }
 
-var enemyTable = [...]enemyStats{
+var enemyTable = [NumKinds]enemyStats{
 	KindGrunt:   {hp: 60, dmg: 18, speed: 2.4, cd: 1.0},
 	KindSkitter: {hp: 32, dmg: 11, speed: 3.9, cd: 0.7},
 	KindBrute:   {hp: 150, dmg: 34, speed: 1.5, cd: 1.6},
+	KindGunner:  {hp: 44, dmg: 13, speed: 2.6, cd: 1.7},
 }
 
 // Sim is one run of the game.
@@ -231,6 +248,11 @@ type Sim struct {
 	// edited (bench.go).
 	Benches [NumBenches]skill.Coord
 
+	// Squads and the gunners' shots in the air (squad.go).
+	squads [MaxSquads]squad
+	Shots  [MaxShots]Shot
+	NShots int
+
 	occ      []skill.EntityID
 	dist, q  []int32
 	distFrom skill.Coord
@@ -332,7 +354,9 @@ func (s *Sim) load(depth int, hpFrac float32) {
 		st := enemyTable[KindGrunt+Kind(sp.Kind)]
 		id := s.spawn(KindGrunt+Kind(sp.Kind), 1, sp.At, sp.Level, st.hp*scale(sp.Level))
 		s.Actors[id].Facing = uint8(hash(uint64(id)+f.Seed) % 6)
+		s.Actors[id].Squad = uint8(sp.Room%(MaxSquads-1) + 1)
 	}
+	s.formSquads()
 
 	s.Rig = skill.NewRig(s.Points)
 	s.loadLoot(lvl)
@@ -417,6 +441,7 @@ func (s *Sim) Step(dt float32) {
 	s.Disp.Update(dt)
 	s.playerInput(dt)
 	s.enemies(dt)
+	s.stepShots(dt)
 	s.advance(dt)
 	s.timers(dt)
 	s.pickup(dt)
@@ -523,55 +548,6 @@ func (s *Sim) refreshField() {
 	p := s.P()
 	s.distFrom = p.At
 	s.Floor.DistanceField(p.At, s.dist, s.q)
-}
-
-func (s *Sim) enemies(dt float32) {
-	p := s.P()
-	for i := range s.Actors {
-		a := &s.Actors[i]
-		if skill.EntityID(i) == s.Player || !a.U.Alive || a.U.Team == p.U.Team {
-			continue
-		}
-		a.AtkCD -= dt
-		if a.U.StunLeft > 0 {
-			continue
-		}
-		d := s.dist[s.Floor.Index(a.At)]
-		if !a.Awake {
-			if (d >= 0 && d <= AggroRange) || a.U.HP < a.U.MaxHP {
-				a.Awake = true
-			} else {
-				continue
-			}
-		}
-		st := enemyTable[a.Kind]
-		if skill.Dist(a.At, p.At) == 1 && a.Arrived() {
-			a.Facing = dirTo(a.At, p.At)
-			if a.AtkCD <= 0 && p.U.Alive {
-				s.claw(skill.EntityID(i), st.dmg*scale(a.U.Level))
-				a.AtkCD = st.cd
-			}
-			continue
-		}
-		if !a.Arrived() || d < 0 {
-			continue
-		}
-		// Step to the neighbor closest to the player on foot.
-		best, bestD := -1, d
-		for k, dir := range skill.HexDirs {
-			n := a.At.Add(dir)
-			if !s.Floor.In(n) {
-				continue
-			}
-			nd := s.dist[s.Floor.Index(n)]
-			if nd >= 0 && nd < bestD && !s.occupied(n) {
-				best, bestD = k, nd
-			}
-		}
-		if best >= 0 {
-			s.startMove(skill.EntityID(i), uint8(best), st.speed, false)
-		}
-	}
 }
 
 // claw is an enemy melee hit on the player: capped by level gap like any
@@ -744,3 +720,7 @@ func dirTo(a, b skill.Coord) uint8 {
 	}
 	return uint8(best)
 }
+
+// DevDepth drops straight onto a fresh floor at depth d, for screenshot
+// tools. Play never calls it.
+func (s *Sim) DevDepth(d int) { s.load(d, 1) }

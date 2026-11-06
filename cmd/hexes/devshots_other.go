@@ -37,6 +37,7 @@ type devState struct {
 	taken        int
 	ready        bool
 	still        bool // stand at the start bench, don't fight
+	gallery      bool // throw every kind's effects round the player
 }
 
 func envInt(k string, d int) int {
@@ -60,7 +61,12 @@ func (g *Game) devInput(in *game.Input) {
 			g.devFrames(os.Getenv("HEXES_FRAMES"))
 			m := os.Getenv("HEXES_FRAMES")
 			d.still = m == "bench" || m == "grid" || m == "locker"
+			d.gallery = m == "kinds" || m == "grades"
 		}
+	}
+	if d.gallery {
+		g.devGallery(os.Getenv("HEXES_FRAMES"))
+		return
 	}
 	if d.dir == "" || d.still {
 		return
@@ -178,11 +184,75 @@ func (g *Game) devFrames(mode string) {
 			g.edShowLocker()
 			g.ed.pick, g.ed.at = pickLocker, 0
 		}
+	case "kinds", "grades":
+		// An empty room: the gallery throws its own effects.
+		for i := range s.Actors {
+			if a := &s.Actors[i]; a.Kind != game.KindPlayer {
+				a.U.Alive, a.U.HP = false, 0
+			}
+		}
+	case "pack":
+		// A deeper floor, with gunners, walking into the nearest pack.
+		s.DevDepth(envInt("HEXES_DEPTH", 5))
 	case "floor":
 		p := s.P()
 		for i, f := range game.TestFrameSet[:4] {
 			f.Grade = skill.Rarity(i)
 			s.Stash.Frames = append(s.Stash.Frames, game.FrameDrop{At: p.At.Add(skill.HexDirs[i]).Add(skill.HexDirs[i]), Frame: f, Age: 1})
 		}
+	}
+}
+
+// devGallery throws every damage kind's effects round the player on a
+// beat: HEXES_FRAMES=kinds shows the six kinds at HEXES_GRADE (default
+// 2); HEXES_FRAMES=grades shows kind HEXES_TYPE at grades 0 to 3. The
+// delivery (bolt, around, cone, chain) turns over every 45 frames.
+func (g *Game) devGallery(mode string) {
+	s := g.sim
+	p := s.P()
+	p.U.HP = p.U.MaxHP
+	// Throw them HEXES_LAG frames (default 10) before each shot, so a
+	// shot every 45 frames catches each round mid-flight.
+	if g.frame%45 != (45-envInt("HEXES_LAG", 10))%45 {
+		return
+	}
+	px, py := p.Pos()
+	phase := (g.frame/45 + 1) % 4
+	if v := envInt("HEXES_PHASE", -1); v >= 0 {
+		phase = v
+	}
+	n := 6
+	if mode == "grades" {
+		n = 4
+	}
+	for i := 0; i < n; i++ {
+		t := skill.TypeID(i)
+		grade := uint8(envInt("HEXES_GRADE", 2))
+		if mode == "grades" {
+			t, grade = skill.TypeID(envInt("HEXES_TYPE", 0)), uint8(i)
+		}
+		an := float64(i)*2*math.Pi/float64(n) - math.Pi/2 + 0.3
+		ca, sa := math.Cos(an), math.Sin(an)
+		x, y := px+ca*3.4, py+sa*3.4
+		mag := float32(0.6 + 0.35*float64(grade))
+		e := game.FX{Type: t, Grade: grade, Mag: mag, Power: 8 + 6*float32(grade), Life: 0.55}
+		switch phase {
+		case 0:
+			e.Kind, e.Life = game.FXBolt, 0.5
+			e.X, e.Y, e.FromX, e.FromY = x, y, px+ca*0.6, py+sa*0.6
+		case 1:
+			e.Kind, e.X, e.Y, e.Value = game.FXWave, x, y, 1
+		case 2:
+			e.Kind, e.X, e.Y, e.Value = game.FXCone, px+ca*1.2, py+sa*1.2, 3
+			e.DX, e.DY = float32(ca), float32(sa)
+		case 3:
+			e.Kind, e.NPts = game.FXChain, 4
+			for j := 0; j < 4; j++ {
+				r := 1.2 + 1.6*float64(j)
+				w := 0.5 * float64(j%2*2-1)
+				e.Pts[j] = [2]float32{float32(px + math.Cos(an+w*0.2)*r), float32(py + math.Sin(an+w*0.2)*r)}
+			}
+		}
+		s.FX.Add(e)
 	}
 }

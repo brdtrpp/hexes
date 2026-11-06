@@ -119,9 +119,12 @@ func (g *Game) updateFX(dt float32) {
 		if a.Kind != game.KindPlayer && g.seeAt(x, y) < 0.2 {
 			continue // a glow in the dark would give a hidden foe away
 		}
+		f.parts.Z = float32(bodyTop(a.Kind) * 0.6)
 		g.auras(a, float32(x), float32(y), dt)
+		f.parts.Z = 0
 	}
 	f.parts.Update(dt)
+	g.decals.update(dt)
 }
 
 func (g *Game) auras(a *game.Actor, x, y, dt float32) {
@@ -176,24 +179,40 @@ func (g *Game) spawn(e *game.FX) {
 	p := g.fxs.parts
 	x, y := float32(e.X), float32(e.Y)
 	fx0, fy0 := float32(e.FromX), float32(e.FromY)
-	shot := fx.Shot{Sig: g.sigOf(e.Type), Mag: e.Mag, Heat: e.Heat}
+	shot := fx.Shot{Sig: g.sigOf(e.Type), Mag: e.Mag * (1 + 0.2*float32(e.Grade)), Heat: e.Heat}
 	g.kick(e)
+	p.Z = 0.3
+	defer func() { p.Z = 0 }()
 	switch e.Kind {
 	case game.FXBolt:
 		dx, dy := x-fx0, y-fy0
+		p.Z = chestLift
 		if !e.Impact {
 			p.Trail(fx0, fy0, x, y, shot)
 		}
 		p.Impact(x, y, dx, dy, shot)
 		p.Add(flash(x, y, shot, 0.45))
+		g.leaveMark(e, e.X, e.Y, 0.6+0.12*float64(e.Grade)+0.15*math.Sqrt(float64(e.Mag)))
 	case game.FXWave:
 		r := (e.Value + 0.5) * sqrt3
+		p.Z = 0.08
 		p.Wave(x, y, r, shot)
 		p.Add(flash(x, y, shot, 0.8))
+		g.leaveMark(e, e.X, e.Y, float64(r)*0.8)
 	case game.FXCone:
 		l := (e.Value + 0.5) * sqrt3
+		p.Z = 0.15
 		p.Wedge(x, y, e.DX, e.DY, 35*math.Pi/180, l, shot)
+	case game.FXMuzzle:
+		r, gg, b := colorF(colShot)
+		p.Z = chestLift
+		p.Impact(x+e.DX*0.4, y+e.DY*0.4, -e.DX, -e.DY, fx.Shot{Sig: fx.Sig{R: r, G: gg, B: b, Force: 0.6}, Mag: 0.4})
+	case game.FXZap:
+		r, gg, b := colorF(colShot)
+		p.Z = chestLift
+		p.Impact(x, y, e.DX, e.DY, fx.Shot{Sig: fx.Sig{R: r, G: gg, B: b, Hot: 0.4}, Mag: 0.5})
 	case game.FXChain:
+		p.Z = chestLift
 		for i := 1; i < int(e.NPts); i++ {
 			a, b := e.Pts[i-1], e.Pts[i]
 			s := shot
@@ -201,6 +220,7 @@ func (g *Game) spawn(e *game.FX) {
 			p.Trail(a[0], a[1], b[0], b[1], s)
 		}
 	case game.FXRing:
+		p.Z = 0.05
 		p.Cast(x, y, e.Power, e.Heat)
 	case game.FXKill:
 		c := colText
@@ -265,30 +285,30 @@ func (g *Game) drawParticles(screen *ebiten.Image) {
 	}
 	vs, is := f.vs[:0], f.is[:0]
 	s := float32(g.size)
-	ox0, oy0 := g.toScreen(0, 0)
-	ox, oy := float32(ox0), float32(oy0)
 	W, H := float32(g.w), float32(g.h)
+	c := float32(viewCos)
 	for i := 0; i < p.N; i++ {
 		q := &p.P[i]
 		l := q.Look()
 		if l.A < 0.01 {
 			continue
 		}
-		cx, cy := q.X*s+ox, q.Y*s+oy
-		r := max(l.Size*s, 1)
+		px, py, ps := g.lifted(float64(q.X), float64(q.Y), float64(q.Z))
+		cx, cy, pp := float32(px), float32(py), float32(ps)
+		r := max(l.Size*s*pp, 1)
 		if cx < -r*4 || cy < -r*4 || cx > W+r*4 || cy > H+r*4 {
 			continue
 		}
 		// Half-extent axes: ux, uy along the particle, vx, vy across it.
 		ux, uy, vx, vy := r, float32(0), float32(0), r
 		if l.Len > 0 {
-			half := r + l.Len*s*0.5
-			ux, uy = l.DX*half, l.DY*half
+			half := r + l.Len*s*pp*0.5
+			ux, uy = l.DX*half, l.DY*half*c
 			w := r
 			if q.Sprite == fx.SpriteShard {
 				w = r * 0.9
 			}
-			vx, vy = -l.DY*w, l.DX*w
+			vx, vy = -l.DY*w*c, l.DX*w
 		}
 		sx0 := float32(int(q.Sprite) * spriteCell)
 		sx1 := sx0 + spriteCell
@@ -368,6 +388,7 @@ func (g *Game) ringPath(cx, cy, r float64, st fx.RingStyle, t, seed float64, fro
 		n = max(8, int(float64(sides)*math.Abs(arc)/(2*math.Pi)+0.5))
 	}
 	spin := t * float64(st.Spin) * 2 * math.Pi
+	wx, wy, sc := g.ringFrame(cx, cy)
 	dashOn := 1 - 0.55*float64(st.Dash)
 	pen := false
 	for i := 0; i <= n; i++ {
@@ -380,7 +401,7 @@ func (g *Game) ringPath(cx, cy, r float64, st fx.RingStyle, t, seed float64, fro
 		if st.Wobble > 0 {
 			rr *= 1 + float64(st.Wobble)*(0.6*math.Sin(5*a+t*9+seed)+0.4*math.Sin(9*a-t*13+seed*2))
 		}
-		x, y := cx+math.Cos(a)*rr, cy+math.Sin(a)*rr
+		x, y := g.ringPt(cx, cy, wx, wy, sc, math.Cos(a)*rr, math.Sin(a)*rr)
 		on := true
 		if st.Dash > 0 {
 			ph := math.Mod(k*float64(n)/2+spin/(2*math.Pi)*float64(n)/4, 1)
@@ -437,36 +458,35 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 		switch e.Kind {
 		case game.FXBolt:
 			sig := g.sigOf(e.Type)
+			arch := sig.Arch()
 			c := typeColor(e.Type)
 			m := math.Sqrt(float64(e.Mag))
-			// The hit itself: a hot glow and a ring kicked out from it.
+			hx, hy, _ := g.lifted(e.X, e.Y, chestLift)
+			// The hit itself, by kind.
 			if k < 0.5 {
-				kk := k / 0.5
-				cr, cg, cb := colorF(c)
-				g.glow(screen, x, y, s*(0.9+0.6*m)*(1-0.4*kk), cr, cg, cb, float32(1-kk)*0.9)
-				g.glow(screen, x, y, s*(0.35+0.2*m)*(1-kk), 1, 1, 1, float32(1-kk))
-				g.ringPath(x, y, s*(0.3+(0.9+0.4*m)*easeOut(kk)), sig.Ring(), t, seed, 0, 2*math.Pi, true)
-				g.strokePath(screen, c, float32(1-kk)*0.9, g.u(3*(1-kk)*m+1))
+				g.drawHit(screen, arch, e.Grade, c, hx, hy, k/0.5, m, seed, sig)
 			}
 			if e.Impact {
 				return
 			}
-			fx0, fy0 := g.toScreen(e.FromX, e.FromY)
+			fx0, fy0, _ := g.lifted(e.FromX, e.FromY, chestLift)
 			head := math.Min(1, k/0.3)
 			tail := math.Max(0, (k-0.1)/0.6)
+			if arch == fx.ArchMark {
+				tail = math.Max(0, (k-0.35)/0.5) // a laser holds, then lets go
+			}
 			if tail >= head {
 				return
 			}
-			ax, ay := fx0+(x-fx0)*tail, fy0+(y-fy0)*tail
-			bx, by := fx0+(x-fx0)*head, fy0+(y-fy0)*head
-			g.jagPath(ax, ay, bx, by, float64(sig.Jag()), seed)
-			g.strokePath(screen, c, a*0.18, g.u(16*(0.7+0.3*m)))
-			g.strokePath(screen, c, a*0.5, g.u(6*(0.7+0.3*m)))
-			g.strokePath(screen, color.RGBA{0xff, 0xff, 0xff, 0xff}, a*0.8, g.u(1.6*(0.7+0.3*m)))
+			ax, ay := fx0+(hx-fx0)*tail, fy0+(hy-fy0)*tail
+			bx, by := fx0+(hx-fx0)*head, fy0+(hy-fy0)*head
+			g.drawBolt(screen, arch, e.Grade, c, float32(ax), float32(ay), float32(bx), float32(by), a, m, seed, sig)
 		case game.FXChain:
 			sig := g.sigOf(e.Type)
+			arch := sig.Arch()
 			c := typeColor(e.Type)
 			m := math.Sqrt(float64(e.Mag))
+			core, _ := gradeCols(c, e.Grade)
 			for i := 1; i < int(e.NPts); i++ {
 				// Each hop lights a beat after the one before it.
 				local := (k - float64(i-1)*0.08) / (1 - float64(i-1)*0.08)
@@ -474,57 +494,76 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 					continue
 				}
 				la := float32(1 - local)
-				ax, ay := g.toScreen(float64(e.Pts[i-1][0]), float64(e.Pts[i-1][1]))
-				bx, by := g.toScreen(float64(e.Pts[i][0]), float64(e.Pts[i][1]))
-				g.jagPath(ax, ay, bx, by, float64(sig.Jag())*1.4, seed+float64(i)*3.1)
-				g.strokePath(screen, c, la*0.16, g.u(18*(0.7+0.3*m)))
-				g.strokePath(screen, c, la*0.45, g.u(7*(0.7+0.3*m)))
-				cr, cg, cb := colorF(c)
-				g.glow(screen, bx, by, s*0.9*m, cr, cg, cb, la*0.8)
-				g.strokePath(screen, color.RGBA{0xff, 0xff, 0xff, 0xff}, la*0.85, g.u(1.8))
+				ax, ay, _ := g.lifted(float64(e.Pts[i-1][0]), float64(e.Pts[i-1][1]), chestLift)
+				bx, by, bp := g.lifted(float64(e.Pts[i][0]), float64(e.Pts[i][1]), chestLift)
+				g.drawBolt(screen, arch, e.Grade, c, float32(ax), float32(ay), float32(bx), float32(by), la, m*0.8, seed+float64(i)*3.1, sig)
+				cr, cg, cb := colorF(core)
+				g.glow(screen, bx, by, s*0.8*m*bp, cr, cg, cb, la*0.7)
+				// Each node it jumps through takes the kind's mark.
+				switch arch {
+				case fx.ArchCold:
+					g.local(func() { g.spokes(bx, by, 6, -math.Pi/2, s*0.15, s*(0.5+0.1*float64(e.Grade)), true) })
+					g.strokePath(screen, core, la, g.u(1.5))
+				case fx.ArchMark:
+					g.local(func() { g.brackets(bx, by, s*0.6, t, true) })
+					g.strokePath(screen, core, la, g.u(1.8))
+				case fx.ArchForce:
+					g.local(func() {
+						g.ringPath(bx, by, s*(0.3+0.6*local), fx.RingStyle{Sides: 40}, t, seed, 0, 2*math.Pi, true)
+					})
+					g.strokePath(screen, core, la, g.u(2.5))
+				case fx.ArchSwarm:
+					g.local(func() { g.dots(bx, by, 5, t*5+float64(i), s*0.4, s*0.06) })
+					g.fillPath(screen, core, la)
+				}
 			}
 		case game.FXWave:
 			sig := g.sigOf(e.Type)
+			arch := sig.Arch()
 			st := sig.Ring()
 			c := typeColor(e.Type)
+			core, rim := gradeCols(c, e.Grade)
 			m := math.Sqrt(float64(e.Mag))
 			R := (float64(e.Value) + 0.5) * sqrt3 * s
 			e1 := easeOut(k)
 			r := R * (0.2 + 0.8*e1)
 			heat := math.Max(0, math.Min(1.5, float64(e.Heat)/25))
 			if k < 0.35 {
-				cr, cg, cb := colorF(c)
+				cr, cg, cb := colorF(rim)
 				g.glow(screen, x, y, R*0.9, cr, cg, cb, float32(1-k/0.35)*0.7)
 			}
 			g.ringPath(x, y, r, st, t, seed, 0, 2*math.Pi, true)
-			g.fillPath(screen, c, a*a*0.16)
+			g.fillPath(screen, rim, a*a*0.16)
 			g.ringPath(x, y, r, st, t, seed, 0, 2*math.Pi, true)
-			g.strokePath(screen, c, a*0.2, g.u((6+6*m)*float64(a)+2))
+			g.strokePath(screen, rim, a*0.2, g.u((6+6*m)*float64(a)+2))
 			g.ringPath(x, y, r, st, t, seed, 0, 2*math.Pi, true)
-			g.strokePath(screen, c, float32(float64(a)*(0.65+0.2*heat)), g.u((1.5+3*m)*float64(a)+1))
-			if st.Echo && k > 0.1 {
-				r2 := R * (0.2 + 0.8*easeOut(k-0.1)) * 0.82
-				g.ringPath(x, y, r2, st, t, seed+1, 0, 2*math.Pi, true)
-				g.strokePath(screen, color.RGBA{0xff, 0xff, 0xff, 0xff}, a*0.4, g.u(1.5))
-			}
+			g.strokePath(screen, core, float32(float64(a)*(0.65+0.2*heat)), g.u((1.5+3*m)*float64(a)+1))
+			g.drawAreaExtra(screen, arch, e.Grade, c, x, y, r, k, seed, 0, 2*math.Pi)
 		case game.FXCone:
 			sig := g.sigOf(e.Type)
+			arch := sig.Arch()
 			st := sig.Ring()
 			st.Sides = 40 // cones are arcs, never hex rings
 			c := typeColor(e.Type)
+			core, rim := gradeCols(c, e.Grade)
 			m := math.Sqrt(float64(e.Mag))
 			L := (float64(e.Value) + 0.5) * sqrt3 * s
 			dir := math.Atan2(float64(e.DY), float64(e.DX))
 			half := 35 * math.Pi / 180
 			e1 := easeOut(k)
-			// Wedge fill out to the front.
+			// Wedge fill out to the front, lying on the floor.
 			p := &g.fxs.path
 			*p = vector.Path{}
+			wx, wy, sc := g.ringFrame(x, y)
 			p.MoveTo(float32(x), float32(y))
-			p.Arc(float32(x), float32(y), float32(L*e1), float32(dir-half), float32(dir+half), vector.Clockwise)
+			for j := 0; j <= 12; j++ {
+				an := dir - half + 2*half*float64(j)/12
+				px, py := g.ringPt(x, y, wx, wy, sc, math.Cos(an)*L*e1, math.Sin(an)*L*e1)
+				p.LineTo(float32(px), float32(py))
+			}
 			p.Close()
-			g.fillPath(screen, c, a*a*0.14)
-			// The front and two ripples behind it.
+			g.fillPath(screen, rim, a*a*0.14)
+			// The front and ripples behind it.
 			for j := 0; j < 3; j++ {
 				r := L * e1 * (1 - 0.22*float64(j))
 				if r <= 0 {
@@ -532,18 +571,44 @@ func (g *Game) drawForms(screen *ebiten.Image) {
 				}
 				g.ringPath(x, y, r, st, t, seed+float64(j), dir-half, dir+half, false)
 				w := (1.2 + 2.5*m) * float64(a) / float64(j+1)
-				g.strokePath(screen, c, a*(0.8-0.22*float32(j)), g.u(w+0.8))
+				col := core
+				if j > 0 {
+					col = rim
+				}
+				g.strokePath(screen, col, a*(0.8-0.22*float32(j)), g.u(w+0.8))
 			}
+			g.drawAreaExtra(screen, arch, e.Grade, c, x, y, L*e1, k, seed, dir-half, dir+half)
 		case game.FXRing:
 			c := slotCol[e.Slot%game.MaxSlots]
 			// Power spent sets the ring's weight, Heat added how far it
-			// flares and how hot it tints.
+			// flares and how hot it tints; a big hex adds rings and spokes.
 			pw := math.Min(2, float64(e.Power)/15)
 			ht := math.Max(-1, math.Min(1.5, float64(e.Heat)/20))
 			r := s * (0.7 + (1.8+0.6*ht)*easeOut(k))
 			st := fx.RingStyle{Sides: 40, Wobble: float32(math.Max(0, ht) * 0.08)}
 			g.ringPath(x, y, r, st, t, seed, 0, 2*math.Pi, true)
 			g.strokePath(screen, c, a, g.u((1.5+2.5*pw)*float64(a)+0.8))
+			if e.Grade >= 1 {
+				g.ringPath(x, y, r*0.72, fx.RingStyle{Sides: 40, Dash: 0.5, Spin: 0.5}, t, seed, 0, 2*math.Pi, true)
+				g.strokePath(screen, c, a*0.6, g.u(1.4))
+			}
+			if e.Grade >= 2 {
+				g.spokes(x, y, 6+2*int(e.Grade), t, r*0.82, r*1.05, true)
+				g.strokePath(screen, c, a*0.8, g.u(1.6))
+			}
+		case game.FXMuzzle:
+			hx, hy, hp := g.lifted(e.X+float64(e.DX)*0.45, e.Y+float64(e.DY)*0.45, chestLift)
+			cr, cg, cb := colorF(colShot)
+			g.glow(screen, hx, hy, s*0.8*hp, cr, cg, cb, a)
+			g.glow(screen, hx, hy, s*0.3*hp, 1, 1, 1, a)
+		case game.FXZap:
+			hx, hy, hp := g.lifted(e.X, e.Y, chestLift)
+			cr, cg, cb := colorF(colShot)
+			g.glow(screen, hx, hy, s*(0.6+0.5*k)*hp, cr, cg, cb, a*0.8)
+			g.local(func() {
+				g.ringPath(hx, hy, s*(0.2+0.7*easeOut(k)), fx.RingStyle{Sides: 6}, t, seed, 0, 2*math.Pi, true)
+			})
+			g.strokePath(screen, colShot, a, g.u(2))
 		case game.FXSlam:
 			wx, wy := g.toScreen(e.FromX, e.FromY)
 			mx, my := (x+wx)/2, (y+wy)/2

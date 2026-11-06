@@ -93,12 +93,12 @@ func hash32(x uint32) uint32 {
 	return x ^ x>>16
 }
 
-// drawLitTile draws tile sprite img for hex c (index i, pixel-space
-// center x, y, screen center sx, sy) with its top left corner at
-// (left, top), tinted by cr, cg, cb, under the lamp. Each corner of the
-// sprite is shaded by the light at that point. It draws nothing for a
-// hex never seen.
-func (g *Game) drawLitTile(dst, img *ebiten.Image, t dungeon.Tile, i int, x, y, sx, sy, left, top float64, cr, cg, cb, r float32) {
+// drawLitTile draws tile sprite img for hex c (index i, center x, y in
+// hex units) with the hex's center at (ox, oy) in the sprite, tinted by
+// cr, cg, cb, under the lamp. The sprite lies on the floor: each of its
+// four corners goes through the camera (view.go) and is shaded by the
+// light at that point. It draws nothing for a hex never seen.
+func (g *Game) drawLitTile(dst, img *ebiten.Image, t dungeon.Tile, i int, x, y, ox, oy float64, cr, cg, cb, r float32) {
 	fs := &g.fog
 	sight := &g.sim.Sight
 	vis, seen := sight.Vis[i], sight.Seen[i]
@@ -127,15 +127,17 @@ func (g *Game) drawLitTile(dst, img *ebiten.Image, t dungeon.Tile, i int, x, y, 
 	b := img.Bounds()
 	w, h := float64(b.Dx()), float64(b.Dy())
 	far := sh == 0 || math.Hypot(x-fs.lx, y-fs.ly) > (float64(r)+1.5)*math.Sqrt(3)
+	ts := g.tileSize
 	for k := range fs.vs {
 		u, v := float64(k&1), float64(k>>1)
-		px, py := left+u*w, top+v*h
+		wx, wy := x+(u*w-ox)/ts, y+(v*h-oy)/ts
 		var l float32
 		if !far {
-			l = sh * game.LightAt(fs.lx, fs.ly, x+(px-sx)/g.size, y+(py-sy)/g.size, r)
+			l = sh * game.LightAt(fs.lx, fs.ly, wx, wy, r)
 		}
 		m := mem * (1 - l)
 		l *= 1 + lampBoost*l
+		px, py, _ := g.project(wx, wy)
 		vx := &fs.vs[k]
 		vx.DstX, vx.DstY = float32(px), float32(py)
 		vx.SrcX, vx.SrcY = float32(float64(b.Min.X)+u*w), float32(float64(b.Min.Y)+v*h)

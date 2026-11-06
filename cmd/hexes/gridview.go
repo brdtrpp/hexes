@@ -564,6 +564,9 @@ func (g *Game) drawGrid(dst *ebiten.Image) {
 			t1, _, c := g.nodeLabel(n)
 			drawHex(sub, cx, cy, tile, false, fade(c, 0.5), c, g.u(2.5))
 			drawHex(sub, cx, cy, tile*0.78, false, color.RGBA{}, fade(colText, 0.35), g.u(1))
+			if n.Kind == game.NodePart {
+				g.partGlyph(sub, cx, cy, tile*0.6, n.Part)
+			}
 			if words {
 				g.label(sub, g.small, t1, cx, cy, colText, true)
 			}
@@ -584,6 +587,9 @@ func (g *Game) drawGrid(dst *ebiten.Image) {
 				edge = fade(edge, 0.45)
 			}
 			drawHex(sub, cx, cy, tile, false, fill, edge, w)
+			if n.Kind == game.NodePart {
+				g.partGlyph(sub, cx, cy, tile*0.6, n.Part)
+			}
 			if words {
 				tc := c
 				if v == game.ViewReclaim {

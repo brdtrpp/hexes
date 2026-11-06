@@ -22,6 +22,7 @@ const (
 	DropGrunt   = 0.06 // chance a grunt drops a part
 	DropSkitter = 0.04
 	DropBrute   = 0.11
+	DropGunner  = 0.06
 	DropElite   = 0.30 // a foe above the floor's level
 	DropBump    = 0.15 // chance a drop is a rarity above your best grid part
 	MaxDrops    = 96   // parts that can lie on one floor; more are lost
@@ -30,11 +31,12 @@ const (
 	ShardGrunt   = 0.30
 	ShardSkitter = 0.22
 	ShardBrute   = 0.55
+	ShardGunner  = 0.32
 	ShardElite   = 0.75
 )
 
-var dropChance = [...]float32{KindGrunt: DropGrunt, KindSkitter: DropSkitter, KindBrute: DropBrute}
-var shardChance = [...]float32{KindGrunt: ShardGrunt, KindSkitter: ShardSkitter, KindBrute: ShardBrute}
+var dropChance = [NumKinds]float32{KindGrunt: DropGrunt, KindSkitter: DropSkitter, KindBrute: DropBrute, KindGunner: DropGunner}
+var shardChance = [NumKinds]float32{KindGrunt: ShardGrunt, KindSkitter: ShardSkitter, KindBrute: ShardBrute, KindGunner: ShardGunner}
 
 // Drop is a part lying on the floor.
 type Drop struct {

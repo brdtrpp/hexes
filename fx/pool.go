@@ -28,6 +28,9 @@ type P struct {
 	Stretch                   float32 // seconds of travel the streak or shard covers
 	Seed                      float32
 	Sprite                    Sprite
+	// Z is how high above the floor it is, in hex units. The camera is
+	// tilted, so a spark at chest height draws above the spot it's over.
+	Z float32
 }
 
 // Max is how many particles can live at once. Spawns past it are dropped,
@@ -39,6 +42,8 @@ type Pool struct {
 	P   [Max]P
 	N   int
 	rng uint32
+	// Z is the height new particles spawn at when they don't set one.
+	Z float32
 }
 
 // NewPool returns a pool seeded with seed (any value but zero works the
@@ -89,6 +94,9 @@ func (p *Pool) Count(want float32) int {
 func (p *Pool) Add(q P) bool {
 	if p.N == Max || q.Life <= 0 {
 		return false
+	}
+	if q.Z == 0 {
+		q.Z = p.Z
 	}
 	p.P[p.N] = q
 	p.N++
