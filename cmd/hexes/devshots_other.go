@@ -32,6 +32,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
+	"hexes/dungeon"
 	"hexes/game"
 	"hexes/skill"
 )
@@ -88,7 +89,7 @@ func (g *Game) devInit() {
 				g.zm.z, g.zm.want = clampZoom(z), clampZoom(z)
 				g.size = g.zm.size()
 			}
-			d.still = m == "pad" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits"
+			d.still = m == "pad" || m == "sector" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits"
 			d.gallery = m == "kinds" || m == "grades"
 		}
 	}
@@ -246,6 +247,10 @@ func (g *Game) devFrames(mode string) {
 		// Standing hurt on a floor's repair pad, foes cleared.
 		s.DevDepth(envInt("HEXES_DEPTH", 3))
 		s.DevToPad(0.15, envInt("HEXES_PADOFF", 0))
+		g.camX, g.camY = s.P().Pos()
+	case "sector":
+		// Arriving on a floor of the layout HEXES_LAYOUT names (a number).
+		s.DevLayout(envInt("HEXES_DEPTH", 6), dungeon.Layout(envInt("HEXES_LAYOUT", 1)))
 		g.camX, g.camY = s.P().Pos()
 	case "pack":
 		// A deeper floor, with gunners, walking into the nearest pack.

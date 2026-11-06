@@ -24,6 +24,13 @@ type Params struct {
 	EnemyLevel  int     // base level of enemies; also the expected player level
 	EliteChance float64 // chance an enemy is two levels above base
 	SafeRadius  int     // no enemy spawns this close to the start
+
+	// Shape of the floor; ParamsFor gives the caverns values and Tune
+	// changes them for the other layouts.
+	Layout Layout
+	Lobes  int // most extra blobs carved off each room
+	Gap    int // spare wall hexes kept between rooms
+	Jogs   int // bends in a long corridor
 }
 
 // Floor growth. Depth 1 is BaseW x BaseH; every floor down adds GrowW
@@ -66,6 +73,9 @@ func ParamsFor(depth int) Params {
 		EnemyLevel:  depth,
 		EliteChance: 0,
 		SafeRadius:  6,
+		Lobes:       2,
+		Gap:         3,
+		Jogs:        1,
 	}
 	if depth >= 4 {
 		p.EliteChance = min(0.05+0.01*float64(depth), 0.3)
@@ -78,6 +88,9 @@ func ParamsFor(depth int) Params {
 type Generator struct {
 	dist, queue []int32
 	near        []int32
+	from, cost  []int32
+	deque       []int32
+	done        []bool
 	order       []int
 	inTree      []bool
 	best        []int
@@ -90,9 +103,10 @@ func Generate(seed uint64, depth int) *Floor {
 	return g.Generate(seed, depth)
 }
 
-// Generate makes the floor for a seed and depth.
+// Generate makes the floor for a seed and depth, in the layout the seed
+// picks (LayoutFor).
 func (g *Generator) Generate(seed uint64, depth int) *Floor {
-	return g.GenerateWith(seed, depth, ParamsFor(depth))
+	return g.GenerateWith(seed, depth, Tune(ParamsFor(depth), LayoutFor(seed, depth)))
 }
 
 // GenerateWith makes a floor from explicit params.
@@ -106,8 +120,13 @@ func (g *Generator) GenerateWith(seed uint64, depth int, p Params) *Floor {
 	g.dist, g.queue = g.dist[:n], g.queue[:n]
 	rng := rng{seed ^ 0x9e3779b97f4a7c15*uint64(depth+1)}
 
+	f.Layout = p.Layout
+	if p.Layout == Reactor {
+		g.placeCore(f, p)
+	}
 	g.placeRooms(f, &rng, p)
 	g.connect(f, &rng, p)
+	g.shapeLayout(f, &rng, p)
 	f.Start = f.Rooms[0].Center
 
 	// The exit is the room farthest from the start on foot.
@@ -131,16 +150,19 @@ func (g *Generator) GenerateWith(seed uint64, depth int, p Params) *Floor {
 // placeRooms drops non-overlapping hex rooms with a lobe or two each, so
 // they read as caverns rather than perfect hexagons.
 func (g *Generator) placeRooms(f *Floor, rng *rng, p Params) {
-	f.Rooms = make([]Room, 0, p.Rooms)
+	if f.Rooms == nil {
+		f.Rooms = make([]Room, 0, p.Rooms)
+	}
 	margin := p.MaxRadius + 2
-	for try := 0; try < p.Rooms*40 && len(f.Rooms) < p.Rooms; try++ {
+	want := p.Rooms + len(f.Rooms)
+	for try := 0; try < p.Rooms*40 && len(f.Rooms) < want; try++ {
 		rad := p.MinRadius + rng.intn(p.MaxRadius-p.MinRadius+1)
 		row := margin + rng.intn(max(1, p.H-2*margin))
 		col := margin + rng.intn(max(1, p.W-2*margin))
 		c := skill.Coord{Q: col - row>>1, R: row}
 		ok := true
 		for _, o := range f.Rooms {
-			if skill.Dist(c, o.Center) < rad+o.Radius+3 {
+			if skill.Dist(c, o.Center) < rad+o.Radius+p.Gap {
 				ok = false
 				break
 			}
@@ -150,7 +172,7 @@ func (g *Generator) placeRooms(f *Floor, rng *rng, p Params) {
 		}
 		f.Rooms = append(f.Rooms, Room{Center: c, Radius: rad})
 		carveHex(f, c, rad)
-		for l := rng.intn(3); l > 0; l-- {
+		for l := rng.intn(p.Lobes + 1); l > 0; l-- {
 			dir := skill.HexDirs[rng.intn(6)]
 			lc := c
 			for k := 0; k < rad; k++ {
@@ -213,7 +235,7 @@ func (g *Generator) connect(f *Floor, rng *rng, p Params) {
 			}
 		}
 		g.inTree[pick] = true
-		corridor(f, rng, f.Rooms[g.best[pick]].Center, f.Rooms[pick].Center, p.WideChance)
+		corridor(f, rng, f.Rooms[g.best[pick]].Center, f.Rooms[pick].Center, p.WideChance, p.Jogs)
 		for i := 0; i < n; i++ {
 			if g.inTree[i] {
 				continue
@@ -231,16 +253,30 @@ func (g *Generator) connect(f *Floor, rng *rng, p Params) {
 			}
 			d := skill.Dist(f.Rooms[i].Center, f.Rooms[j].Center)
 			if d < 16 && rng.float() < p.LoopChance {
-				corridor(f, rng, f.Rooms[i].Center, f.Rooms[j].Center, p.WideChance)
+				corridor(f, rng, f.Rooms[i].Center, f.Rooms[j].Center, p.WideChance, p.Jogs)
 			}
 		}
 	}
 }
 
 // corridor carves a hex line from a to b, sometimes two wide, with a
-// mid-point jog so long corridors aren't ruler-straight.
-func corridor(f *Floor, rng *rng, a, b skill.Coord, wide float64) {
+// mid-point jog so long corridors aren't ruler-straight. More jogs make it
+// wander.
+func corridor(f *Floor, rng *rng, a, b skill.Coord, wide float64, jogs int) {
 	w := rng.float() < wide
+	if jogs > 1 && skill.Dist(a, b) > 6 {
+		prev := a
+		for k := 1; k <= jogs; k++ {
+			t := float64(k) / float64(jogs+1)
+			at := cubeRound(float64(a.Q)+float64(b.Q-a.Q)*t, float64(a.R)+float64(b.R-a.R)*t)
+			j := skill.HexDirs[rng.intn(6)]
+			at = at.Add(j).Add(j)
+			line(f, prev, at, w)
+			prev = at
+		}
+		line(f, prev, b, w)
+		return
+	}
 	mid := skill.Coord{Q: (a.Q + b.Q) / 2, R: (a.R + b.R) / 2}
 	if skill.Dist(a, b) > 8 {
 		j := skill.HexDirs[rng.intn(6)]
@@ -394,26 +430,37 @@ func (g *Generator) spawn(f *Floor, rng *rng, p Params, exitRoom int) {
 	}
 }
 
-// Repair pads. Every floor has PadsBase of them, and one more from
-// PadsMoreRooms rooms up. Each goes in the room whose middle is farthest
-// on foot from the nearest of the start, the stairs and any pad already
-// placed, so a pad is a detour into the floor, never a stop on the way in
-// or out. Placing them draws nothing from the floor's random stream, so
-// every other part of a floor is the same with or without them.
+// Repair pads. A floor gets one pad for every PadOpen tiles you can walk
+// on, at least one and at most PadsMax, so the count follows the floor's
+// size (a big open reactor gets more than a tight hall of the same depth)
+// and the walk to the nearest pad stays about the same however deep you
+// go. Each goes in the room whose middle is farthest on foot from the
+// nearest of the start, the stairs and any pad already placed, so a pad
+// is a detour into the floor, never a stop on the way in or out. Placing
+// them draws nothing from the floor's random stream, so every other part
+// of a floor is the same with or without them.
 const (
-	PadsBase      = 1
-	PadsMoreRooms = 14
+	PadOpen = 400
+	PadsMax = 6
 	// PadMinSteps is how far on foot a pad must be from the start and
 	// the stairs; a floor with no room that far gets fewer pads.
 	PadMinSteps = 6
 )
 
-// PadsFor is how many pads a floor of this many rooms gets.
-func PadsFor(rooms int) int {
-	if rooms >= PadsMoreRooms {
-		return PadsBase + 1
+// PadsFor is how many pads a floor with this many walkable tiles gets.
+func PadsFor(open int) int {
+	return max(1, min(PadsMax, (open+PadOpen/2)/PadOpen))
+}
+
+// Open counts the tiles you can stand on.
+func (f *Floor) Open() int {
+	n := 0
+	for _, t := range f.Tiles {
+		if t.Walkable() {
+			n++
+		}
 	}
-	return PadsBase
+	return n
 }
 
 func (g *Generator) placePads(f *Floor, exitRoom int) {
@@ -435,7 +482,7 @@ func (g *Generator) placePads(f *Floor, exitRoom int) {
 	}
 	merge(f.Start, true)
 	merge(f.Exit, false)
-	for k := PadsFor(len(f.Rooms)); k > 0; k-- {
+	for k := PadsFor(f.Open()); k > 0; k-- {
 		best, bestD := skill.Coord{}, int32(PadMinSteps-1)
 		for ri, r := range f.Rooms {
 			if ri == 0 || ri == exitRoom {

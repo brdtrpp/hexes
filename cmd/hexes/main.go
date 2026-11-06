@@ -152,7 +152,11 @@ type Game struct {
 	decals    decalState // marks skills leave on the floor (skin.go)
 	// padTaught: the repair pad's how-to has shown this session (pad.go).
 	padTaught bool
-	zm        zoomState // the dungeon view's zoom (zoom.go)
+	// arriveSeed is the floor whose name last showed; arriveT counts its
+	// frames down (sector.go).
+	arriveSeed uint64
+	arriveT    int
+	zm         zoomState // the dungeon view's zoom (zoom.go)
 }
 
 func newGame() *Game {
@@ -212,6 +216,7 @@ func (g *Game) Update() error {
 	g.frame++
 	g.watchTeach()
 	g.watchPads()
+	g.watchSector()
 	g.autosave()
 	if g.updateSheet() {
 		return nil // paused while a card is open
@@ -448,6 +453,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawPadLabels(screen)
 	g.ringMode = ringFlat
 	g.drawHUD(screen)
+	g.drawSector(screen)
 	g.drawMinimap(screen)
 	if g.ed.on {
 		g.drawEditor(screen)
@@ -687,7 +693,11 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	narrow := W < u(700)
 
 	// Top left: depth and kills.
-	g.label(screen, g.face, fmt.Sprintf("DEPTH %d", sim.Depth), float64(u(14)), float64(u(20)), colText, false)
+	depth := fmt.Sprintf("DEPTH %d", sim.Depth)
+	if sim.Depth > 1 {
+		depth += "  " + sectorTag(sim.Floor.Layout)
+	}
+	g.label(screen, g.face, depth, float64(u(14)), float64(u(20)), colText, false)
 	info := fmt.Sprintf("data %d  best %d  lv %d  pack %d/%d", sim.DataTotal(), sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)
 	if sim.Unbanked > 0 {
 		info = fmt.Sprintf("data %d (%d unbanked)  best %d  lv %d  pack %d/%d", sim.DataTotal(), sim.Unbanked, sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"encoding/json"
 	"testing"
 
 	"hexes/skill"
@@ -304,4 +305,52 @@ func TestCloakDamageMigrates(t *testing.T) {
 	}
 	check("locker", r.Locker[0])
 	check("cache", r.Cache.Parts[0])
+}
+
+// A death rolls the floors below the checkpoint again, so going back down
+// is new ground; reloading the save keeps the floor you were on, and the
+// cache lands on open floor near where you fell.
+func TestDeathRerollsFloors(t *testing.T) {
+	s := NewVeteran(21)
+	s.load(7, 1)
+	before := s.Floor
+	c := s.Stash.Inv.Add(skill.NewPush(1))
+	s.Stash.Fresh[c] = true
+	kill(s)
+	to := s.LastDeath.To
+	s.respawn()
+	for d := to; d <= 7; d++ {
+		s.load(d, 1)
+	}
+	after := s.Floor
+	same := true
+	for i := range before.Tiles {
+		if i >= len(after.Tiles) || before.Tiles[i] != after.Tiles[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Fatal("depth 7 came back the same floor after a death")
+	}
+	if s.Cache.Active {
+		if !s.Floor.At(s.Cache.At).Walkable() || s.dist[s.Floor.Index(s.Cache.At)] <= 0 {
+			t.Fatalf("cache at %v on %s, out of reach", s.Cache.At, s.Floor.At(s.Cache.At))
+		}
+	}
+	b, err := s.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sv Save
+	if err := json.Unmarshal(b, &sv); err != nil {
+		t.Fatal(err)
+	}
+	s2 := NewVeteran(1)
+	if err := s2.Restore(sv); err != nil {
+		t.Fatal(err)
+	}
+	if s2.Floor.Seed != s.Floor.Seed {
+		t.Fatal("reloading the save changed the floor")
+	}
 }

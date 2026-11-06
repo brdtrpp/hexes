@@ -377,7 +377,7 @@ Gunners kite to range 3 to 5. When a packmate blocks the way back in a narrow tu
 
 ## Repair pads (`game/repair.go`, `dungeon/gen.go`, `cmd/hexes/pad.go`)
 
-Every floor has one repair pad, two from 14 rooms up (about depth 5). The generator sets each in the room whose middle is farthest on foot from the nearest of the start, the stairs and any pad already placed, at least 6 steps from both, and it draws nothing from the floor's random stream, so floors are otherwise unchanged. Stand on a pad and it patches 15% of max hull a second out of a store of 60% that lasts the floor; it only drains while patching, so stepping on at full hull costs nothing. Losing any hull jams it for 1.5 s, which makes it a place to heal after a fight: a Mend still heals mid-fight anywhere, and a Shield soaking hits keeps the pad running. What a pad has given is saved, so a reload can't refill it; a new floor or a death's respawn brings fresh pads. It reads as a mint plate with a plus and a ring that empties as it gives out, throws a column of light while patching, flickers amber when jammed, goes grey when spent, and shows as a plus on the minimap. Patching pops +N like a Mend, with its sound.
+A floor gets one repair pad for every 400 tiles you can walk on, at least one and at most six (`dungeon.PadsFor`), so the count follows the floor's size, not its depth: one on the first floors, two from about depth 6, three around depth 10, mostly six on the biggest floors, and a big open reactor gets more than a tight hall at the same depth. The walk to the nearest pad stays about the same however deep you go. The generator sets each in the room whose middle is farthest on foot from the nearest of the start, the stairs and any pad already placed, at least 6 steps from both, and it draws nothing from the floor's random stream, so floors are otherwise unchanged. Stand on a pad and it patches 15% of max hull a second out of a store of 60% that lasts the floor; it only drains while patching, so stepping on at full hull costs nothing. Losing any hull jams it for 1.5 s, which makes it a place to heal after a fight: a Mend still heals mid-fight anywhere, and a Shield soaking hits keeps the pad running. What a pad has given is saved, so a reload can't refill it; a new floor or a death's respawn (a newly rolled floor) brings fresh pads. It reads as a mint plate with a plus and a ring that empties as it gives out, throws a column of light while patching, flickers amber when jammed, goes grey when spent, and shows as a plus on the minimap. Patching pops +N like a Mend, with its sound.
 
 ## Dungeon zoom (`cmd/hexes/zoom.go`)
 
@@ -422,7 +422,7 @@ Rig (soft cap per stat, as decided)
 
 A floor is a pointy-top hex grid stored as rows, so it looks rectangular on screen, but every API uses the same axial `skill.Coord` as combat. Generation is deterministic per seed and depth (SplitMix64, no math/rand), and a reusable `Generator` keeps scratch buffers so regenerating doesn't churn memory.
 
-1. Rooms: hexagonal rooms with one or two lobes so they read as caverns, placed with rejection sampling.
+1. Rooms: hexagonal rooms with up to two lobes so they read as caverns, placed with rejection sampling (the layout sets the count, sizes, lobes and spacing).
 2. Corridors: a minimum spanning tree over room centers (the floor is always one piece) plus extra corridors between near rooms, so there are loops to kite around. Some corridors are two wide; long ones jog at the midpoint.
 3. Start is the first room; the stairs go in the room farthest from it on foot.
 4. Pits and hazard vents: random-walk clusters inside rooms, never on a room center. A pit cluster that would cut any room off from the start is undone, so every floor is fully walkable. Pits sit next to open floor, which is where a push can send a foe in.
@@ -430,12 +430,28 @@ A floor is a pointy-top hex grid stored as rows, so it looks rectangular on scre
 
 Tests check 3,600 floors (60 seeds by depths 1 to 60) for: walled border, start and stairs connected, every room reachable, valid spawns.
 
+### Floor kinds (`dungeon/layout.go`, `cmd/hexes/sector.go`)
+
+Until this pass every floor was the same recipe (lobed rooms of radius 2 to 3 joined by corridors) at a bigger size, so the seed only moved the rooms around. Now each floor below the first rolls one of five layouts from its seed, each about a fifth of the time (the reactor from depth 3):
+
+| Layout | What it is | How it plays |
+| --- | --- | --- |
+| Caverns | the old floor: lobed rooms, mixed corridors | the baseline; the first floor is always caverns |
+| Pillar halls | half as many rooms, two sizes bigger, six pillars in each (paired from radius 6), every corridor two wide, more vents | the same foes in fewer, bigger fights; pillars block gunner fire |
+| Warrens | 1.6 times the rooms at radius 1 to 2, narrow corridors that bend twice, loops everywhere | foes come at you through chokepoints |
+| Reactor core | one great chamber in the middle (a fifth of the floor's short side) with a pit ring round its dais and six bridges at the corners, wide spokes to the three nearest rooms; you arrive at the edge | a big open fight with pits to push into |
+| The rift | caverns cut by a winding chasm of pits, two wide (three from depth 8), side to side; narrow corridors stay standing as bridges | every crossing is a push spot |
+
+Enemy count and level don't change with the layout, only where they stand. Anything a layout pass cuts off is bridged back across the fewest pits (a 0-1 search), so every floor stays one piece; the layout pick hashes the seed separately, so a caverns floor is exactly the floor it always was. Arriving on a floor names it in big letters with one line on how it plays, and the HUD shows it next to the depth. `TestLayoutVariety` guards it: every layout turns up 12 to 30% of the time from depth 3 down, each measures as its own kind (rooms per floor, room size, pits), no two of 1,160 floors repeat, and every one is walkable with the stairs in reach.
+
+A death also rolls the floors again: the floor seed mixes in the death count, so going back down after dying is new ground, not a replay you can learn by heart. Reloading the save or walking down without dying keeps the same floors. The salvage cache moves to the nearest open floor to where you fell if the new floor put rock there.
+
 Depth drives everything (`ParamsFor`). Every floor down is bigger: 4 more columns and 3 more rows a depth, from 36x26 at depth 1 to a cap of 100x74 at depth 17 (about 8 times the area). Rooms, pit clusters and hazard clusters scale with the floor's area, so deep floors are bigger, not emptier, and enemies per room climb with depth, which is the progression. The biggest floor still generates in about 4 ms.
 
 | | depth 1 | depth 5 | depth 10 | depth 17+ |
 | --- | --- | --- | --- | --- |
 | Size | 36x26 | 52x38 | 72x53 | 100x74 (cap) |
-| Rooms | 7 | 14 | 28 | 55 (cap 56) |
+| Rooms (caverns) | 7 | 14 | 28 | 55 (cap 56) |
 | Enemies | 6 | 15 | 36 | 91, then 100 (cap) |
 | Pit clusters | 2 | 8 | 28 | 48 (cap) |
 | Hazard clusters | 0 | 4 | 20 | 40 (cap) |

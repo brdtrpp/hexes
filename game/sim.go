@@ -355,10 +355,54 @@ func (s *Sim) NewRun(seed uint64) {
 	s.Dirty = true
 }
 
+// floorSeed picks a depth's floor. It mixes in the death count, so a death
+// rolls every floor below the checkpoint again: going back down is new
+// ground, not a replay you can learn by heart. Reloading a save, or
+// walking back down without dying, keeps the same floors.
 func (s *Sim) floorSeed(depth int) uint64 {
-	x := s.RunSeed + uint64(depth)*0x9e3779b97f4a7c15
+	x := s.RunSeed + uint64(depth)*0x9e3779b97f4a7c15 + uint64(s.Deaths)*0xd1b54a32d192ed03
 	x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9
 	return x ^ (x >> 31)
+}
+
+// nearestReachable is the walkable tile nearest c (as the crow flies)
+// that can be reached from the start; if c is nowhere near the floor, a
+// tile next to the start.
+func (s *Sim) nearestReachable(c skill.Coord) skill.Coord {
+	f := s.Floor
+	for r := 0; r < f.W+f.H; r++ {
+		best, bestD := f.Start, int32(-1)
+		at := c
+		for k := 0; k < r; k++ {
+			at = at.Add(skill.HexDirs[4])
+		}
+		for side := 0; side < 6; side++ {
+			for k := 0; k < max(r, 1); k++ {
+				if f.In(at) {
+					if d := s.dist[f.Index(at)]; d > 0 && (bestD < 0 || d < bestD) {
+						best, bestD = at, d
+					}
+				}
+				if r == 0 {
+					break
+				}
+				at = at.Add(skill.HexDirs[side])
+			}
+			if r == 0 {
+				break
+			}
+		}
+		if bestD > 0 {
+			return best
+		}
+	}
+	// Nowhere near the floor at all: next to where you arrive.
+	for _, d := range skill.HexDirs {
+		if n := f.Start.Add(d); f.In(n) && s.dist[f.Index(n)] == 1 {
+			return n
+		}
+	}
+	return f.Start
 }
 
 // load builds the floor for depth. hpFrac carries the player's health
@@ -427,16 +471,12 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	s.strikeCD = 0
 	s.refreshField()
 	s.placeLesson()
-	// A cache saved before floors changed shape can sit in rock or out of
-	// reach on the regenerated floor; move it next to where you arrive.
+	// The floor you died on is rolled again when you come back to it
+	// (floorSeed), so the cache can sit in rock or out of reach on the
+	// new one; move it to the nearest open floor to where you fell, so
+	// it's still about as far in.
 	if c := &s.Cache; c.Active && c.Depth == depth && (!f.In(c.At) || s.dist[f.Index(c.At)] <= 0) {
-		c.At = f.Start
-		for _, d := range skill.HexDirs {
-			if n := f.Start.Add(d); f.In(n) && s.dist[f.Index(n)] == 1 {
-				c.At = n
-				break
-			}
-		}
+		c.At = s.nearestReachable(c.At)
 	}
 	s.refreshSight()
 	s.Dirty = true
@@ -803,6 +843,15 @@ func dirTo(a, b skill.Coord) uint8 {
 // DevDepth drops straight onto a fresh floor at depth d, for screenshot
 // tools. Play never calls it.
 func (s *Sim) DevDepth(d int) { s.load(d, 1) }
+
+// DevLayout loads depth d in layout l, counting deaths up until the floor
+// rolls that layout, for the screenshot autopilot.
+func (s *Sim) DevLayout(d int, l dungeon.Layout) {
+	for k := 0; k < 200 && dungeon.LayoutFor(s.floorSeed(d), d) != l; k++ {
+		s.Deaths++
+	}
+	s.load(d, 1)
+}
 
 // DevDraft opens the floor-end draft for depth d on that floor, for the
 // screenshot autopilot.

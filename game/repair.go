@@ -4,7 +4,9 @@ import "hexes/skill"
 
 // Repair pads: where the hull gets patched between fights.
 //
-// Every floor has one pad, two on the big ones (dungeon.PadsFor), set in
+// A floor gets a pad for every few hundred tiles of walkable floor, one at
+// least and six at most (dungeon.PadsFor), so the count follows the
+// floor's size and not its depth. They sit in
 // the rooms farthest on foot from both the start and the stairs, so
 // reaching one is a detour into the floor. Stand on the pad and it
 // patches RepairRate of your max hull a second, out of a store of
@@ -14,7 +16,7 @@ import "hexes/skill"
 // heal after a fight and not during one: a Mend still heals mid-fight
 // anywhere, and a Shield soaking the hits keeps the pad running. A spent
 // pad stays spent on that floor; reloading the save doesn't refill it.
-// Dying sends you back up with a fresh floor, so a fresh pad.
+// Dying sends you back up to a newly rolled floor, with fresh pads.
 const (
 	RepairRate  = 0.15 // share of max hull patched per second
 	RepairStore = 0.6  // share of max hull a pad holds per floor

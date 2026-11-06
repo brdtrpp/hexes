@@ -221,11 +221,12 @@ func TestPads(t *testing.T) {
 		for seed := uint64(1); seed <= 30; seed++ {
 			f := g.Generate(seed*104729, depth)
 			floors++
-			if len(f.Pads) == PadsFor(len(f.Rooms)) {
+			want := PadsFor(f.Open())
+			if len(f.Pads) == want {
 				full++
 			}
-			if len(f.Pads) > PadsFor(len(f.Rooms)) {
-				t.Fatalf("depth %d seed %d: %d pads, want at most %d", depth, seed, len(f.Pads), PadsFor(len(f.Rooms)))
+			if len(f.Pads) > want || len(f.Pads) == 0 {
+				t.Fatalf("depth %d seed %d (%s): %d pads, want 1 to %d", depth, seed, f.Layout, len(f.Pads), want)
 			}
 			for i, p := range f.Pads {
 				if f.At(p) != Ground {
@@ -258,7 +259,121 @@ func TestPads(t *testing.T) {
 			t.Fatal("pads moved between runs")
 		}
 	}
-	if PadsFor(ParamsFor(1).Rooms) != 1 || PadsFor(ParamsFor(10).Rooms) != 2 {
-		t.Fatalf("pad counts: depth 1 gets %d, depth 10 gets %d", PadsFor(ParamsFor(1).Rooms), PadsFor(ParamsFor(10).Rooms))
+}
+
+// Pads follow the floor's size, not its depth: more walkable floor, more
+// pads, so the walk to one stays about the same. Every floor has one; the
+// biggest top out at PadsMax.
+func TestPadsScaleWithSize(t *testing.T) {
+	for open := 0; open < 20*PadOpen; open += 37 {
+		if a, b := PadsFor(open), PadsFor(open+37); b < a || a < 1 || b > PadsMax {
+			t.Fatalf("PadsFor(%d)=%d, PadsFor(%d)=%d", open, a, open+37, b)
+		}
+	}
+	var g Generator
+	avg := func(depth int) (pads, open float64) {
+		for seed := uint64(1); seed <= 40; seed++ {
+			f := g.Generate(seed*7919, depth)
+			pads += float64(len(f.Pads))
+			open += float64(f.Open())
+		}
+		return pads / 40, open / 40
+	}
+	p1, o1 := avg(1)
+	p10, o10 := avg(10)
+	p17, o17 := avg(17)
+	if p1 != 1 {
+		t.Fatalf("the first floor should have one pad, has %.2f on average", p1)
+	}
+	if !(p10 > 2 && p17 > p10) {
+		t.Fatalf("pads per floor: depth 1 %.2f, 10 %.2f, 17 %.2f; want them to grow with size", p1, p10, p17)
+	}
+	// Walkable tiles per pad stays within a factor of two from the first
+	// floor to the biggest.
+	r1, r17 := o1/p1, o17/p17
+	if r17 > 2*r1 || r17 < r1/2 {
+		t.Fatalf("open tiles per pad: %.0f at depth 1, %.0f at depth 17", r1, r17)
+	}
+	_ = o10
+}
+
+// Variety: below the first floor every layout turns up about as often as
+// the others, each one is measurably its own kind of floor (room count,
+// room size, pits), and every one is still a single walkable piece with
+// the stairs in reach. This is the guard against floors going samey.
+func TestLayoutVariety(t *testing.T) {
+	var g Generator
+	n := MaxW * MaxH
+	dist, queue := make([]int32, n), make([]int32, n)
+	for seed := uint64(1); seed <= 50; seed++ {
+		if l := LayoutFor(seed*31, 1); l != Caverns {
+			t.Fatalf("the first floor is %s, want caverns", l)
+		}
+	}
+	type sig struct{ floors, rooms, radius, pits, open float64 }
+	at := map[Layout]*sig{}
+	count := map[Layout]int{}
+	total := 0
+	seen := map[uint64]bool{}
+	for depth := 2; depth <= 30; depth++ {
+		for seed := uint64(1); seed <= 40; seed++ {
+			f := g.Generate(seed*2654435761, depth)
+			h := hashFloor(f)
+			if seen[h] {
+				t.Fatalf("depth %d seed %d: a floor repeated", depth, seed)
+			}
+			seen[h] = true
+			if depth >= 3 {
+				count[f.Layout]++
+				total++
+			}
+			f.DistanceField(f.Start, dist, queue)
+			for i, r := range f.Rooms {
+				if dist[f.Index(r.Center)] < 0 {
+					t.Fatalf("depth %d seed %d (%s): room %d cut off", depth, seed, f.Layout, i)
+				}
+			}
+			if dist[f.Index(f.Exit)] < 0 {
+				t.Fatalf("depth %d seed %d (%s): stairs cut off", depth, seed, f.Layout)
+			}
+			if depth != 8 {
+				continue
+			}
+			s := at[f.Layout]
+			if s == nil {
+				s = &sig{}
+				at[f.Layout] = s
+			}
+			s.floors++
+			s.rooms += float64(len(f.Rooms))
+			for _, r := range f.Rooms {
+				s.radius += float64(r.Radius) / float64(len(f.Rooms))
+			}
+			s.pits += float64(f.Count(Pit))
+			s.open += float64(f.Open())
+		}
+	}
+	for l := Layout(0); l < NumLayouts; l++ {
+		share := float64(count[l]) / float64(total)
+		if share < 0.12 || share > 0.30 {
+			t.Errorf("%s is %.0f%% of floors from depth 3 down, want about a fifth", l, 100*share)
+		}
+	}
+	avg := func(l Layout) sig {
+		s := at[l]
+		if s == nil || s.floors == 0 {
+			t.Fatalf("no %s floor at depth 8 in the sample", l)
+		}
+		return sig{1, s.rooms / s.floors, s.radius / s.floors, s.pits / s.floors, s.open / s.floors}
+	}
+	c, h, w, r, x := avg(Caverns), avg(Halls), avg(Warrens), avg(Reactor), avg(Rift)
+	if !(w.rooms > 1.3*c.rooms && c.rooms > 1.5*h.rooms) {
+		t.Errorf("rooms per floor: warrens %.1f, caverns %.1f, halls %.1f", w.rooms, c.rooms, h.rooms)
+	}
+	if !(h.radius > c.radius+1 && c.radius > w.radius+0.5) {
+		t.Errorf("room size: halls %.1f, caverns %.1f, warrens %.1f", h.radius, c.radius, w.radius)
+	}
+	if !(r.pits > 1.3*c.pits && x.pits > 1.3*c.pits) {
+		t.Errorf("pits: reactor %.0f, rift %.0f, caverns %.0f", r.pits, x.pits, c.pits)
 	}
 }

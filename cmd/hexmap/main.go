@@ -4,7 +4,7 @@
 //	go run ./cmd/hexmap -seed 7 -depth 5
 //
 // Legend: # wall, . floor, O pit, ~ hazard vent, > stairs, @ start,
-// g/s/b grunt, skitter, brute spawns (capitals are elites).
+// g/s/b/n grunt, skitter, brute, gunner spawns (capitals are elites).
 package main
 
 import (
@@ -48,7 +48,7 @@ func main() {
 				ch = '>'
 			}
 			if s, ok := spawns[c]; ok {
-				ch = "gsb"[s.Kind]
+				ch = "gsbn"[s.Kind]
 				if s.Level > base {
 					ch -= 'a' - 'A'
 				}
@@ -62,6 +62,6 @@ func main() {
 		b.WriteByte('\n')
 	}
 	fmt.Print(b.String())
-	fmt.Printf("seed %d depth %d: %dx%d, %d rooms, %d enemies (level %d), %d pits, %d vents\n",
-		f.Seed, f.Depth, f.W, f.H, len(f.Rooms), len(f.Spawns), base, f.Count(dungeon.Pit), f.Count(dungeon.Hazard))
+	fmt.Printf("%s, seed %d depth %d: %dx%d, %d rooms, %d enemies (level %d), %d pits, %d vents\n",
+		f.Layout, f.Seed, f.Depth, f.W, f.H, len(f.Rooms), len(f.Spawns), base, f.Count(dungeon.Pit), f.Count(dungeon.Hazard))
 }

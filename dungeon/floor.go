@@ -52,6 +52,29 @@ var enemyNames = [...]string{"grunt", "skitter", "brute", "gunner"}
 
 func (k EnemyKind) String() string { return enemyNames[k] }
 
+// Layout is the kind of floor: the same seed and depth always give the
+// same one. Each builds rooms, corridors and terrain its own way, so two
+// floors of the same size can play nothing alike.
+type Layout uint8
+
+const (
+	Caverns Layout = iota // lobed rooms, mixed corridors: the first floor's kind
+	Halls                 // a few big pillared halls joined by wide corridors
+	Warrens               // many small rooms, narrow twisting corridors, lots of loops
+	Reactor               // one great core chamber ringed by a pit, spokes out to the rooms
+	Rift                  // a chasm of pits splits the floor; narrow bridges cross it
+	NumLayouts
+)
+
+var layoutNames = [...]string{"caverns", "halls", "warrens", "reactor", "rift"}
+
+func (l Layout) String() string {
+	if int(l) < len(layoutNames) {
+		return layoutNames[l]
+	}
+	return "floor"
+}
+
 // Room is a roughly hexagonal open area.
 type Room struct {
 	Center skill.Coord
@@ -72,6 +95,7 @@ type Floor struct {
 	Depth int
 	// W columns by H rows. Row r, column c is axial (c - r/2, r).
 	W, H   int
+	Layout Layout
 	Tiles  []Tile
 	Rooms  []Room
 	Start  skill.Coord // where the player arrives
