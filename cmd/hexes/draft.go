@@ -25,6 +25,21 @@ const draftArm = 0.35
 
 var colDraft = color.RGBA{0xff, 0xd0, 0x5c, 0xff}
 
+// draftHoldFrames is how long a press on a card lasts before it shows
+// the full card instead of keeping it.
+const draftHoldFrames = 16
+
+// draftHold is a press on a draft card: let go quickly to keep it, hold
+// to read its full card.
+type draftHold struct {
+	on    bool
+	card  int
+	mouse bool
+	id    ebiten.TouchID
+	from  int
+	shown bool
+}
+
 var leanCols = [...]color.RGBA{
 	game.LeanIn:   {0x7c, 0xe8, 0x9a, 0xff},
 	game.LeanSide: {0x8f, 0xb8, 0xff, 0xff},
@@ -97,32 +112,55 @@ func (g *Game) updateDraft() bool {
 		if !s.Draft.Kits && (inpututil.IsKeyJustPressed(ebiten.Key0) || inpututil.IsKeyJustPressed(ebiten.KeyX)) {
 			pick, picked = -1, true
 		}
-		var taps [][2]float64
+		type press struct {
+			x, y  float64
+			mouse bool
+			id    ebiten.TouchID
+		}
+		var taps []press
 		for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
 			x, y := ebiten.TouchPosition(id)
-			taps = append(taps, [2]float64{float64(x), float64(y)})
+			taps = append(taps, press{float64(x), float64(y), false, id})
 			g.touched = true
 		}
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 			x, y := ebiten.CursorPosition()
-			taps = append(taps, [2]float64{float64(x), float64(y)})
+			taps = append(taps, press{float64(x), float64(y), true, 0})
 		}
 		l := g.draftLayout()
+		h := &g.dhold
 		for _, t := range taps {
+			if h.on {
+				break
+			}
 			for i := 0; i < s.Draft.N; i++ {
-				if l.cards[i].hit(t[0], t[1]) {
-					pick, picked = i, true
+				if l.cards[i].hit(t.x, t.y) {
+					*h = draftHold{on: true, card: i, mouse: t.mouse, id: t.id, from: g.frame}
 				}
 			}
-			if !s.Draft.Kits && l.skip.hit(t[0], t[1]) {
+			if !s.Draft.Kits && l.skip.hit(t.x, t.y) {
 				pick, picked = -1, true
-			}
-			if picked {
 				break
+			}
+		}
+		if h.on && !picked {
+			up := (h.mouse && inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft)) ||
+				(!h.mouse && inpututil.IsTouchJustReleased(h.id))
+			if !up && g.frame-h.from >= draftHoldFrames {
+				if _, ok := s.DraftSheet(s.Draft.Picks[h.card]); ok {
+					h.shown = true
+				}
+			}
+			if up {
+				if !h.shown {
+					pick, picked = h.card, true
+				}
+				h.on, h.shown = false, false
 			}
 		}
 	}
 	if picked {
+		g.dhold = draftHold{}
 		kits := s.Draft.Kits
 		if err := s.TakeDraft(pick); err != nil {
 			g.showHint(err.Error())
@@ -146,7 +184,7 @@ func (g *Game) drawDraft(screen *ebiten.Image) {
 	k := g.k
 	l := g.draftLayout()
 	vector.DrawFilledRect(screen, 0, 0, float32(g.w), float32(g.h), color.RGBA{0x05, 0x06, 0x0b, 0xec}, false)
-	head, sub := fmt.Sprintf("FLOOR %d CLEARED: KEEP ONE", d.Depth), "Tap a card. It's yours for good."
+	head, sub := fmt.Sprintf("FLOOR %d CLEARED: KEEP ONE", d.Depth), "Tap a card to keep it for good. Hold one to read it."
 	if d.N == game.MaxDraft {
 		head = fmt.Sprintf("CHECKPOINT %d: KEEP ONE", d.Depth)
 	}
@@ -162,6 +200,11 @@ func (g *Game) drawDraft(screen *ebiten.Image) {
 	if !d.Kits {
 		g.drawRect(screen, l.skip, colPanel, colDim)
 		g.label(screen, g.face, fmt.Sprintf("TAKE NONE: +%d DATA", d.Skip), l.skip.x+l.skip.w/2, l.skip.y+l.skip.h/2, colDim, true)
+	}
+	if h := &g.dhold; h.on && h.shown {
+		if sh, ok := s.DraftSheet(d.Picks[h.card]); ok {
+			g.drawSheet(screen, sh, true)
+		}
 	}
 }
 
@@ -179,6 +222,17 @@ func (g *Game) drawDraftCard(screen *ebiten.Image, r rect, i int, p game.DraftPi
 	g.drawRect(screen, r, fade(color.RGBA{0x14, 0x18, 0x24, 0xff}, a), fade(edge, a))
 	vector.StrokeRect(screen, float32(r.x+2*k), float32(r.y+2*k), float32(r.w-4*k), float32(r.h-4*k), g.u(1), fade(edge, 0.35*a), false)
 	pad := 10 * k
+	if sh, ok := s.DraftSheet(p); ok {
+		// A part: its card, under the lean and where it goes.
+		where := "TO YOUR LOCKER"
+		if p.Kind == game.DraftNode {
+			where = "FREE GRID CELL"
+		}
+		g.label(screen, g.small, tag+"  ·  "+where, r.x+pad, r.y+pad+6*k, tc, false)
+		g.label(screen, g.small, fmt.Sprintf("%d", i+1), r.x+r.w-pad-4*k, r.y+pad+6*k, colDim, true)
+		g.drawCardPanel(screen, sh, rect{r.x + 1*k, r.y + 16*k, r.w - 2*k, r.h - 17*k}, "", colText, "", "hold for the full card")
+		return
+	}
 	// The number key, the lean, then the offer.
 	g.label(screen, g.small, fmt.Sprintf("%d", i+1), r.x+r.w-pad-4*k, r.y+pad+6*k, fade(colDim, a), true)
 	g.label(screen, g.small, tag, r.x+pad, r.y+pad+6*k, fade(tc, a), false)

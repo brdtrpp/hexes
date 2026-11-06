@@ -33,6 +33,28 @@
   #boot .keys { margin-top: 26px; color: var(--dim); font-size: 13px; max-width: 34em; }
   #boot.err .bar { display: none; }
   #boot.err .msg { color: var(--heat); }
+  #rename {
+    position: fixed; inset: 0; z-index: 10; display: grid; align-items: start; justify-items: center;
+    padding: 14vh 16px 0; background: rgba(4, 5, 10, 0.62);
+  }
+  #rename[hidden] { display: none; }
+  #rename form {
+    width: min(360px, 100%); box-sizing: border-box; padding: 16px;
+    background: #0c0f18; border: 1px solid #4de3ffaa; border-radius: 6px;
+  }
+  #rename label { display: block; color: var(--dim); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+  #rename input {
+    display: block; width: 100%; box-sizing: border-box; margin-top: 8px; padding: 10px 12px;
+    font: 700 20px/1.2 var(--display); color: var(--ink); background: var(--track);
+    border: 1px solid #8c95ab66; border-radius: 4px; -webkit-user-select: text; user-select: text;
+  }
+  #rename .hint { color: var(--dim); font-size: 12px; margin-top: 6px; }
+  #rename .row { display: flex; gap: 10px; margin-top: 14px; }
+  #rename button {
+    flex: 1; padding: 12px 0; font: 700 15px/1 var(--display); letter-spacing: 0.08em;
+    color: var(--ink); background: var(--track); border: 1px solid #8c95ab66; border-radius: 4px;
+  }
+  #rename button[type=submit] { color: var(--void); background: var(--rig); border-color: var(--rig); }
   @keyframes slide { from { transform: translateX(-30%); } to { transform: translateX(260%); } }
   @media (prefers-reduced-motion: reduce) { #boot .bar i { animation: none; width: 100%; opacity: .5; } }
 </style>
@@ -44,8 +66,9 @@
     <div class="sub">first playable slice</div>
     <div class="msg" id="msg">Booting the rig</div>
     <div class="bar"><i></i></div>
-    <div class="keys">NEW: REPAIR PADS AND ZOOM. Every floor has a green repair pad (two on bigger floors) in a room away from the start and the stairs, marked with a plus on the minimap. Stand on it to patch 15% of your hull a second; it holds 60% of your hull for the whole floor, and any hit jams it for 1.5 s, so heal after the fight. Pinch to zoom the dungeon in and out on a phone, or roll the mouse wheel (+ and - keys too, 0 resets). Your zoom is saved.<br>
-      NEW: ITEM CARDS. Every part and hex has a card: name, rarity, one plain line, then its damage, Power and Heat with the math under each, and what the next rarity up would read. Press ? in HEX on a part (or nothing picked for the whole hex), ? on a grid cell, or hold a cast button. The cast buttons show each hex's Power and Heat too. Class parts now drop from foes and the floor-end pick. Heat leaks are shut (self-calls pay Power, rarer parts run hotter, wrecks and blood no longer erase Heat), cloak rests 4 s after it breaks, on-vent hexes fire, stances cost Heat while on, traps spring 4 times. Try HEX, TEST, MORE: Ranger, Berserker and Druid.<br>
+    <div class="keys">NEW: CARDS EVERYWHERE, AND NAMES. Every part and hex now shows its card wherever you look at it: in HEX, on the grid, in the pack and locker, on drops and on the floor-end pick. Tap a card to open it full size. Tap a hex's name on its card to rename it; the name shows on its cast button and saves with your game.<br>
+      NEW: REPAIR PADS AND ZOOM. Every floor has a green repair pad (two on bigger floors) in a room away from the start and the stairs, marked with a plus on the minimap. Stand on it to patch 15% of your hull a second; it holds 60% of your hull for the whole floor, and any hit jams it for 1.5 s, so heal after the fight. Pinch to zoom the dungeon in and out on a phone, or roll the mouse wheel (+ and - keys too, 0 resets). Your zoom is saved.<br>
+      NEW: ITEM CARDS. Every part and hex has a card: name, rarity, one plain line, then its damage, Power and Heat with the math under each, and what the next rarity up would read. Hold a cast button to see its hex's card. The cast buttons show each hex's Power and Heat too. Class parts now drop from foes and the floor-end pick. Heat leaks are shut (self-calls pay Power, rarer parts run hotter, wrecks and blood no longer erase Heat), cloak rests 4 s after it breaks, on-vent hexes fire, stances cost Heat while on, traps spring 4 times. Try HEX, TEST, MORE: Ranger, Berserker and Druid.<br>
       NEW: CLOAK IS SELF ONLY. Cloak never hurts anyone now: it hides you, and your next hit out of it lands double. Any cloak damage parts you already had turned into cloaks, so nothing left your pack or locker. Try HEX, TEST, MORE: Rogue (Vanish, then Backstab).<br>
       NEW: KEEP ONE. The first time you take a floor's stairs, pick 1 of 3 cards (4 on every 5th floor): a free grid cell, a part, a frame, signals or Data. TAKE NONE banks a little Data. A new save also picks 1 of 3 starting rigs, each with its own first hex and Power spread. Pink gunners stuck behind their pack now back off, swap places or sidestep instead of shooting point blank.<br>
       NEW: CLASS PARTS. Forms (bolt, beam, aura, nova, dash, detonate, zone, turret, trap, drone), wrecks that fallen foes leave for a while, raised minions, taunt, thorns, haste, blink, stances you tap on and off, and costs paid in hull or wrecks. They sit on the grid from ring 12 out, drop as loot, and the ladder teaches them on floors 17 to 25. Try HEX, TEST, MORE: Rogue, Necromancer, Engineer and Warden.<br>
@@ -75,7 +98,34 @@
   </div>
 </div>
 
+<div id="rename" hidden>
+  <form>
+    <label for="rename-in">Name this hex</label>
+    <input id="rename-in" maxlength="16" autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="done">
+    <div class="hint">Leave it blank to keep the old name.</div>
+    <div class="row"><button type="button" id="rename-no">CANCEL</button><button type="submit">SAVE</button></div>
+  </form>
+</div>
+
 <script src="wasm_exec.js"></script>
+<script>
+// The game calls this to name a hex, so a phone brings up its keyboard.
+window.hexesRename = (cur, max, done) => {
+  const box = document.getElementById('rename');
+  const form = box.querySelector('form');
+  const inp = document.getElementById('rename-in');
+  const no = document.getElementById('rename-no');
+  inp.maxLength = max; inp.value = cur; box.hidden = false;
+  const end = (v) => {
+    box.hidden = true; form.onsubmit = null; no.onclick = null; inp.blur();
+    const c = document.querySelector('canvas'); if (c) c.focus();
+    done(v);
+  };
+  form.onsubmit = (e) => { e.preventDefault(); end(inp.value); };
+  no.onclick = () => end(null);
+  inp.focus(); inp.select();
+};
+</script>
 <script>
 (async () => {
   const boot = document.getElementById('boot');

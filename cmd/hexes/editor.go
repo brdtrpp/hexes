@@ -95,8 +95,9 @@ type edLayout struct {
 	bind rect
 	// opts are a picked run-now call's options, in the caption row.
 	opts [skill.MaxOpts]rect
-	// help is the ? at the end of the info bar.
-	help rect
+	// side is set when the card stands in a column down the right (a
+	// phone on its side) rather than across above the buttons.
+	side bool
 }
 
 func (g *Game) edLayout() edLayout {
@@ -130,30 +131,57 @@ func (g *Game) edLayout() edLayout {
 	}
 	l.scrap = rect{tx, by, bw, bh}
 	l.close = rect{tx + tw - bw, by, bw, bh}
+	// The card panel sits above the buttons: what's picked, or the hex.
+	cardH := 150 * k
+	if H/k < 760 { // a small phone keeps room for the tiles
+		cardH = math.Max(88*k, H*0.14)
+	}
+	switch {
+	case short:
+		cardH = 92 * k
+	case wide:
+		cardH = 124 * k
+	}
 	if wide {
 		kw := bw * 0.85
 		l.bind = rect{l.close.x - gap - kw, by, kw, bh}
-		l.info = rect{tx + bw + gap, by, l.bind.x - gap - (tx + bw + gap), bh}
 	} else {
 		l.bind = rect{tx + bw + gap, by, tw - 2*bw - 2*gap, bh}
-		l.info = rect{tx, by - 8*k - 64*k, tw, 64 * k}
 	}
-	hw := math.Min(44*k, l.info.h)
-	l.info.w -= hw + gap
-	l.help = rect{l.info.x + l.info.w + gap, l.info.y, hw, l.info.h}
+	l.info = rect{tx, by - 8*k - cardH, tw, cardH}
 
 	top := l.tabs[0].y + l.tabs[0].h + 12*k
+	aw := tw // the width the ring and pack share
+	if short && wide {
+		// A phone on its side has no height to spare: the card stands
+		// in a column down the right.
+		l.side = true
+		cw := tw * 0.27
+		l.info = rect{tx + tw - cw, top, cw, by - 8*k - top}
+		aw = tw - cw - 10*k
+	}
 	bot := math.Min(l.info.y, by) - 10*k
+	if l.side {
+		bot = by - 10*k
+	}
 	areaH := bot - top
 	// The pack is always 4 by 3: cells stay wide enough for their labels.
 	cols, rows := 4, 3
 	var ring, grid rect
 	if wide {
-		ring = rect{tx, top, tw * 0.54, areaH}
-		grid = rect{tx + tw*0.56, top, tw * 0.44, areaH}
+		split := 0.54
+		if l.side {
+			split = 0.5 // the pack keeps its tabs wide enough to read
+		}
+		ring = rect{tx, top, aw * split, areaH}
+		grid = rect{tx + aw*(split+0.02), top, aw * (0.98 - split), areaH}
 	} else {
-		ring = rect{tx, top, tw, areaH * 0.6}
-		grid = rect{tx, top + areaH*0.62, tw, areaH * 0.38}
+		split := 0.57
+		if H/k < 760 {
+			split = 0.6
+		}
+		ring = rect{tx, top, tw, areaH * split}
+		grid = rect{tx, top + areaH*(split+0.02), tw, areaH * (0.98 - split)}
 	}
 	// A row across the top of the ring area: the SHAPE button and a
 	// caption saying what the shape is.
@@ -329,9 +357,18 @@ func (g *Game) edTap(x, y float64) {
 		e.on = false
 		return
 	}
-	if l.help.hit(x, y) {
-		e.msg, e.bad = "", false
-		g.edSheet()
+	if l.info.hit(x, y) {
+		// The card panel: its name renames the hex, the rest opens the
+		// whole card with the math.
+		c := g.edCard()
+		switch {
+		case !c.ok:
+		case c.hex && y < l.info.y+32*g.k:
+			g.renameHex(e.hex)
+		default:
+			e.msg, e.bad = "", false
+			g.edSheet()
+		}
 		return
 	}
 	if l.bind.hit(x, y) && e.hex < game.MaxSlots && sim.Has(game.UTriggers) {
@@ -1034,77 +1071,14 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 	}
 
-	// Info bar: the picked part, the last result, or how to use it.
+	// Card panel: the picked part's card, or the hex's, with the last
+	// result or why a move failed on top. Frames and shapes keep a line.
 	g.drawRect(screen, l.info, colPanel, color.RGBA{0x3a, 0x42, 0x58, 0xff})
-	info, ic := "Tap a part, then tap where it goes. Slot to slot rewires the hex. ? shows the hex's card.", colDim
-	fr := skill.Frame{}
-	if e.pick == pickSlot {
-		fr = h.Frame(e.at)
+	if c := g.edCard(); c.ok {
+		g.drawCardPanel(screen, c.s, l.info, c.top, c.topC, c.hint, "tap for the full card")
+	} else {
+		g.wrapLabel(screen, c.top, l.info, c.topC)
 	}
-	pf, pickedFrame := g.edPickedFrame()
-	switch {
-	case pickedFrame && e.msg != "":
-		info, ic = e.msg, colText
-		if e.bad {
-			ic = colHot
-		}
-	case pickedFrame:
-		info, ic = "Green slots take it; fitting scraps the frame there. "+pf.Text(sim.Reg), frameCol(pf)
-		if game.IsTestFrame(pf) {
-			info += " Test frame: free to try."
-		}
-	case e.pick == pickLocker && e.at < len(sim.Locker) && e.msg != "" && e.bad:
-		info, ic = e.msg, colHot
-	case e.pick == pickLocker && e.at < len(sim.Locker):
-		p := sim.Locker[e.at]
-		info, ic = "Green slots are where it does something. ? shows its card. "+loot.Describe(p, sim.Reg), rarityCol[p.Rarity]
-	case e.pick == pickCell && inv.Has[e.at] && e.msg != "" && e.bad:
-		info, ic = e.msg, colHot // why it can't go there
-	case e.pick == pickCell && inv.Has[e.at]:
-		info, ic = "Green slots are where it does something. ? shows its card. "+loot.Describe(inv.Parts[e.at], sim.Reg), rarityCol[inv.Parts[e.at].Rarity]
-		if sim.Stash.Fresh[e.at] {
-			info += fmt.Sprintf(" New: slot it or reach depth %d to keep it if you die.", sim.NextCheckpoint())
-		}
-	case e.shape && e.msg != "":
-		info, ic = e.msg, colShape // what the new shape does, or why not
-		if e.bad {
-			ic = colHot
-		}
-	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart && e.msg != "" && e.bad:
-		info, ic = e.msg, colHot // why it can't move there
-	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
-		p := h.Slots[e.at].Part
-		info, ic = loot.Describe(p, sim.Reg), rarityCol[p.Rarity]
-		if what, ok := h.Use(e.at); what != "" {
-			// What it does where it sits, first, so it's never cut off.
-			lead := "Here it " + what + "."
-			if !ok {
-				lead, ic = "Does nothing here: "+what+".", colHot
-			}
-			info = lead + " " + info
-		}
-		if (p.UsesBank() || p.Kind == skill.KindCall) && e.msg != "" && !e.bad {
-			info = e.msg + " " + info
-		}
-		if !fr.Plain() {
-			info += " " + fr.Text(sim.Reg)
-		}
-	case e.pick == pickSlot && e.msg != "" && e.bad:
-		info, ic = e.msg, colHot
-	case e.pick == pickSlot:
-		info = "Empty slot. Tap a part in your pack to put it here."
-		if !fr.Plain() {
-			info, ic = "Empty slot. "+fr.Text(sim.Reg), frameCol(fr)
-		}
-	case e.msg != "":
-		info, ic = e.msg, colText
-		if e.bad {
-			ic = colHot
-		}
-	}
-	g.wrapLabel(screen, info, l.info, ic)
-	g.drawRect(screen, l.help, fade(colText, 0.12), fade(colText, 0.8))
-	g.label(screen, g.face, "?", l.help.x+l.help.w/2, l.help.y+l.help.h/2, colText, true)
 	if sim.Has(game.UTriggers) {
 		g.newPulse(screen, l.bind, g.teach.edNewU(game.UTriggers))
 		g.drawBind(screen, l.bind)

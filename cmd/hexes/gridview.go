@@ -103,6 +103,9 @@ func (g *Game) gridLayout(l *edLayout) gridLayout {
 	bot := math.Min(l.info.y, l.scrap.y) - 10*k
 	x0 := l.tabs[0].x
 	w := l.tabs[len(l.tabs)-1].x + l.tabs[len(l.tabs)-1].w - x0
+	if l.side {
+		bot, w = l.scrap.y-10*k, l.info.x-10*k-x0
+	}
 	capH := l.shape.h
 	b.test = l.test
 	b.test.x = x0 + w - b.test.w
@@ -303,10 +306,11 @@ func (g *Game) gridTap(x, y float64) {
 	case l.close.hit(x, y):
 		e.on = false
 		return
-	case l.help.hit(x, y) && gv.sel >= 0 && g.gridPartKnown(gv.sel):
+	case l.info.hit(x, y) && g.gridPartKnown(gv.sel):
+		e.msg, e.bad = "", false
 		g.openSheet(game.PartSheet(sim.Grid.Nodes[gv.sel].Part, sim.Reg))
 		return
-	case l.help.hit(x, y):
+	case l.info.hit(x, y):
 		e.msg, e.bad = "Data buys cells next to what you own, at a workbench. Rarer cells glow from further out. A death lets go of a few outer cells; buy them back at half price. Unbanked Data is safe at each checkpoint.", false
 		return
 	case b.buy.hit(x, y):
@@ -637,10 +641,11 @@ func (g *Game) drawGrid(dst *ebiten.Image) {
 
 	// Info bar: the picked cell.
 	g.drawRect(dst, l.info, colPanel, color.RGBA{0x3a, 0x42, 0x58, 0xff})
-	info, ic := g.gridInfo()
-	g.wrapLabel(dst, info, l.info, ic)
-	g.drawRect(dst, l.help, colPanel, fade(colDim, 0.7))
-	g.label(dst, g.face, "?", l.help.x+l.help.w/2, l.help.y+l.help.h/2, colText, true)
+	if c := g.gridCard(); c.ok {
+		g.drawCardPanel(dst, c.s, l.info, c.top, c.topC, c.hint, "tap for the full card")
+	} else {
+		g.wrapLabel(dst, c.top, l.info, c.topC)
+	}
 
 	// BUY fills as it's held.
 	_, err := sim.CanBuy(gv.sel)
@@ -708,13 +713,45 @@ func (g *Game) gridInfo() (string, color.RGBA) {
 		lead = fmt.Sprintf("Let go in a death: %d Data to take it back (you kept what it gave). ", cost)
 	}
 	text := lead + g.nodeText(n) + " (" + where + ")"
-	if g.gridPartKnown(i) {
-		text = "? shows its card. " + text
-	}
 	if err != nil && sim.GridDist(i) == 1 {
 		return upFirst(err.Error()) + ". " + text, rarityCol[n.Rarity]
 	}
 	return text, rarityCol[n.Rarity]
+}
+
+// gridCard is the picked cell's card, when it's a part you can see, with
+// what it costs and where it sits on top; any other cell gets its line.
+func (g *Game) gridCard() edCardView {
+	e, sim, gv := &g.ed, g.sim, &g.ed.gv
+	i := gv.sel
+	if !g.gridPartKnown(i) {
+		text, c := g.gridInfo()
+		return edCardView{top: text, topC: c}
+	}
+	n := &sim.Grid.Nodes[i]
+	where := fmt.Sprintf("Ring %d", n.Ring)
+	if n.Ring > 0 {
+		where += ", " + game.RingIdea(n.Ring)
+	}
+	top, tc := "", colText
+	switch {
+	case e.msg != "" && e.bad:
+		top, tc = e.msg, colHot
+	case e.msg != "":
+		top = e.msg
+	case sim.CellView(i) == game.ViewOwned:
+		top, tc = "Yours. "+where+".", colYes
+	default:
+		cost, err := sim.CanBuy(i)
+		top, tc = fmt.Sprintf("%d Data. %s.", cost, where), colData
+		if sim.Reclaim[i] {
+			top = fmt.Sprintf("Let go in a death: %d Data takes it back. %s.", cost, where)
+		}
+		if err != nil && sim.GridDist(i) == 1 {
+			top, tc = upFirst(err.Error())+". "+top, colHot
+		}
+	}
+	return edCardView{s: game.PartSheet(n.Part, sim.Reg), ok: true, top: top, topC: tc}
 }
 
 // nodeText says what a node gives.

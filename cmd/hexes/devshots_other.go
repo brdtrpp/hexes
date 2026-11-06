@@ -17,6 +17,8 @@ package main
 // HEXES_ZOOM=<z> starts the dungeon view at that zoom.
 // HEXES_FRAMES=grid opens the skill grid on a save a few floors in;
 // HEXES_FRAMES=locker opens the locker on that save.
+// HEXES_FRAMES=hexcard opens the editor on the first hex's card,
+// rename starts naming it, loot shows a picked-up part's card.
 // HEXES_FRAMES=draft opens a checkpoint's floor-end draft on that save
 // (HEXES_DEPTH, default 5); HEXES_FRAMES=kits leaves a fresh save's kit
 // pick up. Any other mode takes the first card of every draft.
@@ -187,6 +189,19 @@ func (g *Game) devFrames(mode string) {
 			g.ed.hex = 1
 			g.edBind()
 		}
+	case "hexcard", "rename":
+		// The editor with nothing picked: the hex's own card; rename
+		// starts typing a new name for it.
+		g.openEditor()
+		if mode == "rename" {
+			g.renameHex(0)
+			g.renameBuf = []rune("Ember Lance")
+		}
+	case "loot":
+		// A rare part just picked up: its card up top.
+		p := skill.NewDamage(s.Reg.MustID("plasma"), 22)
+		p.Rarity = skill.Rare
+		s.LastLoot, s.LootN = p, s.LootN+1
 	case "card":
 		// The hex card for the first hex.
 		if sh, err := s.SlotSheet(0); err == nil {

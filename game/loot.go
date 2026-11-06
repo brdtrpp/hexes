@@ -212,6 +212,7 @@ func (s *Sim) pickup(dt float32) {
 		}
 		s.Stash.Picked++
 		s.Stash.Fresh[cell] = true
+		s.LastLoot, s.LootN = d[i].Part, s.LootN+1
 		if IsSustain(d[i].Part) {
 			s.SustainGiven = true
 		}
