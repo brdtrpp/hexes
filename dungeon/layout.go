@@ -75,7 +75,7 @@ func (g *Generator) placeCore(f *Floor, p Params) {
 	rad := coreRadius(p)
 	row := p.H / 2
 	c := skill.Coord{Q: p.W/2 - row>>1, R: row}
-	f.Rooms = append(f.Rooms[:0], Room{Center: c, Radius: rad})
+	f.Rooms = append(f.Rooms[:0], Room{Center: c, Radius: rad, Kind: Reactor, Core: true})
 	carveHex(f, c, rad)
 }
 
@@ -122,14 +122,22 @@ func pillars(f *Floor, r Room) {
 // corners, and runs wide spokes from the core to the three nearest rooms.
 // It moves the core off the start, so you arrive at the edge and walk in.
 func (g *Generator) reactor(f *Floor, p Params) {
-	core := f.Rooms[0]
+	f.Rooms[0].Core = true
+	g.coreWorks(f, 0)
+	if len(f.Rooms) > 1 {
+		f.Rooms[0], f.Rooms[1] = f.Rooms[1], f.Rooms[0]
+	}
+}
+
+// coreWorks runs the spokes and cuts the pit ring for the core room ci.
+func (g *Generator) coreWorks(f *Floor, ci int) {
+	core := f.Rooms[ci]
 	// Spokes first: the ring is cut after, so the spokes don't fill it.
-	var spoke [3]int
+	spoke := [3]int{-1, -1, -1}
 	for k := range spoke {
-		spoke[k] = -1
 		bestD := 1 << 30
-		for i := 1; i < len(f.Rooms); i++ {
-			if i == spoke[0] || i == spoke[1] {
+		for i := 0; i < len(f.Rooms); i++ {
+			if i == ci || i == spoke[0] || i == spoke[1] {
 				continue
 			}
 			if d := skill.Dist(core.Center, f.Rooms[i].Center); d < bestD {
@@ -155,9 +163,6 @@ func (g *Generator) reactor(f *Floor, p Params) {
 			}
 		}
 	}
-	if len(f.Rooms) > 1 {
-		f.Rooms[0], f.Rooms[1] = f.Rooms[1], f.Rooms[0]
-	}
 }
 
 // rift cuts a winding chasm of pits across the floor from side to side.
@@ -176,6 +181,11 @@ func (g *Generator) rift(f *Floor, rng *rng, p Params) {
 		for r := row; r < row+width; r++ {
 			c := skill.Coord{Q: col - r>>1, R: r}
 			if f.At(c) != Ground || g.isRoomCenter(f, c) || openAround(f, c) < 4 {
+				continue
+			}
+			// On a mixed floor the chasm only runs through the rift's
+			// region, crumbling away across the crossing.
+			if w := f.Weight(c, Rift); w < 1 && float64(coordHash(c)&0xffff)/0xffff >= w {
 				continue
 			}
 			f.Set(c, Pit)

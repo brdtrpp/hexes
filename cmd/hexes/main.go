@@ -165,6 +165,9 @@ type Game struct {
 	// frames down (sector.go).
 	arriveSeed uint64
 	arriveT    int
+	arriveKind dungeon.Layout
+	arriveNext string
+	region     int
 	zm         zoomState // the dungeon view's zoom (zoom.go)
 }
 
@@ -711,9 +714,17 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	narrow := W < u(700)
 
 	// Top left: depth and kills.
+	// The kind of floor goes after the depth. Crossing from one kind to
+	// the next, both names show, and on a phone they take the line below,
+	// where there's room.
 	depth := fmt.Sprintf("DEPTH %d", sim.Depth)
+	sector := ""
 	if sim.Depth > 1 {
-		depth += "  " + sectorTag(sim.Floor.Layout)
+		sector = g.sectorHUD()
+		if !narrow || !strings.Contains(sector, ">") {
+			depth += "  " + sector
+			sector = ""
+		}
 	}
 	g.label(screen, g.face, depth, float64(u(14)), float64(u(20)), colText, false)
 	info := fmt.Sprintf("data %d  best %d  lv %d  pack %d/%d", sim.DataTotal(), sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)
@@ -726,7 +737,20 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	if c := &sim.Cache; c.Active && c.Depth != sim.Depth {
 		info += fmt.Sprintf("  cache on %d", c.Depth)
 	}
-	g.label(screen, g.small, info, float64(u(14)), float64(u(40)), colDim, false)
+	if sim.Visiting() {
+		info = fmt.Sprintf("visiting from depth %d: stairs or a death take you home", sim.Visit)
+		if narrow {
+			info = fmt.Sprintf("visit: stairs take you home to %d", sim.Visit)
+		}
+	}
+	if sector != "" {
+		g.label(screen, g.small, sector, float64(u(14)), float64(u(40)), colText, false)
+		info = "  " + info
+		w, _ := text.Measure(sector, g.small, 0)
+		g.label(screen, g.small, info, float64(u(14))+w, float64(u(40)), colDim, false)
+	} else {
+		g.label(screen, g.small, info, float64(u(14)), float64(u(40)), colDim, false)
+	}
 
 	// Bars: hull, power, heat. Centered on wide screens, under the depth
 	// line on narrow ones.
@@ -919,12 +943,21 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	case game.Descending:
 		a := min(1, sim.StateT/game.DescendTime)
 		vector.DrawFilledRect(screen, 0, 0, W, H, fade(colBG, a), false)
-		g.label(screen, g.big, fmt.Sprintf("DEPTH %d", sim.Depth+1), float64(W/2), float64(H/2), fade(colStairs, a), true)
+		next := sim.Depth + 1
+		if sim.Visiting() {
+			next = sim.Visit
+		}
+		g.label(screen, g.big, fmt.Sprintf("DEPTH %d", next), float64(W/2), float64(H/2), fade(colStairs, a), true)
 	case game.Dead:
 		vector.DrawFilledRect(screen, 0, 0, W, H, color.RGBA{0, 0, 0, 0xb0}, false)
 		g.label(screen, g.big, "SIGNAL LOST", float64(W/2), float64(H/2)-float64(u(30)), colHot, true)
 		d := sim.LastDeath
 		y := float64(H/2) + float64(u(8))
+		if sim.Visiting() {
+			g.label(screen, g.face, fmt.Sprintf("back to your own floor, depth %d", d.To), float64(W/2), y, colText, true)
+			g.label(screen, g.small, "a visit costs nothing: tap, Enter or Space to go home", float64(W/2), y+float64(u(24)), colDim, true)
+			return
+		}
 		g.label(screen, g.face, fmt.Sprintf("falling back to depth %d", d.To), float64(W/2), y, colText, true)
 		y += float64(u(24))
 		if d.Mercy {

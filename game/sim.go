@@ -188,6 +188,10 @@ type Sim struct {
 	LastDeathAt float64
 	LastDeath   Death
 	Visits      int
+	// Visit is the depth to go back to while the player tries a floor
+	// from the test menu (visit.go); zero on an ordinary floor.
+	Visit     int
+	visitSeed uint64
 	// CheckpointT counts down while the "pack secured" notice shows.
 	CheckpointT float32
 	// Dirty is set when something worth saving changed. The front end
@@ -341,6 +345,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.Kills, s.Best, s.Time, s.Visits = 0, 0, 0, 0
 	s.Points = DefaultPoints
 	s.Cache, s.Deaths, s.LastDeathAt, s.LastDeath = Cache{}, 0, 0, Death{}
+	s.Visit = 0
 	s.Load = Loadout{}
 	s.CallGiven = true // the preset Arc Lance carries it; the ladder hands its own
 	s.Shapes, s.ShapeGiven, s.LastShape = nil, false, skill.Shape{}
@@ -412,6 +417,10 @@ func (s *Sim) nearestReachable(c skill.Coord) skill.Coord {
 // load builds the floor for depth. hpFrac carries the player's health
 // share over from the floor above.
 func (s *Sim) load(depth int, hpFrac float32) {
+	if s.Visit > 0 {
+		// Any way off a visited floor, stairs or a death, goes home.
+		depth, hpFrac, s.Visit = s.Visit, 1, 0
+	}
 	s.Depth = depth
 	if depth > s.Best && s.Best > 0 {
 		s.earn(DataDepthBase + DataDepthStep*depth)
@@ -424,7 +433,15 @@ func (s *Sim) load(depth int, hpFrac float32) {
 		s.secure()
 		s.CheckpointT = CheckpointShow
 	}
-	s.Floor = s.Gen.Generate(s.floorSeed(depth), depth)
+	s.enter(depth, hpFrac, s.floorSeed(depth))
+}
+
+// enter builds and starts the floor at depth from seed, with the player at
+// hpFrac of full hull. load does the bookkeeping around it; a visit from
+// the test menu skips that (visit.go).
+func (s *Sim) enter(depth int, hpFrac float32, seed uint64) {
+	s.Depth = depth
+	s.Floor = s.Gen.Generate(seed, depth)
 	f := s.Floor
 	s.placeBenches()
 	n := f.W * f.H
@@ -560,7 +577,7 @@ func (s *Sim) Step(dt float32) {
 	}
 	if p.Arrived() && s.Floor.At(p.At) == dungeon.Stairs {
 		s.State, s.StateT = Descending, 0
-		if s.openDraft() {
+		if s.Visit == 0 && s.openDraft() {
 			s.State = Drafting
 		}
 	}

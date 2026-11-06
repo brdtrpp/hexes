@@ -6,7 +6,11 @@
 // seed and depth always give the same floor, on every platform.
 package dungeon
 
-import "hexes/skill"
+import (
+	"math"
+
+	"hexes/skill"
+)
 
 // Tile is what a hex on the floor is.
 type Tile uint8
@@ -79,6 +83,16 @@ func (l Layout) String() string {
 type Room struct {
 	Center skill.Coord
 	Radius int
+	Kind   Layout // the layout it was built for (a mixed floor has several)
+	Core   bool   // a reactor's great chamber
+}
+
+// Region is a stretch of a floor's columns, From up to To, built as one
+// layout. Most floors are one region; from MixDepth down a floor can be
+// two or three, west to east, with a crossing between each pair.
+type Region struct {
+	Layout   Layout
+	From, To int
 }
 
 // Spawn is where an enemy starts.
@@ -95,15 +109,82 @@ type Floor struct {
 	Depth int
 	// W columns by H rows. Row r, column c is axial (c - r/2, r).
 	W, H   int
-	Layout Layout
-	Tiles  []Tile
-	Rooms  []Room
-	Start  skill.Coord // where the player arrives
-	Exit   skill.Coord // the stairs down
-	Spawns []Spawn
+	Layout Layout // the first region's: where you arrive
+	// Regions, west to east. The crossing between two regions is Blend
+	// columns either side of their border, and the border bends from row
+	// to row by Bend, so it never reads as a straight seam.
+	Regions []Region
+	Blend   int
+	Bend    uint64
+	Tiles   []Tile
+	Rooms   []Room
+	Start   skill.Coord // where the player arrives
+	Exit    skill.Coord // the stairs down
+	Spawns  []Spawn
 	// Pads are the floor's repair pads: open ground in the rooms
 	// farthest on foot from both the start and the stairs.
 	Pads []skill.Coord
+}
+
+// Mixed reports whether the floor holds more than one layout.
+func (f *Floor) Mixed() bool { return len(f.Regions) > 1 }
+
+// border is the column where region k gives way to region k+1 on a row.
+func (f *Floor) border(k, row int) float64 {
+	ph := float64(f.Bend>>uint(8*k)&0xff) / 255 * 2 * math.Pi
+	return float64(f.Regions[k].To) + 0.5*float64(f.Blend)*math.Sin(float64(row)*0.21+ph)
+}
+
+// Mix says which regions c sits between: a and b, and how far it is into
+// b, from 0 to 1 across the crossing (eased, so the middle changes
+// fastest). Away from a crossing a == b and t is 0.
+func (f *Floor) Mix(c skill.Coord) (a, b int, t float64) {
+	n := len(f.Regions)
+	if n <= 1 {
+		return 0, 0, 0
+	}
+	col := float64(c.Q + c.R>>1)
+	w := float64(max(1, f.Blend))
+	for k := 0; k < n-1; k++ {
+		bd := f.border(k, c.R)
+		if col < bd-w {
+			return k, k, 0
+		}
+		if col < bd+w {
+			x := (col - (bd - w)) / (2 * w)
+			return k, k + 1, x * x * (3 - 2*x)
+		}
+	}
+	return n - 1, n - 1, 0
+}
+
+// RegionAt is the region c mostly belongs to.
+func (f *Floor) RegionAt(c skill.Coord) int {
+	a, b, t := f.Mix(c)
+	if t >= 0.5 {
+		return b
+	}
+	return a
+}
+
+// Weight is how much of layout l there is at c: 1 deep inside a region of
+// that layout, 0 away from it, in between across a crossing.
+func (f *Floor) Weight(c skill.Coord, l Layout) float64 {
+	if len(f.Regions) == 0 {
+		if f.Layout == l {
+			return 1
+		}
+		return 0
+	}
+	a, b, t := f.Mix(c)
+	w := 0.0
+	if f.Regions[a].Layout == l {
+		w += 1 - t
+	}
+	if f.Regions[b].Layout == l {
+		w += t
+	}
+	return min(1, w)
 }
 
 // In reports whether c is on the floor.

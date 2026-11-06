@@ -91,7 +91,7 @@ func (g *Game) devInit() {
 				g.zm.z, g.zm.want = clampZoom(z), clampZoom(z)
 				g.size = g.zm.size()
 			}
-			d.still = m == "pad" || m == "sector" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits"
+			d.still = m == "pad" || m == "sector" || m == "crossing" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits"
 			d.gallery = m == "kinds" || m == "grades"
 		}
 	}
@@ -266,6 +266,12 @@ func (g *Game) devFrames(mode string) {
 	case "sector":
 		// Arriving on a floor of the layout HEXES_LAYOUT names (a number).
 		s.DevLayout(envInt("HEXES_DEPTH", 6), dungeon.Layout(envInt("HEXES_LAYOUT", 1)))
+		g.camX, g.camY = s.P().Pos()
+	case "crossing":
+		// A visited mixed floor of HEXES_KINDS kinds, standing in crossing
+		// HEXES_CROSS at HEXES_T (in hundredths) across.
+		s.VisitMixed(envInt("HEXES_KINDS", 2))
+		s.DevToCrossing(envInt("HEXES_CROSS", 1), float64(envInt("HEXES_T", 50))/100)
 		g.camX, g.camY = s.P().Pos()
 	case "pack":
 		// A deeper floor, with gunners, walking into the nearest pack.

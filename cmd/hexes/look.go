@@ -394,7 +394,8 @@ func (g *Game) drawFloor(screen *ebiten.Image) {
 				cr, cg, cb = pulse, pulse, pulse
 			case dungeon.Ground:
 				v := 0.9 + 0.16*float32(h>>8&0xff)/255
-				cr, cg, cb = v*zr, v*zg, v*zb
+				tr, tg, tb := g.tintAt(c, zr, zg, zb)
+				cr, cg, cb = v*tr, v*tg, v*tb
 			}
 			i := f.Index(c)
 			g.drawLitTile(screen, img, tile, i, x, y, float64(b.Dx())/2, float64(b.Dy())/2, cr, cg, cb, reach)
@@ -421,7 +422,8 @@ func (g *Game) drawWallRow(screen *ebiten.Image, r int, x0, x1 float64, reach fl
 		}
 		h := tileHash(c)
 		v := 0.9 + 0.16*float32(h>>8&0xff)/255
-		g.drawLitTile(screen, img, dungeon.Wall, f.Index(c), x, y, float64(b.Dx())/2, oy, v*zr, v*zg, v*zb, reach)
+		tr, tg, tb := g.tintAt(c, zr, zg, zb)
+		g.drawLitTile(screen, img, dungeon.Wall, f.Index(c), x, y, float64(b.Dx())/2, oy, v*tr, v*tg, v*tb, reach)
 	}
 }
 

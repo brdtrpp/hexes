@@ -62,6 +62,10 @@ func main() {
 		b.WriteByte('\n')
 	}
 	fmt.Print(b.String())
-	fmt.Printf("%s, seed %d depth %d: %dx%d, %d rooms, %d enemies (level %d), %d pits, %d vents\n",
-		f.Layout, f.Seed, f.Depth, f.W, f.H, len(f.Rooms), len(f.Spawns), base, f.Count(dungeon.Pit), f.Count(dungeon.Hazard))
+	kinds := ""
+	for _, r := range f.Regions {
+		kinds += fmt.Sprintf("%s %d-%d ", r.Layout, r.From, r.To)
+	}
+	fmt.Printf("%s%s, seed %d depth %d: %dx%d, %d rooms, %d enemies (level %d), %d pits, %d vents\n",
+		kinds, f.Layout, f.Seed, f.Depth, f.W, f.H, len(f.Rooms), len(f.Spawns), base, f.Count(dungeon.Pit), f.Count(dungeon.Hazard))
 }

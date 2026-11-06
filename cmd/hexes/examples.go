@@ -12,7 +12,8 @@ import (
 // The test menu: with the test switch on, TEST opens a list of the
 // example builds. Tapping one loads it into your hexes; MY BUILD puts
 // your own build back, and TEST OFF does that too before it turns the
-// switch off.
+// switch off. After the builds come the visits, which drop you onto a
+// deep floor of two or three kinds to see it (game/visit.go).
 
 type testMenu struct {
 	on   bool
@@ -84,6 +85,16 @@ func (g *Game) testLayout(n int) testLayout {
 	return l
 }
 
+// visits are the test menu's floor rows, after the example builds: how
+// many kinds each floor holds, and what the row says.
+var visits = []struct {
+	kinds       int
+	name, blurb string
+}{
+	{2, "VISIT A MIXED FLOOR", "depth %d: two kinds of floor with a crossing between them"},
+	{3, "VISIT A THREE-KIND FLOOR", "depth %d: three kinds, two crossings"},
+}
+
 func (g *Game) openTestMenu() {
 	g.tm = testMenu{on: true}
 }
@@ -91,7 +102,7 @@ func (g *Game) openTestMenu() {
 func (g *Game) testTap(x, y float64) {
 	sim := g.sim
 	ex := game.Examples(sim.Reg)
-	l := g.testLayout(len(ex))
+	l := g.testLayout(len(ex) + len(visits))
 	tm := &g.tm
 	e := &g.ed
 	switch {
@@ -141,6 +152,18 @@ func (g *Game) testTap(x, y float64) {
 			continue
 		}
 		i := l.first + j
+		if i >= len(ex) {
+			v := visits[i-len(ex)]
+			home := sim.Depth
+			if sim.Visiting() {
+				home = sim.Visit
+			}
+			d := sim.VisitMixed(v.kinds)
+			tm.on = false
+			g.camX, g.camY = sim.P().Pos()
+			g.showHint(fmt.Sprintf("Visiting depth %d. Walk east to cross into the next kind.\nThe stairs or a death bring you back to depth %d, free.", d, home))
+			return
+		}
 		if err := sim.LoadExample(i); err != nil {
 			tm.msg, tm.bad = err.Error()+".", true
 			return
@@ -155,7 +178,7 @@ func (g *Game) testTap(x, y float64) {
 func (g *Game) drawTestMenu(screen *ebiten.Image) {
 	sim := g.sim
 	ex := game.Examples(sim.Reg)
-	l := g.testLayout(len(ex))
+	l := g.testLayout(len(ex) + len(visits))
 	k := g.k
 	g.drawRect(screen, rect{0, 0, float64(g.w), float64(g.h)}, fade(colPanel, 1), fade(colPanel, 1))
 	g.label(screen, g.face, "TEST  ·  try an example build", l.panel.x, l.titleY, colShape, false)
@@ -170,6 +193,13 @@ func (g *Game) drawTestMenu(screen *ebiten.Image) {
 	}
 	g.label(screen, g.small, msg, l.panel.x, l.msgY, c, false)
 	for j, r := range l.rows {
+		if i := l.first + j; i >= len(ex) {
+			v := visits[i-len(ex)]
+			g.drawRect(screen, r, colPanel, fade(colStairs, 0.7))
+			g.label(screen, g.face, v.name, r.x+10*k, r.y+r.h*0.32, colStairs, false)
+			g.label(screen, g.small, fmt.Sprintf(v.blurb, game.VisitDepth(v.kinds)), r.x+10*k, r.y+r.h*0.72, colDim, false)
+			continue
+		}
 		e := ex[l.first+j]
 		fill, edge := colPanel, fade(colShape, 0.6)
 		if e.Name == sim.Example {

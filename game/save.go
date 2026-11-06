@@ -82,6 +82,12 @@ func IsCheckpoint(depth int) bool { return depth%CheckpointEvery == 0 }
 // die runs once, on the frame the player's hull hits zero: work out the
 // fall, and move unsecured parts from the pack into a salvage cache.
 func (s *Sim) die() {
+	if s.Visit > 0 {
+		// A death on a visit costs nothing and goes home.
+		s.LastDeath = Death{From: s.Depth, To: s.Visit}
+		s.Dirty = true
+		return
+	}
 	since := -1.0
 	if s.Deaths > 0 {
 		since = s.Time - s.LastDeathAt
@@ -311,6 +317,11 @@ func (s *Sim) Snapshot() Save {
 		Kit: s.Kit, DraftedTo: s.DraftedTo,
 		PartsV: GridPartsV, Kept: append([]int(nil), s.GridKept...),
 	}
+	if s.Visit > 0 {
+		// A visit is never saved: a reload is back home, at full hull.
+		sv.Depth = s.Visit
+		return sv
+	}
 	switch s.State {
 	case Dead:
 		sv.Depth = s.LastDeath.To
@@ -408,6 +419,7 @@ func (s *Sim) Restore(sv Save) error {
 	s.Stash.Inv, s.Stash.Fresh, s.Stash.Picked = sv.Inv, sv.Fresh, sv.Picked
 	s.Cache, s.Deaths, s.LastDeathAt, s.Time = sv.Cache, sv.Deaths, sv.LastDeathAt, sv.PlayTime
 	s.LastDeath = Death{}
+	s.Visit = 0
 	s.CallGiven = sv.CallGiven
 	s.Shapes, s.ShapeGiven = shapes, sv.ShapeGiven || len(shapes) > 0
 	s.TestShapes = sv.TestShapes

@@ -91,10 +91,13 @@ type Generator struct {
 	from, cost  []int32
 	deque       []int32
 	done        []bool
-	order       []int
-	inTree      []bool
-	best        []int
-	bestD       []int
+	// While a mixed floor is built: each layout's params.
+	mixed  bool
+	kp     [NumLayouts]Params
+	order  []int
+	inTree []bool
+	best   []int
+	bestD  []int
 }
 
 // Generate makes the floor for a seed and depth.
@@ -106,6 +109,9 @@ func Generate(seed uint64, depth int) *Floor {
 // Generate makes the floor for a seed and depth, in the layout the seed
 // picks (LayoutFor).
 func (g *Generator) Generate(seed uint64, depth int) *Floor {
+	if kinds := KindsFor(seed, depth); len(kinds) > 1 {
+		return g.GenerateMixed(seed, depth, ParamsFor(depth), kinds)
+	}
 	return g.GenerateWith(seed, depth, Tune(ParamsFor(depth), LayoutFor(seed, depth)))
 }
 
@@ -121,6 +127,7 @@ func (g *Generator) GenerateWith(seed uint64, depth int, p Params) *Floor {
 	rng := rng{seed ^ 0x9e3779b97f4a7c15*uint64(depth+1)}
 
 	f.Layout = p.Layout
+	f.Regions = []Region{{Layout: p.Layout, From: 0, To: p.W}}
 	if p.Layout == Reactor {
 		g.placeCore(f, p)
 	}
@@ -170,7 +177,7 @@ func (g *Generator) placeRooms(f *Floor, rng *rng, p Params) {
 		if !ok {
 			continue
 		}
-		f.Rooms = append(f.Rooms, Room{Center: c, Radius: rad})
+		f.Rooms = append(f.Rooms, Room{Center: c, Radius: rad, Kind: p.Layout})
 		carveHex(f, c, rad)
 		for l := rng.intn(p.Lobes + 1); l > 0; l-- {
 			dir := skill.HexDirs[rng.intn(6)]
@@ -183,7 +190,7 @@ func (g *Generator) placeRooms(f *Floor, rng *rng, p Params) {
 	}
 	if len(f.Rooms) == 0 { // tiny params: one room in the middle
 		c := skill.Coord{Q: p.W/2 - (p.H/2)>>1, R: p.H / 2}
-		f.Rooms = append(f.Rooms, Room{Center: c, Radius: 1})
+		f.Rooms = append(f.Rooms, Room{Center: c, Radius: 1, Kind: p.Layout})
 		carveHex(f, c, 1)
 	}
 }
@@ -235,7 +242,8 @@ func (g *Generator) connect(f *Floor, rng *rng, p Params) {
 			}
 		}
 		g.inTree[pick] = true
-		corridor(f, rng, f.Rooms[g.best[pick]].Center, f.Rooms[pick].Center, p.WideChance, p.Jogs)
+		pp := g.paramsOf(f, p, pick)
+		corridor(f, rng, f.Rooms[g.best[pick]].Center, f.Rooms[pick].Center, pp.WideChance, pp.Jogs)
 		for i := 0; i < n; i++ {
 			if g.inTree[i] {
 				continue
@@ -252,8 +260,8 @@ func (g *Generator) connect(f *Floor, rng *rng, p Params) {
 				continue
 			}
 			d := skill.Dist(f.Rooms[i].Center, f.Rooms[j].Center)
-			if d < 16 && rng.float() < p.LoopChance {
-				corridor(f, rng, f.Rooms[i].Center, f.Rooms[j].Center, p.WideChance, p.Jogs)
+			if pp := g.paramsOf(f, p, i); d < 16 && rng.float() < pp.LoopChance {
+				corridor(f, rng, f.Rooms[i].Center, f.Rooms[j].Center, pp.WideChance, pp.Jogs)
 			}
 		}
 	}
