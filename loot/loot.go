@@ -354,7 +354,9 @@ func (t *Table) effect(r *RNG, rar skill.Rarity) skill.Part {
 		return skill.NewStatus(ty, half(r.Range(1.5, 4.5)))
 	default:
 		amt := float32(int(t.Damage[ty]*r.Range(0.8, 1.25) + 0.5))
-		return skill.NewDamage(ty, max(1, amt))
+		// Cloak never deals damage: a cloak roll is the cloak itself.
+		p, _ := t.Reg.SelfOnly(skill.NewDamage(ty, max(1, amt)))
+		return p
 	}
 }
 

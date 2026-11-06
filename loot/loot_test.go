@@ -211,3 +211,35 @@ func TestSustainDropsUncommonAndRare(t *testing.T) {
 		}
 	}
 }
+
+// Cloak is a self effect: no roll, rider or class part deals cloak damage.
+func TestNoCloakDamageRolls(t *testing.T) {
+	tab := NewTable(reg)
+	cloak := reg.MustID("cloak")
+	bad := func(p skill.Part) bool {
+		return p.Kind == skill.KindEffect && p.Effect == skill.EffectDamage && p.Type == cloak
+	}
+	seenCloak := false
+	for seed := uint64(0); seed < 3000; seed++ {
+		r := NewRNG(seed)
+		for rar := skill.Rarity(0); rar < skill.NumRarities; rar++ {
+			for _, p := range []skill.Part{tab.RollAt(&r, rar), tab.Rider(&r, rar), tab.RollNew(&r, rar), tab.Roll(&r, int(seed%40)+1)} {
+				if bad(p) {
+					t.Fatalf("seed %d rolled cloak damage: %+v", seed, p)
+				}
+				if p.Kind == skill.KindEffect && p.Effect == skill.EffectStatus && p.Type == cloak {
+					seenCloak = true
+					if p.Quirk == skill.QuirkRider {
+						t.Fatalf("seed %d rolled a cloak rider: %+v", seed, p)
+					}
+				}
+			}
+		}
+	}
+	if !seenCloak {
+		t.Fatal("cloak never rolled at all")
+	}
+	if title, detail := Label(skill.NewStatus(cloak, 3), reg); title != "CLOAK" || !strings.Contains(detail, "self") {
+		t.Fatalf("cloak reads %q %q", title, detail)
+	}
+}

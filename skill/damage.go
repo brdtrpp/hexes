@@ -157,3 +157,41 @@ func (r *Registry) MustID(name string) TypeID {
 	}
 	return id
 }
+
+// Cloak is a self effect: it hides the caster and never deals damage.
+// CloakTimeMin and CloakTimeMax bound how long a cloak converted from an
+// old cloak damage part lasts; CloakPerDamage turns its damage into time.
+const (
+	CloakTimeMin   float32 = 1.5
+	CloakTimeMax   float32 = 4.5
+	CloakPerDamage float32 = 3.0 / 16
+)
+
+// Cloak reports whether t's status is a cloak.
+func (r *Registry) Cloak(t TypeID) bool {
+	return int(t) < r.n && r.defs[t].Status == StatusCloak
+}
+
+// SelfOnly turns a cloak damage part into the cloak status it should have
+// been: the same type and rarity, its damage read as seconds of stealth.
+// A Rider on a cloak status adds nothing, so it goes. Anything else comes
+// back as it was. The bool reports a change.
+func (r *Registry) SelfOnly(p Part) (Part, bool) {
+	if p.Kind != KindEffect || !p.Effect.Typed() || !r.Cloak(p.Type) {
+		return p, false
+	}
+	if p.Effect == EffectStatus {
+		if p.Quirk == QuirkRider {
+			p.Quirk = QuirkNone
+			return p, true
+		}
+		return p, false
+	}
+	secs := min(CloakTimeMax, max(CloakTimeMin, p.Value*CloakPerDamage))
+	q := NewStatus(p.Type, float32(int(secs*2+0.5))/2)
+	q.Name, q.Rarity = p.Name, p.Rarity
+	if p.Quirk != QuirkRider && p.Quirk.Fits(q) {
+		q.Quirk = p.Quirk
+	}
+	return q, true
+}

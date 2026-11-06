@@ -167,7 +167,7 @@ func TestPeriodic(t *testing.T) {
 func TestSurpriseTriggers(t *testing.T) {
 	a, c, d, rig, r := setup(t)
 	foe := a.Spawn(1, Coord{3, 6}, 10, 1e6)
-	stab := mk(t, "stab", NewTrigger(FromStealth), NewDamage(id("cloak"), 10))
+	stab := mk(t, "stab", NewTrigger(FromStealth), NewDamage(id("kinetic"), 10))
 	back := mk(t, "back", NewTrigger(FromBehind), NewDamage(id("kinetic"), 10))
 	d.Equip(c, rig, stab, back)
 

@@ -139,6 +139,11 @@ func (t *Table) RollFam(r *RNG, f int, rar skill.Rarity) skill.Part {
 // effect's rarity adds in the class table.
 func (t *Table) Rider(r *RNG, rar skill.Rarity) skill.Part {
 	ty := skill.TypeID(r.Intn(t.Reg.Len()))
+	// Cloak never deals damage, so a cloak rider takes the next type over
+	// (no extra draw, so seeded rolls stay as they were).
+	for n := 0; n < t.Reg.Len() && t.Reg.Cloak(ty); n++ {
+		ty = (ty + 1) % skill.TypeID(t.Reg.Len())
+	}
 	amt := float32(int(t.Damage[ty]*r.Range(0.8, 1.25) + 0.5))
 	p := skill.NewDamage(ty, max(1, amt)).WithRarity(rar)
 	p.Quirk = skill.QuirkRider

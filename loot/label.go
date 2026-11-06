@@ -80,6 +80,9 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 		case skill.EffectPush:
 			return "PUSH", fmt.Sprintf("%.1f hex", p.Value*sc)
 		case skill.EffectStatus:
+			if reg.Cloak(p.Type) {
+				return "CLOAK", fmt.Sprintf("self %.1fs", p.Value*sc)
+			}
 			return strings.ToUpper(reg.Get(p.Type).Status.String()), fmt.Sprintf("%.1fs", p.Value*sc)
 		case skill.EffectMend:
 			return "MEND", fmt.Sprintf("%.0f%% hull", 100*p.Value*sc)
@@ -228,6 +231,8 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 		fmt.Fprintf(&b, ". Restores hull to you, or to the targets beside it. Each Mend that lands adds strain, which halves every %g s, and divides the next one by 1 + strain", float32(skill.StrainHalfLife))
 	case p.Kind == skill.KindEffect && p.Effect == skill.EffectShield:
 		fmt.Fprintf(&b, ". A buffer on you, or the targets beside it, that soaks hits for %g s, up to %.0f%% of max hull. Strains like Mend", float32(skill.ShieldTime), 100*float32(skill.ShieldCap))
+	case p.Kind == skill.KindEffect && p.Effect == skill.EffectStatus && reg.Cloak(p.Type):
+		fmt.Fprintf(&b, ". A self effect: hides you, whoever it sits beside, and hurts no one. Your next hit out of it lands at x%g, and that hit gives you away", float32(skill.AmbushMult))
 	case p.Kind == skill.KindEffect && p.Effect == skill.EffectPurge:
 		b.WriteString(". Takes Heat off your rig, paid in Power, whoever it sits beside")
 	case p.Kind == skill.KindCharge:

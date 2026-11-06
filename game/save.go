@@ -357,6 +357,9 @@ func (s *Sim) Restore(sv Save) error {
 			frames = append(frames, f)
 		}
 	}
+	// Cloak is a self effect now: an old cloak damage part becomes the
+	// cloak it reads as, so nothing is lost.
+	migrated := selfOnly(s.Reg, &sv)
 	for _, h := range sv.Hexes {
 		cleanFrames(h, sv.TestShapes)
 	}
@@ -462,7 +465,7 @@ func (s *Sim) Restore(sv Save) error {
 	}
 	s.DraftedTo = max(sv.DraftedTo, sv.Best-1)
 	s.Draft = Draft{}
-	dirty := s.giveCall()
+	dirty := s.giveCall() || migrated
 	s.load(sv.Depth, sv.HPFrac)
 	s.Dirty = dirty
 	return nil
@@ -494,4 +497,53 @@ func (s *Sim) giveCall() bool {
 	}
 	s.CallGiven = true
 	return true
+}
+
+// selfOnly turns every cloak damage part a save holds into the cloak it
+// is now (skill.Registry.SelfOnly): in the hexes and modules, your own
+// build under an example, the pack, a death's salvage and the locker.
+// Nothing is dropped. It reports whether anything changed.
+func selfOnly(reg *skill.Registry, sv *Save) bool {
+	changed := false
+	part := func(p *skill.Part) {
+		if q, ok := reg.SelfOnly(*p); ok {
+			*p, changed = q, true
+		}
+	}
+	seen := map[*skill.Hex]bool{}
+	var hex func(h *skill.Hex)
+	hex = func(h *skill.Hex) {
+		if h == nil || seen[h] {
+			return
+		}
+		seen[h] = true
+		for i := range h.Slots {
+			part(&h.Slots[i].Part)
+			hex(h.Slots[i].Nested)
+		}
+	}
+	for _, h := range sv.Hexes {
+		hex(h)
+	}
+	for _, m := range sv.Mods {
+		hex(m)
+	}
+	if sv.Mine != nil {
+		for _, h := range sv.Mine.Hexes {
+			hex(h)
+		}
+		for _, m := range sv.Mine.Mods {
+			hex(m)
+		}
+	}
+	for i := range sv.Inv.Parts {
+		part(&sv.Inv.Parts[i])
+	}
+	for i := range sv.Cache.Parts {
+		part(&sv.Cache.Parts[i])
+	}
+	for i := range sv.Locker {
+		part(&sv.Locker[i])
+	}
+	return changed
 }

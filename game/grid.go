@@ -609,6 +609,8 @@ func (gen *gridGen) part(r *loot.RNG, n *Node, id idea, rar skill.Rarity, teach 
 				return p
 			}
 			p.Type = ty
+			// A cloak wedge leans damage into the cloak itself.
+			p, _ = gen.reg.SelfOnly(p)
 		}
 	}
 	return p

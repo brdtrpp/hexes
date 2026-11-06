@@ -173,14 +173,41 @@ func TestResolvesClockwiseFromTrigger(t *testing.T) {
 	}
 }
 
-func TestSurpriseTriggerBoostsCloak(t *testing.T) {
+func TestSurpriseTriggerBoostsDamage(t *testing.T) {
 	h := baseHex(t)
 	set(t, h, 0, NewTrigger(FromStealth))
-	set(t, h, 2, NewDamage(id("cloak"), 10))
 	set(t, h, 3, NewDamage(id("cryo"), 10))
 	d := steps(compile(t, h, 0), OpDamage)
-	approx(t, "cloak", d[0].Value, 40) // x2 stealth trigger, x2 cloak
-	approx(t, "cryo", d[1].Value, 20)  // trigger only
+	approx(t, "cryo", d[0].Value, 20) // x2 stealth trigger
+}
+
+// Cloak is a self effect: an old cloak damage part runs as a cloak, and a
+// rider on a cloak adds no damage.
+func TestCloakNeverDamages(t *testing.T) {
+	h := baseHex(t)
+	set(t, h, 2, NewDamage(id("cloak"), 16))
+	p := compile(t, h, 0)
+	if d := steps(p, OpDamage); len(d) != 0 {
+		t.Fatalf("cloak damage part dealt damage: %+v", d)
+	}
+	st := steps(p, OpStatus)
+	if len(st) != 1 || st[0].Type != id("cloak") {
+		t.Fatalf("status steps %+v", st)
+	}
+	approx(t, "cloak time", st[0].Value, 3)
+
+	r := NewStatus(id("cloak"), 3)
+	r.Quirk = QuirkRider
+	set(t, h, 2, r)
+	if d := steps(compile(t, h, 0), OpDamage); len(d) != 0 {
+		t.Fatalf("cloak rider dealt damage: %+v", d)
+	}
+	if q, ok := reg.SelfOnly(r); !ok || q.Quirk != QuirkNone {
+		t.Fatalf("rider kept on a cloak: %+v", q)
+	}
+	if q, ok := reg.SelfOnly(NewDamage(id("plasma"), 10)); ok || q.Effect != EffectDamage {
+		t.Fatal("plasma damage changed")
+	}
 }
 
 func TestPowerAndHeat(t *testing.T) {

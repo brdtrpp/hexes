@@ -532,7 +532,9 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			carry[s] = int(src)
 			c.cost(p, depth)
 		case sl.Kind == SlotPart && sl.Part.Kind == KindEffect:
-			p := sl.Part
+			// Cloak is a self effect: an old cloak damage part runs as the
+			// cloak status it reads as now.
+			p, _ := c.reg.SelfOnly(sl.Part)
 			src, guard, err := land(s)
 			if err != nil {
 				return err
@@ -1243,6 +1245,9 @@ func (c *compiler) rider(st Step) {
 		}
 		r.Op, r.Value = OpStatus, RiderTime
 	case OpStatus:
+		if c.reg.Cloak(st.Type) {
+			return // cloak hides the caster and never hurts anyone
+		}
 		r.Op, r.Value = OpDamage, RiderHit
 	default:
 		return

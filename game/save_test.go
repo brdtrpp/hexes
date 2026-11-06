@@ -246,3 +246,62 @@ func TestStaleCacheMovesNextToStart(t *testing.T) {
 		t.Fatalf("cache at %v (%s), start %v", s.Cache.At, f.At(s.Cache.At), f.Start)
 	}
 }
+
+// Cloak is a self effect: the grid never offers cloak damage, and a save
+// holding old cloak damage parts loads with them turned into cloaks, none
+// lost.
+func TestCloakDamageMigrates(t *testing.T) {
+	reg := skill.DefaultRegistry()
+	cloak := reg.MustID("cloak")
+	isDmg := func(p skill.Part) bool {
+		return p.Kind == skill.KindEffect && p.Effect == skill.EffectDamage && p.Type == cloak
+	}
+	for seed := uint64(1); seed <= 40; seed++ {
+		for _, n := range GenGrid(reg, seed, GridRings+6).Nodes {
+			if isDmg(n.Part) {
+				t.Fatalf("seed %d: grid cell offers cloak damage", seed)
+			}
+		}
+	}
+
+	s := NewVeteran(11)
+	old := skill.NewDamage(cloak, 16).WithRarity(skill.Rare)
+	cell := s.Stash.Inv.Add(old)
+	if err := s.SwapIn(3, 4, cell); err != nil {
+		t.Fatal(err)
+	}
+	s.Stash.Inv.Add(old)
+	s.Locker = append(s.Locker, old, skill.NewPush(1))
+	s.Cache.Parts[0], s.Cache.N = old, 1
+	b, err := s.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewVeteran(999)
+	if err := r.LoadSave(b); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Dirty {
+		t.Fatal("a migrated save should be saved again")
+	}
+	check := func(where string, p skill.Part) {
+		t.Helper()
+		if p.Kind != skill.KindEffect || p.Effect != skill.EffectStatus || p.Type != cloak || p.Rarity != skill.Rare {
+			t.Fatalf("%s: %+v, want a rare cloak", where, p)
+		}
+	}
+	check("hex", r.Load.Hexes[3].Slots[4].Part)
+	if r.Stash.Inv.Count() != 1 {
+		t.Fatalf("pack holds %d, want 1", r.Stash.Inv.Count())
+	}
+	for i, has := range r.Stash.Inv.Has {
+		if has {
+			check("pack", r.Stash.Inv.Parts[i])
+		}
+	}
+	if len(r.Locker) != 2 || r.Locker[1].Effect != skill.EffectPush {
+		t.Fatalf("locker %+v", r.Locker)
+	}
+	check("locker", r.Locker[0])
+	check("cache", r.Cache.Parts[0])
+}

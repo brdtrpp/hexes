@@ -215,6 +215,18 @@ func TestCloakStatusStealthsCaster(t *testing.T) {
 	approx(t, "stealth", a.Unit(c).Stealth, 3)
 }
 
+func TestOldCloakDamageOnlyHides(t *testing.T) {
+	a, c := world()
+	foe := a.Spawn(1, Coord{4, 6}, 10, 1000)
+	h := baseHex(t)
+	set(t, h, 2, NewDamage(id("cloak"), 16))
+	res := NewEvaluator(reg, DefaultRules()).Run(compile(t, h, 0), a, Ctx{Caster: c, Subject: NoEntity, Level: 10})
+	if res.Damage != 0 || a.Unit(foe).HP != 1000 {
+		t.Fatalf("cloak hurt someone: %+v, foe hp %v", res, a.Unit(foe).HP)
+	}
+	approx(t, "stealth", a.Unit(c).Stealth, 3)
+}
+
 func TestChainAndCone(t *testing.T) {
 	a, c := world()
 	a.Facing[c] = 0 // east
