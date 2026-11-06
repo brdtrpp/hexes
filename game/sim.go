@@ -231,6 +231,9 @@ type Sim struct {
 	BoardKeys     int
 	GridNewest    int
 	GridRingsSeen int
+	// GridPeek lifts the grid's fog while the GRID tab's TEST is lit. It's
+	// a look only: never saved, and it marks nothing seen.
+	GridPeek bool
 	// gridDist is each node's steps from the nearest owned node,
 	// recomputed when what you own changes.
 	gridDist []int16

@@ -43,10 +43,10 @@ func (s *Sim) growGrid() {
 
 // RingOpen reports whether ring k can be bought on: the first eleven open
 // with their ladder lesson, the rest at their depth. The test switch
-// opens every ring.
+// leaves rings alone: the grid is real progress, not a sandbox.
 func (s *Sim) RingOpen(k int) bool {
 	switch {
-	case k <= 0 || s.TestShapes:
+	case k <= 0:
 		return true
 	case k <= ladderRings:
 		return s.taught() > k
@@ -129,7 +129,8 @@ const (
 // common, 2 steps for uncommon, 3 for rare, 4 for exotic.
 var GlowSteps = [skill.NumRarities]int{1, 2, 3, 4}
 
-// CellView is how node i shows now.
+// CellView is how node i shows now. GridPeek lifts the fog for the look
+// only: nothing it shows is marked seen.
 func (s *Sim) CellView(i int) View {
 	n := &s.Grid.Nodes[i]
 	d := s.GridDist(i)
@@ -137,7 +138,7 @@ func (s *Sim) CellView(i int) View {
 	case s.Own[i]:
 		return ViewOwned
 	case n.Kind == NodeVoid:
-		if s.Seen[i] || d == 1 || s.TestShapes {
+		if s.Seen[i] || d == 1 || s.GridPeek {
 			return ViewVoid
 		}
 		return ViewDark
@@ -145,7 +146,7 @@ func (s *Sim) CellView(i int) View {
 		return ViewSealed
 	case s.Reclaim[i]:
 		return ViewReclaim
-	case s.Seen[i] || s.TestShapes:
+	case s.Seen[i] || s.GridPeek:
 		return ViewCard
 	case s.Glimpse[i]:
 		return ViewKind

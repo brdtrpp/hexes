@@ -418,7 +418,19 @@ func (s *Sim) Restore(sv Save) error {
 	if sv.Cache.Data < 0 {
 		sv.Cache.Data = 0
 	}
+	// TEST used to open every ring, so a save may hold cells marked seen
+	// on rings that aren't open yet. Those go back under the fog; cells you
+	// own stay yours.
+	for i := range s.Seen {
+		if s.Seen[i] && !s.Own[i] && !s.RingOpen(s.Grid.Nodes[i].Ring) {
+			s.Seen[i] = false
+		}
+	}
 	s.refreshGrid()
+	// A save made while TEST opened every ring counted them all as seen;
+	// count only the rings that are really open, so a new one still pulses.
+	s.GridRingsSeen = min(max(0, s.GridRingsSeen), s.RingsOpen())
+	s.GridPeek = false
 	dirty := s.giveCall()
 	s.load(sv.Depth, sv.HPFrac)
 	s.Dirty = dirty
