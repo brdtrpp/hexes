@@ -99,6 +99,9 @@ func (g *Game) boardLayout(l *edLayout) boardLayout {
 	bot := math.Min(l.info.y, l.scrap.y) - 10*k
 	x0 := l.tabs[0].x
 	w := l.tabs[len(l.tabs)-1].x + l.tabs[len(l.tabs)-1].w - x0
+	if l.side {
+		bot, w = l.scrap.y-10*k, l.info.x-10*k-x0
+	}
 	capH := l.shape.h
 	bw := math.Min(96*k, w*0.28)
 	b.rotate = rect{x0, top, bw, capH}

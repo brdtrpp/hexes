@@ -45,4 +45,35 @@ func (s *Sim) SlotSheet(i int) (loot.Sheet, error) {
 	return sh, nil
 }
 
+// HexCard is the card for hex i, an equipped one or a module.
+func (s *Sim) HexCard(i int) (loot.Sheet, error) {
+	if i < MaxSlots {
+		return s.SlotSheet(i)
+	}
+	h := s.Load.Hex(i)
+	if h == nil {
+		return loot.Sheet{}, errNoHex
+	}
+	sh, err := HexSheet(h, s.Reg, s.Depth, s.Rig.MaxDepth, "")
+	if err != nil {
+		return sh, err
+	}
+	sh.Name = s.Load.Name(i)
+	return sh, nil
+}
+
 var errNoHex = errors.New("no hex there")
+
+// DraftSheet is the card for a floor-end pick that offers a part, from
+// the grid or for the locker.
+func (s *Sim) DraftSheet(p DraftPick) (loot.Sheet, bool) {
+	switch p.Kind {
+	case DraftPart:
+		return PartSheet(p.Part, s.Reg), true
+	case DraftNode:
+		if n := &s.Grid.Nodes[p.Node]; n.Kind == NodePart {
+			return PartSheet(n.Part, s.Reg), true
+		}
+	}
+	return loot.Sheet{}, false
+}

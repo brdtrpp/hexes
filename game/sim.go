@@ -211,6 +211,10 @@ type Sim struct {
 	Frames     []skill.Frame
 	FrameGiven bool
 	LastFrame  skill.Frame
+	// LastLoot is the latest part picked up off the floor, and LootN
+	// counts pickups, so the HUD can show each one's card.
+	LastLoot skill.Part
+	LootN    int
 	// SustainGiven is set once a sustain part (Mend, Purge, Shield) has
 	// been picked up.
 	SustainGiven bool

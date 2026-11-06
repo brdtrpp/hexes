@@ -107,6 +107,15 @@ type Game struct {
 	// whose card a held cast button shows (-1 for none), as peekSheet.
 	sheet      loot.Sheet
 	sheetOn    bool
+	sheetHex   int    // the hex whose card is on show, -1 for a part
+	sheetName  rect   // where the open card drew its name
+	renaming   int    // the hex being renamed by keyboard, -1 for none
+	renameBuf  []rune // what's typed so far
+	renameCh   chan renameResult
+	dhold      draftHold  // a press on a floor-end card
+	lootSeen   int        // the pickup count last shown
+	lootSheet  loot.Sheet // the card of the part just picked up
+	lootUntil  int        // the frame its card goes away
 	peekBtn    int
 	peekT      float64
 	peek       int
@@ -170,6 +179,10 @@ func newGame() *Game {
 		small: &text.GoTextFace{Source: src, Size: 12},
 		big:   &text.GoTextFace{Source: src, Size: 30},
 		peek:  -1,
+
+		sheetHex: -1,
+		renaming: -1,
+		renameCh: make(chan renameResult, 1),
 	}
 	g.disc = ebiten.NewImage(64, 64)
 	vector.DrawFilledCircle(g.disc, 32, 32, 31, color.White, true)
@@ -218,6 +231,9 @@ func (g *Game) Update() error {
 	g.watchPads()
 	g.watchSector()
 	g.autosave()
+	if g.updateRename() {
+		return nil // paused while a hex is being named
+	}
 	if g.updateSheet() {
 		return nil // paused while a card is open
 	}
@@ -458,6 +474,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	if g.ed.on {
 		g.drawEditor(screen)
 	}
+	g.drawLootCard(screen)
 	g.drawDraft(screen)
 	if g.menu != menuClosed {
 		g.drawMenu(screen)
@@ -468,6 +485,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	case g.peek >= 0 && !g.ed.on && g.menu == menuClosed:
 		g.drawSheet(screen, g.peekSheet, true)
 	}
+	g.drawRename(screen)
 	g.devShot(screen)
 }
 
