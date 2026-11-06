@@ -62,9 +62,6 @@ type editor struct {
 	rack    bool
 	page    int
 	confirm int
-	// help is set while the ? is on: a picked part shows one plain
-	// sentence instead of its numbers.
-	help bool
 	// locker is set while the strip shows the locker, lpage is which
 	// twelve. grid is set while the skill grid is on show (gridview.go).
 	locker bool
@@ -333,8 +330,8 @@ func (g *Game) edTap(x, y float64) {
 		return
 	}
 	if l.help.hit(x, y) {
-		e.help = !e.help
 		e.msg, e.bad = "", false
+		g.edSheet()
 		return
 	}
 	if l.bind.hit(x, y) && e.hex < game.MaxSlots && sim.Has(game.UTriggers) {
@@ -1039,22 +1036,13 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 
 	// Info bar: the picked part, the last result, or how to use it.
 	g.drawRect(screen, l.info, colPanel, color.RGBA{0x3a, 0x42, 0x58, 0xff})
-	info, ic := "Tap a part, then tap where it goes. Slot to slot rewires the hex.", colDim
+	info, ic := "Tap a part, then tap where it goes. Slot to slot rewires the hex. ? shows the hex's card.", colDim
 	fr := skill.Frame{}
 	if e.pick == pickSlot {
 		fr = h.Frame(e.at)
 	}
 	pf, pickedFrame := g.edPickedFrame()
 	switch {
-	case e.help && e.pick == pickCell && inv.Has[e.at]:
-		info, ic = game.PlainHelp(inv.Parts[e.at]), colText
-	case e.help && e.pick == pickSlot:
-		info, ic = game.PlainHelp(h.Slots[e.at].Part), colText
-		if h.Slots[e.at].Kind != skill.SlotPart {
-			info = "An empty slot: put a part here."
-		}
-	case e.help && !pickedFrame:
-		info, ic = "Tap any part to see what it does in plain words. Tap ? again for the numbers.", colText
 	case pickedFrame && e.msg != "":
 		info, ic = e.msg, colText
 		if e.bad {
@@ -1065,17 +1053,15 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		if game.IsTestFrame(pf) {
 			info += " Test frame: free to try."
 		}
-	case e.pick == pickLocker && e.at < len(sim.Locker) && e.help:
-		info, ic = game.PlainHelp(sim.Locker[e.at]), colText
 	case e.pick == pickLocker && e.at < len(sim.Locker) && e.msg != "" && e.bad:
 		info, ic = e.msg, colHot
 	case e.pick == pickLocker && e.at < len(sim.Locker):
 		p := sim.Locker[e.at]
-		info, ic = "Green slots are where it does something. "+loot.Describe(p, sim.Reg), rarityCol[p.Rarity]
+		info, ic = "Green slots are where it does something. ? shows its card. "+loot.Describe(p, sim.Reg), rarityCol[p.Rarity]
 	case e.pick == pickCell && inv.Has[e.at] && e.msg != "" && e.bad:
 		info, ic = e.msg, colHot // why it can't go there
 	case e.pick == pickCell && inv.Has[e.at]:
-		info, ic = "Green slots are where it does something. "+loot.Describe(inv.Parts[e.at], sim.Reg), rarityCol[inv.Parts[e.at].Rarity]
+		info, ic = "Green slots are where it does something. ? shows its card. "+loot.Describe(inv.Parts[e.at], sim.Reg), rarityCol[inv.Parts[e.at].Rarity]
 		if sim.Stash.Fresh[e.at] {
 			info += fmt.Sprintf(" New: slot it or reach depth %d to keep it if you die.", sim.NextCheckpoint())
 		}
@@ -1117,11 +1103,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		}
 	}
 	g.wrapLabel(screen, info, l.info, ic)
-	if e.help {
-		g.drawRect(screen, l.help, fade(colText, 0.2), colText)
-	} else {
-		g.drawRect(screen, l.help, colPanel, fade(colDim, 0.7))
-	}
+	g.drawRect(screen, l.help, fade(colText, 0.12), fade(colText, 0.8))
 	g.label(screen, g.face, "?", l.help.x+l.help.w/2, l.help.y+l.help.h/2, colText, true)
 	if sim.Has(game.UTriggers) {
 		g.newPulse(screen, l.bind, g.teach.edNewU(game.UTriggers))

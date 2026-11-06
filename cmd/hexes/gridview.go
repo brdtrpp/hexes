@@ -303,6 +303,9 @@ func (g *Game) gridTap(x, y float64) {
 	case l.close.hit(x, y):
 		e.on = false
 		return
+	case l.help.hit(x, y) && gv.sel >= 0 && g.gridPartKnown(gv.sel):
+		g.openSheet(game.PartSheet(sim.Grid.Nodes[gv.sel].Part, sim.Reg))
+		return
 	case l.help.hit(x, y):
 		e.msg, e.bad = "Data buys cells next to what you own, at a workbench. Rarer cells glow from further out. A death lets go of a few outer cells; buy them back at half price. Unbanked Data is safe at each checkpoint.", false
 		return
@@ -705,6 +708,9 @@ func (g *Game) gridInfo() (string, color.RGBA) {
 		lead = fmt.Sprintf("Let go in a death: %d Data to take it back (you kept what it gave). ", cost)
 	}
 	text := lead + g.nodeText(n) + " (" + where + ")"
+	if g.gridPartKnown(i) {
+		text = "? shows its card. " + text
+	}
 	if err != nil && sim.GridDist(i) == 1 {
 		return upFirst(err.Error()) + ". " + text, rarityCol[n.Rarity]
 	}
@@ -735,4 +741,18 @@ func (g *Game) drawLock(dst *ebiten.Image, x, y, r float64) {
 	c := color.RGBA{0x5a, 0x60, 0x74, 0xff}
 	vector.DrawFilledRect(dst, float32(x-r), float32(y-r*0.2), float32(2*r), float32(r*1.3), c, false)
 	vector.StrokeCircle(dst, float32(x), float32(y-r*0.25), float32(r*0.6), g.u(1.5), c, true)
+}
+
+// gridPartKnown reports whether cell i is a part you can see, so its
+// card can show.
+func (g *Game) gridPartKnown(i int) bool {
+	sim := g.sim
+	if i < 0 || i >= len(sim.Grid.Nodes) || sim.Grid.Nodes[i].Kind != game.NodePart {
+		return false
+	}
+	switch sim.CellView(i) {
+	case game.ViewDark, game.ViewVoid, game.ViewGlow, game.ViewKind, game.ViewSealed:
+		return false
+	}
+	return true
 }

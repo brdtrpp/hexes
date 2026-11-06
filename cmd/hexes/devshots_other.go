@@ -181,6 +181,17 @@ func (g *Game) devFrames(mode string) {
 			g.ed.hex = 1
 			g.edBind()
 		}
+	case "card":
+		// The hex card for the first hex.
+		if sh, err := s.SlotSheet(0); err == nil {
+			g.openSheet(sh)
+		}
+	case "partcard":
+		// A rare part's card, with the next rarity at the bottom.
+		p := skill.NewDamage(s.Reg.MustID("plasma"), 22)
+		p.Rarity = skill.Rare
+		p.Quirk = skill.QuirkRelay
+		g.openSheet(game.PartSheet(p, s.Reg))
 	case "kits":
 		// A fresh save: the kit pick is already up.
 	case "grid", "locker", "draft":

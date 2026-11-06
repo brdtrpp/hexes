@@ -169,3 +169,29 @@ func (l *Loadout) Rebuild(reg *skill.Registry, level, maxDepth, edited int) erro
 	}
 	return nil
 }
+
+// ExplainHex is CompileHex with the working: every number on the hex's
+// sheet and what made it. The floor's level shows as its own factor on
+// damage.
+func ExplainHex(h *skill.Hex, reg *skill.Registry, level, maxDepth int) (*skill.Program, *skill.Working, error) {
+	p, w, err := skill.Explain(h, reg, maxDepth)
+	if err != nil {
+		return nil, nil, err
+	}
+	sc := scale(level)
+	for i := range p.Steps {
+		if p.Steps[i].Op == skill.OpDamage {
+			p.Steps[i].Value *= sc
+		}
+	}
+	if sc != 1 {
+		for i := range w.Effects {
+			e := &w.Effects[i]
+			if e.Op == skill.OpDamage {
+				e.Factors = append(e.Factors, skill.Factor{Why: fmt.Sprintf("level %d", level), X: sc})
+				e.Final *= sc
+			}
+		}
+	}
+	return p, w, nil
+}

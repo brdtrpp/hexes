@@ -129,6 +129,9 @@ type Step struct {
 	// Bonus, on damage, multiplies it on marked foes (a marked
 	// multiplier). Zero means none.
 	Bonus float32
+	// Tag names the effect a step came from, for the working. Only
+	// Explain sets it, and play never reads it.
+	Tag uint16
 }
 
 // Program is a compiled hex.

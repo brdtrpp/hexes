@@ -48,6 +48,10 @@ const NestCostPerDepth = 0.5
 // Feeds, a Hub's center pools the whole ring, and a Loop runs again on
 // what its last slot carries.
 func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
+	return build(h, reg, maxDepth, nil)
+}
+
+func build(h *Hex, reg *Registry, maxDepth int, work *Working) (*Program, error) {
 	shape := h.Shape
 	if !shape.Valid() {
 		return nil, errBrokenShape(shape)
@@ -85,6 +89,7 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 	t := h.Slots[trig].Part
 	c := &compiler{
 		reg:  reg,
+		work: work,
 		trig: t,
 		next: RegSubject + 1,
 		p: &Program{
@@ -97,6 +102,7 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 			Period:  t.Period,
 		},
 	}
+	c.costLine(t.String()+" trigger", t.Power, t.Heat)
 	if t.Trigger == Periodic && c.p.Period <= 0 {
 		c.p.Period = DefaultPeriod
 	}
@@ -135,6 +141,7 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 			return nil, errors.New("device hex too large")
 		}
 		if FormKind(c.device-1) == FormZone {
+			c.why = "zone, runs often"
 			c.scale(span{at, len(c.p.Steps), body > 0}, VerbDamage, ZoneScale)
 		}
 		c.p.Steps = append(c.p.Steps, Step{})
@@ -146,6 +153,7 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 		// Run the whole body twice. Spans are relative, so a plain copy
 		// works; the second pass selects its targets afresh.
 		c.p.Steps = append(c.p.Steps, c.p.Steps...)
+		c.total("echo runs it twice", c.p.Power*EchoCost, c.p.Heat*EchoCost, 0)
 		c.p.Power *= 1 + EchoCost
 		c.p.Heat *= 1 + EchoCost
 		c.dockHeat *= 1 + EchoCost
@@ -159,13 +167,21 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 		c.p.Loops = true
 	}
 	if c.p.Heat > 0 {
+		if x := shape.HeatScale(); x != 1 {
+			c.total(shape.Name()+" shape", 0, 0, x)
+		}
 		c.p.Heat *= shape.HeatScale()
 		if shape.Quirk == ShapeLean {
+			c.total("lean shape", 0, 0, LeanHeat)
 			c.p.Heat *= LeanHeat
 		}
 		if hair {
+			c.total("hair trigger frame", 0, 0, HairHeat)
 			c.p.Heat *= HairHeat
 		}
+	}
+	if c.dockHeat != 0 {
+		c.total("docked hexes", 0, c.dockHeat, 0)
 	}
 	c.p.Heat += c.dockHeat
 	if c.overflow {
@@ -176,10 +192,14 @@ func Compile(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 		case CostBlood:
 			if c.p.Heat > 0 {
 				c.p.HullCost = c.p.Heat * BloodPerHeat
+				c.total("sacrifice pays it in hull", 0, -c.p.Heat, 0)
 				c.p.Heat = 0
 			}
 		case CostWrecks:
 			c.p.WreckCost = WreckCostN
+			if c.p.Heat > 0 {
+				c.total("wrecks pay part of it", 0, -c.p.Heat, 0)
+			}
 			c.p.Heat = min(c.p.Heat, 0)
 		}
 	}
@@ -225,6 +245,12 @@ type compiler struct {
 	// pay is the hex's first cost part, stance its first stance part.
 	pay    *Part
 	stance *Part
+	// work, when set, records the working (see Explain); tags counts the
+	// effects tracked so far and why says what the next scale is.
+	work *Working
+	tags uint16
+	why  string
+	mute bool
 }
 
 func (c *compiler) alloc() (uint8, error) {
@@ -268,6 +294,19 @@ func (c *compiler) cost(p Part, depth int) {
 	}
 	c.p.Power += power * f
 	c.p.Heat += heat * f
+	if c.work != nil {
+		why := costName(p, c.reg)
+		if depth > 0 {
+			why += fmt.Sprintf(", nested x%.1f", 1+NestCostPerDepth*float64(depth))
+		}
+		switch p.Quirk {
+		case QuirkRelay:
+			why += ", relay +50%"
+		case QuirkRadiant:
+			why += ", radiant +2 heat"
+		}
+		c.costLine(why, power*f, heat*f)
+	}
 }
 
 type span struct {
@@ -343,6 +382,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			fed[s] = span{i, len(c.p.Steps), true}
 			c.cost(p, depth)
 			if fr.Bend == BendSurge {
+				c.why = "surge frame"
 				c.scale(fed[s], VerbAll, SurgeScale)
 			}
 			c.frameCost(fr, pw, ht)
@@ -367,6 +407,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		fed[s] = span{i, i + 1, true}
 		c.cost(p, depth)
 		if fr.Bend == BendSurge {
+			c.why = "surge frame"
 			c.scale(fed[s], VerbAll, SurgeScale)
 		}
 		c.frameCost(fr, pw, ht)
@@ -421,6 +462,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				count = uint8(len(c.p.Conds))
 				c.p.Conds = append(c.p.Conds, cp)
 				c.p.Heat += cp.Heat() * float32(1+NestCostPerDepth*float64(depth))
+				c.costLine("condition tiles", 0, cp.Heat()*float32(1+NestCostPerDepth*float64(depth)))
 				for _, t := range p.Cond.Tiles() {
 					if t.K == TileBank {
 						c.useBank(Part{Kind: KindCharge, Bank: t.B})
@@ -505,6 +547,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				return err
 			}
 			st := Step{Src: src, Src2: guard, Value: p.Value * p.Rarity.Scale()}
+			c.track(&st, p, p.Effect.String(), p.Value, s, depth)
 			switch p.Effect {
 			case EffectTaunt:
 				st.Op = OpTaunt
@@ -543,6 +586,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			// while the guard register holds someone. Outside a branch the
 			// guard is the caster, who is always there.
 			st := Step{Src: src, Src2: guard, Type: p.Type, Value: p.Value * p.Rarity.Scale()}
+			c.track(&st, p, costName(p, c.reg), p.Value, s, depth)
 			if p.Effect.Sustain() {
 				// Mend and Shield land on the targets beside them, or the
 				// caster with none; in a branch, on the caster when the
@@ -571,9 +615,11 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			case EffectDamage:
 				st.Op = OpDamage
 				st.Value *= c.trig.Value
+				c.factor(&st, c.trig.Trigger.String()+" trigger", c.trig.Value)
 				if c.trig.Trigger.Stealthy() {
 					if m := c.reg.Get(p.Type).StealthMult; m > 0 {
 						st.Value *= m
+						c.factor(&st, c.reg.Get(p.Type).Name+" from hiding", m)
 					}
 				}
 			case EffectPush:
@@ -585,6 +631,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			case BendLeech:
 				if st.Op == OpDamage {
 					st.Value *= 1 - LeechCut
+					c.factor(&st, "leech frame", 1-LeechCut)
 					st.Flag |= FlagLeech
 				}
 			case BendLonely:
@@ -639,6 +686,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			lo := fed[s].lo
 			c.p.Steps = append(c.p.Steps, c.p.Steps[lo:]...)
 			fed[s].hi = len(c.p.Steps)
+			c.costLine("twin frame runs it again", c.p.Power-pw, c.p.Heat-ht)
 			c.p.Power += c.p.Power - pw
 			c.p.Heat += c.p.Heat - ht
 			c.dockHeat += c.dockHeat - dh
@@ -647,6 +695,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			lo := fed[s].lo
 			c.p.Steps = append(c.p.Steps, c.p.Steps[lo:]...)
 			fed[s].hi = len(c.p.Steps)
+			c.costLine("doubler frame, Heat again", 0, c.p.Heat-ht)
 			c.p.Heat += c.p.Heat - ht
 			c.dockHeat += c.dockHeat - dh
 		case BendKillLock:
@@ -660,6 +709,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			c.p.Steps = append(c.p.Steps, c.p.Steps[lo:hi]...)
 			fed[s].hi = len(c.p.Steps)
 		case BendSurge:
+			c.why = "surge frame"
 			c.scale(fed[s], VerbAll, SurgeScale)
 		}
 		c.frameCost(fr, pw, ht)
@@ -704,6 +754,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			mult[s] = f
 			for range times {
 				if f.ok {
+					c.why = multWhy(p)
 					c.scale(f, p.Verb, x)
 				}
 			}
@@ -717,6 +768,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			// them all (a Hub's center: the whole ring), each step once.
 			lo, hi := len(c.p.Steps), 0
 			var done []bool
+			before := c.snapTags()
 			for _, a := range order[:n] {
 				if a == s || h.Shape.Graph().Out[a]&bit(s) == 0 || !h.Feeds(a, s) {
 					continue
@@ -734,7 +786,9 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 					}
 					done[i] = true
 					for range times {
+						c.mute = true
 						c.scale(span{i, i + 1, true}, p.Verb, x)
+						c.mute = false
 					}
 					if over {
 						c.flag(span{i, i + 1, true}, p.Verb, FlagOverflow)
@@ -742,6 +796,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 				}
 				lo, hi = min(lo, f.lo), max(hi, f.hi)
 			}
+			c.noteSnap(before, multWhy(p))
 			mult[s] = span{lo, hi, hi > lo}
 			continue
 		}
@@ -755,6 +810,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		}
 		mult[s] = f
 		for range times {
+			c.why = multWhy(p)
 			c.scale(f, p.Verb, x)
 		}
 		if over {
@@ -820,6 +876,7 @@ func (c *compiler) callLib(lib *Hex, p Part, origin, src uint8, depth int, seen 
 		return 0, fmt.Errorf("calls nest more than %d deep", MaxCallDepth)
 	}
 	pw, ht := c.p.Power, c.p.Heat
+	nc := c.costMark()
 	at := len(c.p.Steps)
 	seen[lib] = true
 	c.calling++
@@ -833,12 +890,14 @@ func (c *compiler) callLib(lib *Hex, p Part, origin, src uint8, depth int, seen 
 	if f := (span{at, len(c.p.Steps), len(c.p.Steps) > at}); f.ok {
 		for _, o := range p.Opts {
 			if o.Value != 0 {
+				c.why = "call option " + o.Verb.String()
 				c.scale(f, o.Verb, 1+(o.Value-1)*o.Rarity.Scale())
 			}
 		}
 	}
 	d := c.p.Heat - ht
 	c.p.Power, c.p.Heat = pw, ht
+	c.costCut(nc)
 	if d > 0 {
 		d *= lib.Shape.HeatScale()
 		if lib.Shape.Quirk == ShapeLean {
@@ -974,6 +1033,22 @@ func (c *compiler) relay(st Step) error {
 	if arc.Op == OpDamage {
 		arc.Value *= RelayFrac
 	}
+	if c.work != nil && st.Tag != 0 {
+		c.tags++
+		arc.Tag = c.tags
+		for _, e := range c.work.Effects {
+			if e.Tag == st.Tag {
+				e.Name += " arc to the next foe"
+				e.Tag = arc.Tag
+				e.Factors = append(append([]Factor(nil), e.Factors...), Factor{"relay arc", RelayFrac})
+				if arc.Op != OpDamage {
+					e.Factors = e.Factors[:len(e.Factors)-1]
+				}
+				c.work.Effects = append(c.work.Effects, e)
+				break
+			}
+		}
+	}
 	c.emit(arc)
 	return nil
 }
@@ -1006,12 +1081,31 @@ func (c *compiler) feed(h *Hex, s int, order []int, tgt [Slots]int, landing uint
 
 func (c *compiler) scale(f span, v Verb, x float32) {
 	all := v == VerbAll
+	var seen []uint16
+	note := func(st *Step) {
+		if c.work == nil || c.mute || st.Tag == 0 || x == 1 {
+			return
+		}
+		for _, t := range seen {
+			if t == st.Tag {
+				return
+			}
+		}
+		seen = append(seen, st.Tag)
+		why := c.why
+		if why == "" {
+			why = "multiplier"
+		}
+		c.factor(st, why, x)
+	}
+	defer func() { c.why = "" }()
 	for i := f.lo; i < f.hi; i++ {
 		st := &c.p.Steps[i]
 		switch st.Op {
 		case OpDamage, OpMend, OpShield, OpPurge:
 			if all || v == VerbDamage {
 				st.Value *= x
+				note(st)
 			}
 			if v == VerbMarked && st.Op == OpDamage {
 				if st.Bonus == 0 {
@@ -1022,10 +1116,12 @@ func (c *compiler) scale(f span, v Verb, x float32) {
 		case OpPush, OpMove:
 			if all || v == VerbPush {
 				st.Value *= x
+				note(st)
 			}
 		case OpStatus, OpTaunt, OpBuff, OpRaise:
 			if all || v == VerbDuration {
 				st.Value *= x
+				note(st)
 			}
 		case OpSelect:
 			if (all || v == VerbCount) && st.Target.Counted() && st.Count < MaxTargets {
@@ -1058,6 +1154,10 @@ func (c *compiler) flag(f span, v Verb, fl uint8) {
 // takes the part's Power back and adds Heat, a Prism or a loot Surge
 // adds a little Heat. The frame's grade cuts the Heat.
 func (c *compiler) frameCost(f Frame, pw, ht float32) {
+	if c.work != nil {
+		p0, h0 := c.p.Power, c.p.Heat
+		defer func() { c.costLine(f.Bend.String()+" frame", c.p.Power-p0, c.p.Heat-h0) }()
+	}
 	switch f.Bend {
 	case BendSiphon:
 		c.p.Power = pw
@@ -1252,7 +1352,25 @@ func (c *compiler) rider(st Step) {
 	default:
 		return
 	}
+	if c.work != nil {
+		c.tags++
+		r.Tag = c.tags
+		c.work.Effects = append(c.work.Effects, EffectWork{Tag: r.Tag, Name: "rider " + c.reg.Get(st.Type).Name, Op: r.Op, Type: r.Type, Base: r.Value})
+		c.costLine("rider", RiderCost*4, RiderCost*3)
+	}
 	c.emit(r)
 	c.p.Power += RiderCost * 4
 	c.p.Heat += RiderCost * 3
+}
+
+// multWhy is how a multiplier reads in the working.
+func multWhy(p Part) string {
+	w := "multiplier"
+	if p.Verb == VerbAll {
+		w = "all-round multiplier"
+	}
+	if p.Rarity > Common {
+		w = p.Rarity.String() + " " + w
+	}
+	return w
 }

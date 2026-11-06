@@ -103,6 +103,14 @@ const stickPref = "hexes.move"
 const mouseID = -1
 
 type Game struct {
+	// sheet is the item card on show while sheetOn; peek is the slot
+	// whose card a held cast button shows (-1 for none), as peekSheet.
+	sheet      loot.Sheet
+	sheetOn    bool
+	peekBtn    int
+	peekT      float64
+	peek       int
+	peekSheet  loot.Sheet
 	sim        *game.Sim
 	w, h       int
 	k          float64 // device pixels per CSS pixel; UI sizes scale by it
@@ -154,6 +162,7 @@ func newGame() *Game {
 		face:  &text.GoTextFace{Source: src, Size: 15},
 		small: &text.GoTextFace{Source: src, Size: 12},
 		big:   &text.GoTextFace{Source: src, Size: 30},
+		peek:  -1,
 	}
 	g.disc = ebiten.NewImage(64, 64)
 	vector.DrawFilledCircle(g.disc, 32, 32, 31, color.White, true)
@@ -198,6 +207,9 @@ func (g *Game) Update() error {
 	g.frame++
 	g.watchTeach()
 	g.autosave()
+	if g.updateSheet() {
+		return nil // paused while a card is open
+	}
 	if g.updateMenu() {
 		return nil // paused while the menu is open
 	}
@@ -337,6 +349,16 @@ func (g *Game) Update() error {
 	if g.stick.On && !held {
 		g.stick.End()
 	}
+	if i := g.peekCast(); i != g.peek {
+		g.peek = i
+		if i >= 0 {
+			if sh, err := g.sim.SlotSheet(i); err == nil {
+				g.peekSheet = sh
+			} else {
+				g.peek = -1
+			}
+		}
+	}
 	if sx, sy := g.stick.Vector(); sx != 0 || sy != 0 {
 		// The stick points on screen; the floor runs squashed under it.
 		wx, wy := sx, sy/viewCos
@@ -411,6 +433,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawDraft(screen)
 	if g.menu != menuClosed {
 		g.drawMenu(screen)
+	}
+	switch {
+	case g.sheetOn:
+		g.drawSheet(screen, g.sheet, false)
+	case g.peek >= 0 && !g.ed.on && g.menu == menuClosed:
+		g.drawSheet(screen, g.peekSheet, true)
 	}
 	g.devShot(screen)
 }
@@ -669,9 +697,9 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		sa := min(1, p.U.ShieldLeft/1.5)
 		vector.DrawFilledRect(screen, bx, by, sw, u(4), fade(colShield, 0.9*sa), false)
 	}
-	g.bar(screen, bx, by+u(20), bw, u(12), rig.Power/rig.MaxPower, colPower, fmt.Sprintf("POWER %.0f", rig.Power))
+	g.bar(screen, bx, by+u(20), bw, u(12), rig.Power/rig.MaxPower, colPower, fmt.Sprintf("POWER %.0f / %.0f", rig.Power, rig.MaxPower))
 	heatCol := colHeat
-	heatLabel := fmt.Sprintf("HEAT %.0f", rig.Heat)
+	heatLabel := fmt.Sprintf("HEAT %.0f / %.0f", rig.Heat, rig.MaxHeat)
 	if rig.Locked() {
 		heatCol = colHot
 		if rig.Heat > 0 {
@@ -747,6 +775,9 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 			g.label(screen, g.small, shortName(sim.Load.Names[i]), float64(x+cardW/2), float64(cy+cardH*0.32), slotCol[i], true)
 			g.label(screen, g.small, sub, float64(x+cardW/2), float64(cy+cardH*0.72), colDim, true)
 			continue
+		}
+		if pr := sim.Load.Progs[i]; pr != nil && sim.SlotFlash[i] <= 0 {
+			sub += "  ·  " + costTag(pr.Power, pr.Heat)
 		}
 		g.label(screen, g.small, sim.Load.Names[i]+"  ·  "+sub, float64(x+u(7)), float64(cy+cardH*0.3), slotCol[i], false)
 		g.label(screen, g.small, sim.Load.Blurb[i], float64(x+u(7)), float64(cy+cardH*0.7), colDim, false)
