@@ -35,6 +35,8 @@ GOOS=js GOARCH=wasm go test -exec=$PWD/tools/jstest/exec.sh ./cmd/hexes
 - Desktop: WASD or arrows to move (or hold the mouse button and point), 1 to 4 press the cast buttons (Space and J are button 1), R or Shift vents heat, Tab or E at a workbench opens the hex editor (1 to 4 pick a hex in there, Esc closes), Enter redeploys after dying, Esc or M opens the menu.
 - Touch: hold anywhere to walk toward your finger, tap the numbered cast buttons, VENT, and HEX at a workbench, and MENU (top right) for your record and the start-fresh button. Or tap MOVE (top right) to switch to STICK: press anywhere on the left half to plant a thumb joystick there, drag to steer (light push walks slow, 15% deadzone, the anchor follows your thumb past the rim). The choice is saved in the browser. The mouse follows the same mode.
 - Sound: the speaker button left of MENU mutes and unmutes; the menu has the volume (- and +, tap the middle to mute). Both are saved. Browsers start sound on your first tap or key.
+- Zoom: pinch with two fingers, the mouse wheel, or + and - (0 resets). It's saved.
+- Repair pads: stand on the green plus to patch your hull (see Repair pads below).
 - Strikes on an adjacent foe are automatic. Walk over a dropped part to pick it up. Walk onto the stairs to go down a level.
 - Hex editor (only at a workbench, game paused): tap a part, then tap where it goes. Pack to slot swaps loot in, slot to slot rewires the hex, slot to an empty pack cell takes a part out, SCRAP throws away the picked pack part. The hex recompiles on every tap; a refused edit says why.
 
@@ -372,6 +374,14 @@ A fresh save opens on PICK YOUR RIG: three kits rolled from the save's seed, eac
 ## Gunners in corridors (`game/squad.go`)
 
 Gunners kite to range 3 to 5. When a packmate blocks the way back in a narrow tunnel they now, in order: swap places with a melee ally behind them, ask the gunner behind to shuffle back (up to 4 deep), or sidestep to a free tile no closer to you, preferring one with a clear line. While allies still block the retreat they hold fire rather than shoot point blank. Only a gunner with nowhere to go fights close: a rifle-butt swing at 60% damage when adjacent, or a slow 0.9 s aim at range 2.
+
+## Repair pads (`game/repair.go`, `dungeon/gen.go`, `cmd/hexes/pad.go`)
+
+Every floor has one repair pad, two from 14 rooms up (about depth 5). The generator sets each in the room whose middle is farthest on foot from the nearest of the start, the stairs and any pad already placed, at least 6 steps from both, and it draws nothing from the floor's random stream, so floors are otherwise unchanged. Stand on a pad and it patches 15% of max hull a second out of a store of 60% that lasts the floor; it only drains while patching, so stepping on at full hull costs nothing. Losing any hull jams it for 1.5 s, which makes it a place to heal after a fight: a Mend still heals mid-fight anywhere, and a Shield soaking hits keeps the pad running. What a pad has given is saved, so a reload can't refill it; a new floor or a death's respawn brings fresh pads. It reads as a mint plate with a plus and a ring that empties as it gives out, throws a column of light while patching, flickers amber when jammed, goes grey when spent, and shows as a plus on the minimap. Patching pops +N like a Mend, with its sound.
+
+## Dungeon zoom (`cmd/hexes/zoom.go`)
+
+Pinch with two fingers, roll the mouse wheel, or press + and - (0 resets), between 0.7x and 2x of the size the window picks. The 36° tilt and the camera on the player stay as they were; only the hex size changes, easing to the target so a notch glides. Fingers in a pinch don't steer or hold the stick until they lift; in stick mode a second finger within a quarter second of the first turns the new stick into a pinch, and a stick held longer stays a stick. Floor and body sprites are scaled while the zoom moves and redrawn once it settles (or drifts past 0.8x to 1.25x), then the zoom is saved (`hexes.zoom`).
 
 ## Defaults I picked
 

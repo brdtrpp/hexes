@@ -145,6 +145,7 @@ func (g *Game) drawMinimap(screen *ebiten.Image) {
 			vector.DrawFilledRect(screen, x-g.u(2), y-g.u(2), g.u(4), g.u(4), colBench, false)
 		}
 	}
+	g.drawPadMarks(screen, at)
 	if c := &g.sim.Cache; c.Active && c.Depth == g.sim.Depth {
 		dot(c.At, g.u(2.5), colSalvage)
 	}

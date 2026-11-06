@@ -282,6 +282,8 @@ type Sim struct {
 	// Benches are this floor's workbenches, the only places hexes can be
 	// edited (bench.go).
 	Benches [NumBenches]skill.Coord
+	// Pads are the floor's repair pads (repair.go).
+	Pads []Pad
 
 	// Squads and the gunners' shots in the air (squad.go).
 	squads [MaxSquads]squad
@@ -304,6 +306,7 @@ type Sim struct {
 	dotClock float32
 	hazClock float32
 	safe     skill.Coord // last tile the player stood on that wasn't a pit
+	pad      padState    // the repair pad being stood on (repair.go)
 }
 
 // New starts a run at depth 1, at the bottom of the teaching ladder.
@@ -395,6 +398,7 @@ func (s *Sim) load(depth int, hpFrac float32) {
 	s.Actors[s.Player].placeFree(f.Start)
 	s.Actors[s.Player].FaceX = 1
 	s.safe = f.Start
+	s.placePads()
 	for _, sp := range f.Spawns {
 		st := enemyTable[KindGrunt+Kind(sp.Kind)]
 		id := s.spawn(KindGrunt+Kind(sp.Kind), 1, sp.At, sp.Level, st.hp*scale(sp.Level))
@@ -501,6 +505,7 @@ func (s *Sim) Step(dt float32) {
 	s.advance(dt)
 	s.timers(dt)
 	s.pickup(dt)
+	s.repair(dt)
 	s.refreshSight()
 
 	p := s.P()

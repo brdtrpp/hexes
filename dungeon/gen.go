@@ -77,6 +77,7 @@ func ParamsFor(depth int) Params {
 // zero value is ready to use; one Generator per goroutine.
 type Generator struct {
 	dist, queue []int32
+	near        []int32
 	order       []int
 	inTree      []bool
 	best        []int
@@ -123,6 +124,7 @@ func (g *Generator) GenerateWith(seed uint64, depth int, p Params) *Floor {
 	g.clusters(f, &rng, p.Hazards, p.HazardSize, Hazard, exitRoom)
 	f.Set(f.Exit, Stairs)
 	g.spawn(f, &rng, p, exitRoom)
+	g.placePads(f, exitRoom)
 	return f
 }
 
@@ -390,6 +392,83 @@ func (g *Generator) spawn(f *Floor, rng *rng, p Params, exitRoom int) {
 		}
 		f.Spawns = append(f.Spawns, Spawn{At: at, Kind: kind, Level: lvl, Room: ri})
 	}
+}
+
+// Repair pads. Every floor has PadsBase of them, and one more from
+// PadsMoreRooms rooms up. Each goes in the room whose middle is farthest
+// on foot from the nearest of the start, the stairs and any pad already
+// placed, so a pad is a detour into the floor, never a stop on the way in
+// or out. Placing them draws nothing from the floor's random stream, so
+// every other part of a floor is the same with or without them.
+const (
+	PadsBase      = 1
+	PadsMoreRooms = 14
+	// PadMinSteps is how far on foot a pad must be from the start and
+	// the stairs; a floor with no room that far gets fewer pads.
+	PadMinSteps = 6
+)
+
+// PadsFor is how many pads a floor of this many rooms gets.
+func PadsFor(rooms int) int {
+	if rooms >= PadsMoreRooms {
+		return PadsBase + 1
+	}
+	return PadsBase
+}
+
+func (g *Generator) placePads(f *Floor, exitRoom int) {
+	f.Pads = f.Pads[:0]
+	n := len(f.Tiles)
+	if cap(g.near) < n {
+		g.near = make([]int32, n)
+	}
+	near := g.near[:n]
+	// near is the walking distance to the closest of start, stairs and
+	// pads so far.
+	merge := func(from skill.Coord, first bool) {
+		f.DistanceField(from, g.dist, g.queue)
+		for i, d := range g.dist {
+			if first || (d >= 0 && (near[i] < 0 || d < near[i])) {
+				near[i] = d
+			}
+		}
+	}
+	merge(f.Start, true)
+	merge(f.Exit, false)
+	for k := PadsFor(len(f.Rooms)); k > 0; k-- {
+		best, bestD := skill.Coord{}, int32(PadMinSteps-1)
+		for ri, r := range f.Rooms {
+			if ri == 0 || ri == exitRoom {
+				continue
+			}
+			at, ok := padSpot(f, r)
+			if !ok {
+				continue
+			}
+			if d := near[f.Index(at)]; d > bestD {
+				best, bestD = at, d
+			}
+		}
+		if bestD < PadMinSteps {
+			return
+		}
+		f.Pads = append(f.Pads, best)
+		merge(best, false)
+	}
+}
+
+// padSpot is where a pad goes in room r: its middle, or the first open
+// ground next to it when the middle isn't plain floor.
+func padSpot(f *Floor, r Room) (skill.Coord, bool) {
+	if f.At(r.Center) == Ground {
+		return r.Center, true
+	}
+	for _, d := range skill.HexDirs {
+		if n := r.Center.Add(d); f.At(n) == Ground {
+			return n, true
+		}
+	}
+	return skill.Coord{}, false
 }
 
 func resize(b []bool, n int) []bool {

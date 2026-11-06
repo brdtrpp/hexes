@@ -102,6 +102,20 @@ func lineOn(img *ebiten.Image, x0, y0, x1, y1 float64, c color.RGBA, w float32) 
 
 // buildTiles draws every floor and actor sprite for the current hex size.
 func (g *Game) buildTiles() {
+	// Let the last size's sprites go: a zoom redraws them now and then.
+	for _, img := range g.tiles {
+		img.Deallocate()
+	}
+	for _, img := range g.look.body {
+		if img != nil {
+			img.Deallocate()
+		}
+	}
+	for _, img := range g.look.floor {
+		if img != nil {
+			img.Deallocate()
+		}
+	}
 	g.tileSize = g.size
 	g.tiles = map[dungeon.Tile]*ebiten.Image{}
 	s := g.size
@@ -468,7 +482,7 @@ func (g *Game) actorLookOf(i int) actorLook {
 	sim := g.sim
 	a := &sim.Actors[i]
 	t := float64(g.frame) / 60
-	l := actorLook{alpha: 1, scale: 1, R: g.look.bodyR[a.Kind], top: bodyTop(a.Kind)}
+	l := actorLook{alpha: 1, scale: 1, R: g.look.bodyR[a.Kind] * g.spriteK(), top: bodyTop(a.Kind)}
 	spin := 0.0
 	if !a.U.Alive {
 		if a.DeadFor > 0.6 {
@@ -603,10 +617,11 @@ func (g *Game) drawBody(screen *ebiten.Image, i int) {
 	b := img.Bounds()
 	op := &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterLinear
+	sk := g.spriteK() // the sprite's drawn for the size before a zoom
 	place := func(dy float64, w float64) {
 		op.GeoM.Reset()
 		op.GeoM.Translate(-float64(b.Dx())/2, -float64(b.Dy())/2)
-		op.GeoM.Scale(l.bx*w, l.by*w)
+		op.GeoM.Scale(l.bx*w*sk, l.by*w*sk)
 		op.GeoM.Rotate(l.ang)
 		op.GeoM.Scale(p, sq)
 		op.GeoM.Translate(l.tx, l.ty+dy)

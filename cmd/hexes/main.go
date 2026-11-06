@@ -150,6 +150,9 @@ type Game struct {
 	teach     teachState // new unlocks to pulse (teach.go)
 	ringMode  uint8      // how ringPath lays rings: flat UI, on the floor, or local (fxdraw.go)
 	decals    decalState // marks skills leave on the floor (skin.go)
+	// padTaught: the repair pad's how-to has shown this session (pad.go).
+	padTaught bool
+	zm        zoomState // the dungeon view's zoom (zoom.go)
 }
 
 func newGame() *Game {
@@ -170,6 +173,7 @@ func newGame() *Game {
 	g.camX, g.camY = p.Pos()
 	g.stickMode = loadPref(stickPref) == "stick"
 	g.stick.Deadzone = 0.15
+	g.zm.init(loadPref(zoomPref))
 	g.loadSave()
 	g.sim.OfferKits()
 	g.initFX()
@@ -188,7 +192,8 @@ func (g *Game) Layout(ow, oh int) (int, int) {
 	if w != g.w || h != g.h || k != g.k {
 		g.w, g.h, g.k = w, h, k
 		short := math.Min(float64(ow), float64(oh))
-		g.size = k * math.Max(13, math.Min(28, short/20))
+		g.zm.base = k * math.Max(13, math.Min(28, short/20))
+		g.size = g.zm.size()
 		r := k * math.Max(34, math.Min(56, short/9))
 		g.layoutButtons(w, h, r)
 		g.modeBtn = pill{float64(w) - 128*k, 10 * k, 116 * k, 26 * k}
@@ -206,6 +211,7 @@ func (g *Game) u(x float64) float32 { return float32(x * g.k) }
 func (g *Game) Update() error {
 	g.frame++
 	g.watchTeach()
+	g.watchPads()
 	g.autosave()
 	if g.updateSheet() {
 		return nil // paused while a card is open
@@ -306,6 +312,7 @@ func (g *Game) Update() error {
 			in.Restart = true
 			if g.stickMode && !g.stick.On && x < float64(g.w)/2 {
 				g.stick.Begin(id, x, y)
+				g.zm.stickAt = g.frame
 			}
 		}
 	}
@@ -314,6 +321,17 @@ func (g *Game) Update() error {
 		x, y := ebiten.TouchPosition(id)
 		press(int(id), float64(x), float64(y))
 	}
+	// Zoom: the wheel, + and -, and two-finger pinches (zoom.go).
+	var free []freeTouch
+	down := map[int]bool{}
+	for _, id := range ebiten.AppendTouchIDs(nil) {
+		x, y := ebiten.TouchPosition(id)
+		down[int(id)] = true
+		if !onButton(float64(x), float64(y)) {
+			free = append(free, freeTouch{int(id), float64(x), float64(y)})
+		}
+	}
+	g.updateZoom(free, down)
 	held := false
 	for _, id := range ebiten.AppendTouchIDs(nil) {
 		x, y := ebiten.TouchPosition(id)
@@ -322,6 +340,8 @@ func (g *Game) Update() error {
 			in.Hold = true
 		}
 		switch {
+		case g.zm.locked[int(id)]:
+			// Pinching, or was: it neither steers nor holds the stick.
 		case g.stick.On && int(id) == g.stick.ID:
 			g.stick.Move(fx, fy)
 			held = true
@@ -403,7 +423,7 @@ func (g *Game) toScreen(x, y float64) (float64, float64) {
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(colBG)
-	if g.tiles == nil || g.tileSize != g.size {
+	if g.needTiles() {
 		g.buildTiles()
 	}
 	g.shakeCamera()
@@ -412,6 +432,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawDrops(screen)
 	g.drawLesson(screen)
 	g.drawBenches(screen)
+	g.drawPads(screen)
 	g.drawLenses(screen)
 	g.drawSalvage(screen)
 	g.drawDecals(screen)
@@ -424,6 +445,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawForms(screen)
 	g.drawParticles(screen)
 	g.drawLabels(screen)
+	g.drawPadLabels(screen)
 	g.ringMode = ringFlat
 	g.drawHUD(screen)
 	g.drawMinimap(screen)

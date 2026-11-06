@@ -256,6 +256,10 @@ type Save struct {
 	// (owned when an older save first loaded).
 	PartsV int   `json:",omitempty"`
 	Kept   []int `json:",omitempty"`
+	// Pads is what the repair pads on floor PadsAt still hold, so a
+	// reload can't refill one (repair.go).
+	Pads   []float32 `json:",omitempty"`
+	PadsAt int       `json:",omitempty"`
 }
 
 // marks lists the set entries of b.
@@ -313,6 +317,9 @@ func (s *Sim) Snapshot() Save {
 	case Playing, Descending, Drafting:
 		p := s.P()
 		sv.HPFrac = p.U.HP / p.U.MaxHP
+		if s.State == Playing {
+			sv.Pads, sv.PadsAt = s.padsLeft(), s.Depth
+		}
 	}
 	return sv
 }
@@ -467,6 +474,7 @@ func (s *Sim) Restore(sv Save) error {
 	s.Draft = Draft{}
 	dirty := s.giveCall() || migrated
 	s.load(sv.Depth, sv.HPFrac)
+	s.restorePads(sv.PadsAt, sv.Pads)
 	s.Dirty = dirty
 	return nil
 }

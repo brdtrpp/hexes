@@ -208,3 +208,57 @@ func BenchmarkDistanceField(b *testing.B) {
 		f.DistanceField(f.Start, dist, q)
 	}
 }
+
+// Repair pads sit on plain reachable floor, well away from the start and
+// the stairs on foot, apart from each other, and nearly every floor has
+// its full count.
+func TestPads(t *testing.T) {
+	var g Generator
+	n := len(make([]int32, MaxW*MaxH))
+	dist, queue := make([]int32, n), make([]int32, n)
+	floors, full := 0, 0
+	for depth := 1; depth <= 40; depth++ {
+		for seed := uint64(1); seed <= 30; seed++ {
+			f := g.Generate(seed*104729, depth)
+			floors++
+			if len(f.Pads) == PadsFor(len(f.Rooms)) {
+				full++
+			}
+			if len(f.Pads) > PadsFor(len(f.Rooms)) {
+				t.Fatalf("depth %d seed %d: %d pads, want at most %d", depth, seed, len(f.Pads), PadsFor(len(f.Rooms)))
+			}
+			for i, p := range f.Pads {
+				if f.At(p) != Ground {
+					t.Fatalf("depth %d seed %d: pad on %s", depth, seed, f.At(p))
+				}
+				for _, from := range []skill.Coord{f.Start, f.Exit} {
+					f.DistanceField(from, dist, queue)
+					if d := dist[f.Index(p)]; d < PadMinSteps {
+						t.Fatalf("depth %d seed %d: pad %d is %d steps from %v", depth, seed, i, d, from)
+					}
+				}
+				for _, q := range f.Pads[:i] {
+					if q == p {
+						t.Fatalf("depth %d seed %d: two pads on %v", depth, seed, p)
+					}
+				}
+			}
+		}
+	}
+	if full*100 < floors*95 {
+		t.Fatalf("only %d of %d floors got their full pads", full, floors)
+	}
+	// Same seed, same pads; and the floor around them is unchanged by them.
+	a, b := Generate(9, 12), g.Generate(9, 12)
+	if len(a.Pads) != len(b.Pads) || hashFloor(a) != hashFloor(b) {
+		t.Fatal("pads aren't deterministic")
+	}
+	for i := range a.Pads {
+		if a.Pads[i] != b.Pads[i] {
+			t.Fatal("pads moved between runs")
+		}
+	}
+	if PadsFor(ParamsFor(1).Rooms) != 1 || PadsFor(ParamsFor(10).Rooms) != 2 {
+		t.Fatalf("pad counts: depth 1 gets %d, depth 10 gets %d", PadsFor(ParamsFor(1).Rooms), PadsFor(ParamsFor(10).Rooms))
+	}
+}

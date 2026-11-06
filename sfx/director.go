@@ -208,6 +208,8 @@ func (d *Director) Hear(e *game.FX, lx, ly float64) {
 		if d.ready(e.Kind, 0, 0.3) {
 			d.play(Purge(e.Value), x, y, lx, ly)
 		}
+	case game.FXPadSpent:
+		d.play(Click(false), x, y, lx, ly)
 	}
 }
 

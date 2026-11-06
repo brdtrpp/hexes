@@ -45,6 +45,7 @@ const (
 	FXTaunt                    // a taunt landed on At, From the taunter
 	FXBuff                     // thorns or haste came on at At; Slot is the effect
 	FXAmbush                   // a hit out of stealth landed on At
+	FXPadSpent                 // the repair pad at At ran dry
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).

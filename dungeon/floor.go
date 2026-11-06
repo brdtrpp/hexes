@@ -77,6 +77,9 @@ type Floor struct {
 	Start  skill.Coord // where the player arrives
 	Exit   skill.Coord // the stairs down
 	Spawns []Spawn
+	// Pads are the floor's repair pads: open ground in the rooms
+	// farthest on foot from both the start and the stairs.
+	Pads []skill.Coord
 }
 
 // In reports whether c is on the floor.

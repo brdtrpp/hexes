@@ -97,14 +97,14 @@ func (g *Game) drawWreck(screen *ebiten.Image, i int) {
 	op := &ebiten.DrawImageOptions{}
 	op.Filter = ebiten.FilterLinear
 	op.GeoM.Translate(-float64(b.Dx())/2, -float64(b.Dy())/2)
-	op.GeoM.Scale(0.95, 0.7)
+	op.GeoM.Scale(0.95*g.spriteK(), 0.7*g.spriteK())
 	op.GeoM.Rotate(ang)
 	op.GeoM.Scale(p, sq)
 	op.GeoM.Translate(gx, gy)
 	op.ColorScale.Scale(0.3*alpha, 0.25*alpha, 0.22*alpha, alpha)
 	screen.DrawImage(img, op)
 	t := float64(g.frame) / 60
-	R := g.look.bodyR[a.Kind]
+	R := g.look.bodyR[a.Kind] * g.spriteK()
 	flick := float32(0.6 + 0.4*math.Sin(t*2.3+float64(i)*1.9))
 	er, eg, eb := colorF(colEmber)
 	g.glow(screen, gx, gy, R*p*0.5, er, eg, eb, alpha*0.3*flick)

@@ -13,6 +13,8 @@ package main
 // HEXES_FRAMES=buttons puts cast triggers in hexes 2 and 4, so three cast
 // buttons show; HEXES_FRAMES=bind does that and opens the editor;
 // HEXES_FRAMES=bench stands still beside the start bench.
+// HEXES_FRAMES=pad stands hurt on a repair pad (HEXES_DEPTH, default 3).
+// HEXES_ZOOM=<z> starts the dungeon view at that zoom.
 // HEXES_FRAMES=grid opens the skill grid on a save a few floors in;
 // HEXES_FRAMES=locker opens the locker on that save.
 // HEXES_FRAMES=draft opens a checkpoint's floor-end draft on that save
@@ -82,7 +84,11 @@ func (g *Game) devInit() {
 			}
 			g.devFrames(os.Getenv("HEXES_FRAMES"))
 			m := os.Getenv("HEXES_FRAMES")
-			d.still = m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits"
+			if z, err := strconv.ParseFloat(os.Getenv("HEXES_ZOOM"), 64); err == nil {
+				g.zm.z, g.zm.want = clampZoom(z), clampZoom(z)
+				g.size = g.zm.size()
+			}
+			d.still = m == "pad" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits"
 			d.gallery = m == "kinds" || m == "grades"
 		}
 	}
@@ -236,6 +242,11 @@ func (g *Game) devFrames(mode string) {
 				a.U.Alive, a.U.HP = false, 0
 			}
 		}
+	case "pad":
+		// Standing hurt on a floor's repair pad, foes cleared.
+		s.DevDepth(envInt("HEXES_DEPTH", 3))
+		s.DevToPad(0.15, envInt("HEXES_PADOFF", 0))
+		g.camX, g.camY = s.P().Pos()
 	case "pack":
 		// A deeper floor, with gunners, walking into the nearest pack.
 		s.DevDepth(envInt("HEXES_DEPTH", 5))
