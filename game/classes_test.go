@@ -133,8 +133,10 @@ func TestNecromancerKit(t *testing.T) {
 	if o := s.Disp.Cast(s.Player, 3, big); o != skill.Fired {
 		t.Fatalf("pact with a wreck: %s", o)
 	}
-	if s.Rig.Heat > heat || s.wreck(int(w)) {
-		t.Fatalf("pact heat %v -> %v, wreck left %v", heat, s.Rig.Heat, s.wreck(int(w)))
+	// The wreck pays half the Heat.
+	full := s.Load.Progs[3].Heat / (1 - skill.WreckHeatCut)
+	if s.Rig.Heat-heat > full*0.51 || s.wreck(int(w)) {
+		t.Fatalf("pact heat %v -> %v (full %v), wreck left %v", heat, s.Rig.Heat, full, s.wreck(int(w)))
 	}
 }
 

@@ -245,9 +245,9 @@ func Describe(p skill.Part, reg *skill.Registry) string {
 			}
 		}
 	case p.Kind == skill.KindCall && p.Call == skill.CallSelf:
-		fmt.Fprintf(&b, ". When this hex finishes it runs again, on whoever reached the call. Each run adds its Heat (%.2gx). Put it behind a gate or it loops until you overheat", 1/p.Rarity.Scale())
+		fmt.Fprintf(&b, ". When this hex finishes it runs again, on whoever reached the call. Each run adds its Heat (%.2gx) and pays %.0f%% of its Power. Put it behind a gate or it loops until you overheat or run dry", 1/p.Rarity.Scale(), 100*skill.CallPower/p.Rarity.Scale())
 	case p.Kind == skill.KindCall:
-		fmt.Fprintf(&b, ". When this hex finishes, %s runs too, on whoever reached the call. Each run adds that hex's Heat (%.2gx)", skill.CallName(p.Call), 1/p.Rarity.Scale())
+		fmt.Fprintf(&b, ". When this hex finishes, %s runs too, on whoever reached the call. Each run adds that hex's Heat (%.2gx) and pays %.0f%% of its Power", skill.CallName(p.Call), 1/p.Rarity.Scale(), 100*skill.CallPower/p.Rarity.Scale())
 	default:
 		if t := ClassText(p); t != "" {
 			b.WriteString(". ")
@@ -273,9 +273,9 @@ func QuirkText(q skill.Quirk) string {
 	case skill.QuirkRadiant:
 		return "Radiant: scales every part in the hex, not just the one before it."
 	case skill.QuirkRelay:
-		return "Relay: arcs on to everything next to each target."
+		return fmt.Sprintf("Relay: arcs on to everything next to each target at %.0f%%, for %.0f%% more cost.", 100*skill.RelayFrac, 100*skill.RelayCost)
 	case skill.QuirkEcho:
-		return "Echo: the whole hex runs twice."
+		return fmt.Sprintf("Echo: the whole hex runs twice, for %.0f%% more Power and Heat.", 100*skill.EchoCost)
 	case skill.QuirkRider:
 		return "Rider: it also leaves its type's status, or a status also stings."
 	case skill.QuirkHeated:
@@ -386,7 +386,7 @@ func ClassText(p skill.Part) string {
 		return formText(p.Form)
 	case skill.KindCost:
 		if p.Cost == skill.CostWrecks {
-			return "The hex adds no Heat: it uses up a wreck near you instead, and won't fire without one"
+			return fmt.Sprintf("A wreck near you pays %.0f%% of the hex's Heat and is used up; the hex won't fire without one", 100*skill.WreckHeatCut)
 		}
 		return fmt.Sprintf("The hex adds no Heat: it takes %.1f%% of your max hull per Heat instead, and won't fire on your last", 100*skill.BloodPerHeat)
 	case skill.KindStance:

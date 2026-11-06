@@ -215,7 +215,7 @@ func (e *Evaluator) calls(w World, ctx *Ctx, res *Result) {
 		c := e.queue[e.qHead]
 		e.qHead = (e.qHead + 1) % MaxPending
 		e.qLen--
-		if res.Calls >= MaxCalls || !e.payCall(ctx.Rig, c) {
+		if res.Calls >= MaxCalls || !e.payCall(w, ctx, c) {
 			res.Halted = true
 			break
 		}
@@ -261,16 +261,31 @@ func (e *Evaluator) Check(p *Program, w World, ctx Ctx) int {
 	return int(e.n[p.WatchRet])
 }
 
-// payCall adds a call's Heat to the rig. It refuses while the rig is
-// locked. Reaching max heat still runs the call but locks the rig, the
-// same as TryFire.
-func (e *Evaluator) payCall(r *Rig, c pending) bool {
+// payCall pays for a queued call: its Heat, a share of its Power
+// (CallPower), and its hull if it's a sacrifice. It refuses while the
+// rig is locked or short of Power, or the caster's hull can't cover it.
+// Reaching max heat still runs the call but locks the rig, the same as
+// TryFire.
+func (e *Evaluator) payCall(w World, ctx *Ctx, c pending) bool {
+	r := ctx.Rig
 	if r == nil {
 		return true
 	}
 	if r.Locked() {
 		return false
 	}
+	pw := c.prog.Power * CallPower * c.heat
+	if r.Power < pw {
+		return false
+	}
+	if hc := c.prog.HullCost * c.heat; hc > 0 {
+		u := w.Unit(ctx.Caster)
+		if u == nil || u.HP <= hc*u.MaxHP {
+			return false
+		}
+		u.HP -= hc * u.MaxHP
+	}
+	r.Power -= pw
 	r.Heat = max(0, r.Heat+max(c.prog.Heat, CallMinHeat)*c.heat)
 	if r.Heat >= r.MaxHeat {
 		r.Heat = r.MaxHeat
@@ -584,6 +599,12 @@ func (e *Evaluator) damage(w World, ctx *Ctx, id EntityID, raw float32, t TypeID
 	dt := e.Reg.Get(t)
 	res.Hits++
 	if dt.Ticks > 0 {
+		// The cap is on the whole hit, before it splits into ticks, so
+		// ticking never gets a hit past it.
+		if lim := e.Rules.HitCap(ctx.Level, u.Level, u.MaxHP); raw > lim {
+			raw = lim
+			res.Capped++
+		}
 		u.AddDot(Dot{PerTick: raw / float32(dt.Ticks), Left: dt.Ticks, Type: t,
 			AttackerLevel: int16(ctx.Level), Owner: ctx.Caster})
 		res.Dots++

@@ -189,7 +189,11 @@ func partLines(p skill.Part, reg *skill.Registry) []Line {
 		_, d := Label(p, reg)
 		stat("Bank "+skill.BankName(p.Bank), d, "kept between firings")
 	case skill.KindCall:
-		stat("Called hex Heat", times(1/sc), "never its Power")
+		if p.RunsNow() {
+			stat("Called hex Heat", times(1/sc), "never its Power")
+		} else {
+			stat("Called hex Heat", times(1/sc), fmt.Sprintf("and %s%% of its Power, each run", num(100*skill.CallPower/sc)))
+		}
 		for _, o := range p.Opts {
 			if o.Value != 0 {
 				stat("Option "+o.Verb.String(), times(1+(o.Value-1)*o.Rarity.Scale()), "")
@@ -206,39 +210,46 @@ func partLines(p skill.Part, reg *skill.Registry) []Line {
 	case skill.KindStance:
 		stat("Pulses every", num(skill.StancePulse)+" s", "while on")
 	}
-	// Costs.
-	pw := p.Power
-	if p.Kind == skill.KindGate || p.Kind == skill.KindCharge {
-		pw /= sc
+	// Costs: the values come from the compiler's own PartCost, the math
+	// says how.
+	pw, heat := skill.PartCost(p, reg)
+	var pm, hm []string
+	if (p.Kind == skill.KindGate || p.Kind == skill.KindCharge) && sc != 1 {
+		pm = append(pm, fmt.Sprintf("%s base %s %s", num(p.Power), times(1/sc), p.Rarity))
 	}
-	heat := p.Heat
-	hm := ""
+	h0 := p.Heat
 	if p.Kind == skill.KindEffect && p.Effect.Typed() {
 		if off := reg.Get(p.Type).HeatOffset; off != 0 {
-			hm = fmt.Sprintf("%s base %+.0f %s", num(p.Heat), off, reg.Get(p.Type).Name)
-			heat += off
+			hm = append(hm, fmt.Sprintf("%s base %+.0f %s", num(p.Heat), off, reg.Get(p.Type).Name))
+			h0 += off
 		}
 	}
-	f := float32(1)
+	if h0 > 0 {
+		switch {
+		case p.Kind == skill.KindMult && sc != 1:
+			hm = append(hm, fmt.Sprintf("%s %s", times(sc), p.Rarity))
+		case p.Kind == skill.KindEffect && p.Effect != skill.EffectPurge && sc != 1:
+			hm = append(hm, fmt.Sprintf("%s %s", times(skill.RarityHeat(p.Rarity)), p.Rarity))
+		}
+	}
 	switch p.Quirk {
 	case skill.QuirkRelay:
-		f = 1 + skill.RelayCost
+		pm = append(pm, times(1+skill.RelayCost)+" relay")
+		hm = append(hm, times(1+skill.RelayCost)+" relay")
 	case skill.QuirkRadiant:
-		heat += skill.RadiantHeatCost
-		hm = strings.TrimSpace(hm + fmt.Sprintf(" +%s radiant", num(skill.RadiantHeatCost)))
+		hm = append(hm, "+"+num(skill.RadiantHeatCost)+" radiant")
+	}
+	if len(hm) > 0 && !strings.Contains(hm[0], "base") {
+		hm = append([]string{num(p.Heat) + " base"}, hm...)
+	}
+	if len(pm) > 0 && !strings.Contains(pm[0], "base") {
+		pm = append([]string{num(p.Power) + " base"}, pm...)
 	}
 	if pw != 0 {
-		m := ""
-		if f != 1 {
-			m = fmt.Sprintf("%s %s relay", num(pw), times(f))
-		}
-		ls = append(ls, Line{Label: "Power", Value: num(pw * f), Math: m, Tone: ToneCost})
+		ls = append(ls, Line{Label: "Power", Value: num(pw), Math: strings.Join(pm, " "), Tone: ToneCost})
 	}
 	if heat != 0 {
-		if f != 1 {
-			hm = strings.TrimSpace(hm + " " + times(f) + " relay")
-		}
-		ls = append(ls, Line{Label: "Heat", Value: signed(heat*f, false), Math: hm, Tone: ToneCost})
+		ls = append(ls, Line{Label: "Heat", Value: signed(heat, false), Math: strings.Join(hm, " "), Tone: ToneCost})
 	}
 	if r := rarityRule(p); r != "" {
 		ls = append(ls, Line{Label: r, Tone: ToneRule})

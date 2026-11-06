@@ -198,9 +198,9 @@ func build(h *Hex, reg *Registry, maxDepth int, work *Working) (*Program, error)
 		case CostWrecks:
 			c.p.WreckCost = WreckCostN
 			if c.p.Heat > 0 {
-				c.total("wrecks pay part of it", 0, -c.p.Heat, 0)
+				c.total("a wreck pays half", 0, -c.p.Heat*WreckHeatCut, 0)
+				c.p.Heat -= c.p.Heat * WreckHeatCut
 			}
-			c.p.Heat = min(c.p.Heat, 0)
 		}
 	}
 	if c.stance != nil {
@@ -276,22 +276,43 @@ func (c *compiler) useBank(p Part) {
 	}
 }
 
-func (c *compiler) cost(p Part, depth int) {
-	f := float32(1 + NestCostPerDepth*float64(depth))
-	heat := p.Heat
-	if p.Kind == KindEffect && p.Effect.Typed() {
-		heat += c.reg.Get(p.Type).HeatOffset
+// PartCost is what one part adds to a hex's Power and Heat, before
+// nesting: its own cost, its type's Heat, what its rarity and quirk add.
+func PartCost(p Part, reg *Registry) (power, heat float32) {
+	heat = p.Heat
+	if p.Kind == KindEffect && p.Effect.Typed() && reg != nil {
+		heat += reg.Get(p.Type).HeatOffset
 	}
-	power := p.Power
-	if p.Kind == KindGate || p.Kind == KindCharge {
+	power = p.Power
+	switch p.Kind {
+	case KindGate, KindCharge:
 		power /= p.Rarity.Scale() // rarer gates and charges run leaner
+	case KindMult:
+		// A rarer multiplier's bonus is bigger, and so is its Heat.
+		if heat > 0 {
+			heat *= p.Rarity.Scale()
+		}
+	case KindEffect:
+		if heat > 0 && p.Effect != EffectPurge {
+			heat *= RarityHeat(p.Rarity)
+		}
 	}
+	f := float32(1)
 	switch p.Quirk {
 	case QuirkRelay:
-		f *= 1 + RelayCost
+		f = 1 + RelayCost
 	case QuirkRadiant:
 		heat += RadiantHeatCost
 	}
+	return power * f, heat * f
+}
+
+// RarityHeat is the factor on a rarer effect's Heat: half its gain.
+func RarityHeat(r Rarity) float32 { return 1 + (r.Scale()-1)/2 }
+
+func (c *compiler) cost(p Part, depth int) {
+	f := float32(1 + NestCostPerDepth*float64(depth))
+	power, heat := PartCost(p, c.reg)
 	c.p.Power += power * f
 	c.p.Heat += heat * f
 	if c.work != nil {

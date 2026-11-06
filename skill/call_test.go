@@ -356,3 +356,24 @@ func BenchmarkCallMachine(b *testing.B) {
 	}
 	b.ReportMetric(float64(res.Calls), "calls/run")
 }
+
+// Purge plus a self call used to loop for free: Purge took the Heat
+// back each pass and calls paid no Power. Now each call pays half the
+// hex's Power, so the loop runs the rig dry and stops.
+func TestPurgeLoopRunsOutOfPower(t *testing.T) {
+	a, c := world()
+	foe := a.Spawn(1, Coord{5, 6}, 10, 1e9)
+	h := NewHex("purge loop", [6]SocketKind{T, W, W, W, W, W})
+	set(t, h, 0, NewTrigger(OnCast))
+	set(t, h, 1, NewTarget(TargetNearest, 0, 1))
+	set(t, h, 2, NewDamage(id("kinetic"), 10))
+	set(t, h, 3, NewPurge(15))
+	set(t, h, 4, NewCall(CallSelf))
+	p := compile(t, h, 0)
+	rig := NewRig(Points{})
+	start := rig.Power
+	res := NewEvaluator(reg, DefaultRules()).Run(p, a, Ctx{Caster: c, Subject: foe, Level: 10, Rig: &rig})
+	if !res.Halted || res.Calls > 2*int(start/p.Power)+1 || rig.Power >= p.Power*CallPower {
+		t.Fatalf("calls %d, power %.1f of %.1f left, halted %v", res.Calls, rig.Power, start, res.Halted)
+	}
+}

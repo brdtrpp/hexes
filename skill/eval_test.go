@@ -152,23 +152,22 @@ func TestAdaptiveResistance(t *testing.T) {
 	}
 }
 
-func TestNaniteTicksSlideUnderCap(t *testing.T) {
+func TestNaniteTicksStayUnderCap(t *testing.T) {
 	a, c := world()
 	f := a.Spawn(1, Coord{4, 6}, 10, 1000)
 	res := NewEvaluator(reg, DefaultRules()).Run(bigHit(t, "nanite", 4000), a, Ctx{Caster: c, Subject: NoEntity, Level: 10})
-	if res.Damage != 0 || res.Dots != 1 {
-		t.Fatalf("nanite should queue, got %+v", res)
+	if res.Damage != 0 || res.Dots != 1 || res.Capped != 1 {
+		t.Fatalf("nanite should queue, capped, got %+v", res)
 	}
 	var total float32
 	for i := 0; i < 8; i++ {
 		total += a.Step(0.5)
 	}
-	// One 4000 hit would be capped to 250. Eight ticks of 500 each cap at
-	// 250 separately, which is enough to kill.
-	if a.Unit(f).Alive {
-		t.Fatalf("ticks dealt %.1f and the foe lived", total)
+	// One 4000 hit is capped to 250, and ticking it out over eight steps
+	// doesn't get round that.
+	if !a.Unit(f).Alive || total > 250.01 || total < 150 {
+		t.Fatalf("ticks dealt %.1f", total)
 	}
-	approx(t, "total", total, 1000)
 }
 
 func TestDroneRaisesWhatItKills(t *testing.T) {

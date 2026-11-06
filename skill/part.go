@@ -380,6 +380,9 @@ const (
 	CallPowerCost = 1
 	CallHeatCost  = 0.5
 	CallMinHeat   = 1
+	// CallPower is the share of a called hex's Power each queued run
+	// pays, so a loop runs down Power as well as filling Heat.
+	CallPower = 0.5
 )
 
 // CallName is how a Call's target reads: "self" or "hex 2".
@@ -477,7 +480,7 @@ func (q Quirk) Fits(p Part) bool {
 const (
 	RelayFrac       = 0.5  // relay arcs land at this share of the value
 	RelayCost       = 0.5  // a relay effect costs this much more Power and Heat
-	EchoCost        = 0.25 // an echo hex costs this much more in total
+	EchoCost        = 0.75 // an echo hex costs this much more in total
 	RadiantHeatCost = 2    // extra Heat for a radiant multiplier
 )
 
@@ -751,8 +754,18 @@ func NewPurge(heat float32) Part {
 }
 
 // NewMult makes a multiplier. Bigger factors run hotter.
+// One that scales everything runs half again hotter; one that only
+// works on marked foes runs cooler.
 func NewMult(v Verb, factor float32) Part {
-	return Part{Kind: KindMult, Verb: v, Value: factor, Power: 3, Heat: 1 + 4*(factor-1)}
+	p := Part{Kind: KindMult, Verb: v, Value: factor, Power: 3, Heat: 1 + 4*(factor-1)}
+	switch v {
+	case VerbAll:
+		p.Heat *= 1.5
+		p.Power++
+	case VerbMarked:
+		p.Heat *= 0.6
+	}
+	return p
 }
 
 // NewGate makes a gate. A zero value takes the default threshold: hull
@@ -993,7 +1006,8 @@ func (c CostKind) String() string { return costNames[c] }
 
 // Cost tuning.
 const (
-	BloodPerHeat = 0.004 // hull share per Heat a sacrifice pays
+	BloodPerHeat = 0.01 // hull share per Heat a sacrifice pays
+	WreckHeatCut = 0.5  // the share of a hex's Heat a wreck pays instead
 	WreckCostN   = 1
 	CostPower    = 1
 )
