@@ -187,11 +187,12 @@ func (g *Game) drawCard(screen *ebiten.Image, top float64) {
 		return
 	}
 	l := game.Ladder[sim.Card]
+	body := sim.LessonCard(sim.Card)
 	a := float32(math.Min(1, float64(sim.CardT)))
 	W := float64(g.w)
 	w := math.Min(W-28*g.k, 520*g.k)
 	per := max(8, int((w-32*g.k)/(7*g.k)))
-	lines := (len(l.Card) + per - 1) / per
+	lines := (len(body) + per - 1) / per
 	th := float64(lines+1) * 15 * g.k
 	r := rect{(W - w) / 2, top, w, 30*g.k + th}
 	vector.DrawFilledRect(screen, float32(r.x), float32(r.y), float32(r.w), float32(r.h), fade(colPanel, 0.92*a), false)
@@ -201,5 +202,5 @@ func (g *Game) drawCard(screen *ebiten.Image, top float64) {
 		head = "HOW TO PLAY"
 	}
 	g.label(screen, g.face, head, r.x+r.w/2, r.y+15*g.k, fade(colLesson, a), true)
-	g.wrapLabel(screen, l.Card, rect{r.x + 8*g.k, r.y + 26*g.k, r.w - 16*g.k, th}, fade(colText, a))
+	g.wrapLabel(screen, body, rect{r.x + 8*g.k, r.y + 26*g.k, r.w - 16*g.k, th}, fade(colText, a))
 }

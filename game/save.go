@@ -244,6 +244,13 @@ type Save struct {
 	BoardKeys     int          `json:",omitempty"`
 	GridNewest    int          `json:",omitempty"`
 	GridRingsSeen int          `json:",omitempty"`
+
+	// Kit is the starter kit (kit.go); saves from before kits have none
+	// and keep the old opening. DraftedTo is the deepest floor whose
+	// draft was taken; saves from before drafts count every floor above
+	// their best as drafted.
+	Kit       int `json:",omitempty"`
+	DraftedTo int `json:",omitempty"`
 }
 
 // marks lists the set entries of b.
@@ -292,11 +299,12 @@ func (s *Sim) Snapshot() Save {
 		Own: marks(s.Own), Seen: marks(s.Seen), Glimpse: marks(s.Glimpse), Reclaim: marks(s.Reclaim),
 		Locker:  append([]skill.Part(nil), s.Locker...),
 		Signals: s.Signals, BoardKeys: s.BoardKeys, GridNewest: s.GridNewest, GridRingsSeen: s.GridRingsSeen,
+		Kit: s.Kit, DraftedTo: s.DraftedTo,
 	}
 	switch s.State {
 	case Dead:
 		sv.Depth = s.LastDeath.To
-	case Playing, Descending:
+	case Playing, Descending, Drafting:
 		p := s.P()
 		sv.HPFrac = p.U.HP / p.U.MaxHP
 	}
@@ -431,6 +439,12 @@ func (s *Sim) Restore(sv Save) error {
 	// count only the rings that are really open, so a new one still pulses.
 	s.GridRingsSeen = min(max(0, s.GridRingsSeen), s.RingsOpen())
 	s.GridPeek = false
+	s.Kit = sv.Kit
+	if s.Kit < 0 || s.Kit > KitDeal {
+		s.Kit = 0
+	}
+	s.DraftedTo = max(sv.DraftedTo, sv.Best-1)
+	s.Draft = Draft{}
 	dirty := s.giveCall()
 	s.load(sv.Depth, sv.HPFrac)
 	s.Dirty = dirty

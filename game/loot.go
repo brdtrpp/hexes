@@ -107,7 +107,7 @@ func (s *Sim) loadLoot(level int) {
 		if s.Learned() {
 			s.Load = BuildLoadout(s.Reg, level, s.Rig.MaxDepth)
 		} else {
-			s.Load = LadderLoadout(s.Reg, level, s.Rig.MaxDepth)
+			s.Load = LadderLoadout(s.Reg, s.curKit(), level, s.Rig.MaxDepth)
 		}
 		return
 	}

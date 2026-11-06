@@ -3,6 +3,7 @@ package game
 import (
 	"testing"
 
+	"hexes/dungeon"
 	"hexes/skill"
 )
 
@@ -99,5 +100,100 @@ func TestHurtFoeFallsBack(t *testing.T) {
 	run(s, 0, 0, 6, func() { back = back || skill.Dist(s.Actors[g].At, p.At) == 1 })
 	if !back {
 		t.Fatal("it never came back")
+	}
+}
+
+// corridor is a one-wide east-west tunnel of length n with the player at
+// its west end.
+func corridor(n int) *Sim {
+	s := openArena(n+4, 9)
+	f := s.Floor
+	mid := f.Start.R
+	for i := range f.Tiles {
+		c := f.CoordOf(i)
+		col := c.Q + c.R>>1
+		if c.R != mid || col < 1 || col > n+2 {
+			f.Tiles[i] = dungeon.Wall
+		}
+	}
+	p := s.P()
+	s.occ[f.Index(p.At)] = skill.NoEntity
+	start := skill.Coord{Q: 2 - mid>>1, R: mid}
+	f.Start = start
+	p.At, p.From = start, start
+	s.occ[f.Index(start)] = s.Player
+	p.placeFree(start)
+	s.safe = start
+	s.refreshField()
+	s.refreshSight()
+	return s
+}
+
+// Gunners queued in a tunnel shuffle back down it to their range instead
+// of shooting from point blank.
+func TestJammedGunnersBackOff(t *testing.T) {
+	s := corridor(30)
+	p := s.P()
+	var gs [3]skill.EntityID
+	for i := range gs {
+		gs[i] = s.spawn(KindGunner, 1, p.At.Add(skill.Coord{Q: 2 + i}), 1, 1e6)
+		s.Actors[gs[i]].Awake = true
+		s.Actors[gs[i]].Squad = 3
+	}
+	s.formSquads()
+	close := 0
+	run(s, 0, 0, 4, func() {
+		for _, g := range gs {
+			if a := &s.Actors[g]; a.Aim > 0 && skill.Dist(a.At, p.At) < GunMin {
+				close++
+			}
+		}
+	})
+	if close > 0 {
+		t.Fatalf("jammed gunners lined up %d frames of point-blank shots", close)
+	}
+	for _, g := range gs {
+		if d := skill.Dist(s.Actors[g].At, p.At); d < GunMin {
+			t.Fatalf("a gunner is still %d hexes away after 4 s in the tunnel", d)
+		}
+	}
+}
+
+// A gunner with a grunt behind it in a tunnel trades places with it.
+func TestJammedGunnerSwapsWithMelee(t *testing.T) {
+	s := corridor(30)
+	p := s.P()
+	g := s.spawn(KindGunner, 1, p.At.Add(skill.Coord{Q: 2}), 1, 1e6)
+	b := s.spawn(KindBrute, 1, p.At.Add(skill.Coord{Q: 3}), 1, 1e6)
+	for _, id := range []skill.EntityID{g, b} {
+		s.Actors[id].Awake = true
+		s.Actors[id].Squad = 4
+	}
+	s.formSquads()
+	run(s, 0, 0, 1.5, nil)
+	if dg, db := skill.Dist(s.Actors[g].At, p.At), skill.Dist(s.Actors[b].At, p.At); dg <= db {
+		t.Fatalf("gunner %d away, brute %d: they didn't trade places", dg, db)
+	}
+}
+
+// A gunner with no way back at all swings instead of shooting point blank.
+func TestCorneredGunnerSwings(t *testing.T) {
+	s := corridor(3)
+	p := s.P()
+	g := s.spawn(KindGunner, 1, p.At.Add(skill.Coord{Q: 1}), 1, 1e6)
+	s.Actors[g].Awake = true
+	// Wall the gunner in behind.
+	f := s.Floor
+	for q := 2; q < 8; q++ {
+		f.Tiles[f.Index(p.At.Add(skill.Coord{Q: q}))] = dungeon.Wall
+	}
+	s.refreshField()
+	hp := p.U.HP
+	run(s, 0, 0, 3, nil)
+	if s.Actors[g].Shots > 0 {
+		t.Fatalf("a cornered gunner fired %d point-blank shots", s.Actors[g].Shots)
+	}
+	if p.U.HP >= hp {
+		t.Fatal("a cornered gunner did nothing at all")
 	}
 }

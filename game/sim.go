@@ -83,6 +83,9 @@ const (
 	Playing State = iota
 	Descending
 	Dead
+	// Drafting waits on a draft pick (draft.go): the floor-end draft at
+	// the stairs, or a fresh save's kit pick. Nothing moves meanwhile.
+	Drafting
 )
 
 // Input is what the player is asking for this frame. The front end fills
@@ -238,6 +241,13 @@ type Sim struct {
 	// recomputed when what you own changes.
 	gridDist []int16
 
+	// Kit is the starter kit picked (kit.go): 1 to KitDeal, 0 for the old
+	// fixed opening. Draft is the draft on screen, and DraftedTo the
+	// deepest floor whose draft has been taken (draft.go).
+	Kit       int
+	Draft     Draft
+	DraftedTo int
+
 	// SlotFlash counts down after a slot tries to fire; SlotLast is how.
 	SlotFlash [MaxSlots]float32
 	SlotLast  [MaxSlots]skill.Outcome
@@ -300,6 +310,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.SustainGiven = false
 	s.Tiles, s.LastTile = 0, 0
 	s.Taught, s.Card, s.CardT = 1, 0, CardShow
+	s.Kit, s.Draft, s.DraftedTo = 0, Draft{}, 0
 	s.newGrid()
 	if s.veteran {
 		s.Taught, s.CardT = len(Ladder), 0
@@ -432,6 +443,8 @@ func (s *Sim) Step(dt float32) {
 			s.respawn()
 		}
 		return
+	case Drafting:
+		return // the world waits on the pick
 	case Descending:
 		s.ageCorpses(dt)
 		if s.StateT >= DescendTime {
@@ -458,6 +471,9 @@ func (s *Sim) Step(dt float32) {
 	}
 	if p.Arrived() && s.Floor.At(p.At) == dungeon.Stairs {
 		s.State, s.StateT = Descending, 0
+		if s.openDraft() {
+			s.State = Drafting
+		}
 	}
 }
 
@@ -727,3 +743,11 @@ func dirTo(a, b skill.Coord) uint8 {
 // DevDepth drops straight onto a fresh floor at depth d, for screenshot
 // tools. Play never calls it.
 func (s *Sim) DevDepth(d int) { s.load(d, 1) }
+
+// DevDraft opens the floor-end draft for depth d on that floor, for the
+// screenshot autopilot.
+func (s *Sim) DevDraft(d int) {
+	s.load(d, 1)
+	s.Draft = s.rollDraft(d)
+	s.State, s.StateT = Drafting, 1
+}
