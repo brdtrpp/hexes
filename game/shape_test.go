@@ -364,8 +364,8 @@ func TestPartsOnlyGoWhereTheyDoSomething(t *testing.T) {
 		}
 	}
 	// Arc Lance: trigger, chain, damage, x2 damage, empty, call. A damage
-	// booster lights after the damage or the open slot 5, not after the
-	// trigger or the call.
+	// booster lights on the empty slot or over the x2, not over the
+	// trigger, which the hex can't run without.
 	s.Stash.Inv = loot.Inventory{}
 	cell := s.Stash.Inv.Add(skill.NewMult(skill.VerbDamage, 1.5))
 	lit := map[int]bool{}
@@ -376,16 +376,12 @@ func TestPartsOnlyGoWhereTheyDoSomething(t *testing.T) {
 	if lit[0] || !lit[3] || !lit[4] {
 		t.Fatalf("damage booster lit %v", lit)
 	}
-	if err := s.SwapIn(0, 1, cell); err == nil || !strings.Contains(err.Error(), "do nothing") {
-		t.Fatalf("booster over the chain target: %v", err)
-	}
-	// Moving the x2 booster next to the trigger is refused; the new one
-	// goes in slot 5, stacking on the x2.
-	if err := s.SwapSlots(0, 3, 1); err == nil {
-		t.Fatal("booster moved onto the chain target's slot")
-	}
+	// Dropped in the empty slot, it finds the damage's free socket.
 	if err := s.SwapIn(0, 4, cell); err != nil {
 		t.Fatal(err)
+	}
+	if h := s.Load.Hexes[0]; !h.Runs(4) {
+		t.Fatal("the new booster isn't in a socket")
 	}
 }
 

@@ -23,12 +23,18 @@ import (
 //
 // The editor only lets a part go where Use says it does something.
 func (h *Hex) Use(s int) (what string, ok bool) {
-	if s < 0 || s >= Slots || !h.Shape.Has(s) {
+	if s < 0 || s >= Slots || !h.HasSlot(s) {
 		return "outside this shape", false
 	}
 	sl := h.Slots[s]
 	if sl.Kind == SlotEmpty {
 		return "", true
+	}
+	if h.Laid() && !h.Runs(s) {
+		if !h.Lay.Pos[s].On {
+			return "not on the hex yet: tap a cell to lay it", true
+		}
+		return "not joined to the trigger, so it doesn't run", true
 	}
 	start := h.TriggerSlot()
 	routes := h.Routes(start)
@@ -264,7 +270,7 @@ func (h *Hex) carries(s int) bool {
 // without is a library hex: it runs when docked into or called.
 func (h *Hex) HasTrigger() bool {
 	for i, sl := range h.Slots {
-		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && h.Shape.Has(i) {
+		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && h.HasSlot(i) {
 			return true
 		}
 	}
@@ -299,7 +305,7 @@ func triggerUse(h *Hex, s int, p Part) (string, bool) {
 
 func (h *Hex) subject() string {
 	for i, sl := range h.Slots {
-		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && h.Shape.Has(i) {
+		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && h.HasSlot(i) {
 			switch sl.Part.Trigger {
 			case OnHit:
 				return "the foe you hit"

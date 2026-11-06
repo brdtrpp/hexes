@@ -94,6 +94,10 @@ type Hex struct {
 	// board has one by that name. The game sets it with Docks; a call
 	// whose library is missing does nothing and passes its group on.
 	Libs [Slots]*Hex `json:"-"`
+	// Lay is where a laid hex's pieces sit (see Piece). The zero Layout
+	// is a hex that runs on its shape's slots, as hexes always did.
+	Lay   Layout `json:",omitzero"`
+	cache *layCache
 }
 
 // NewHex builds a Ring hex with sockets exactly as given and every edge
@@ -245,6 +249,16 @@ type Route struct {
 //     gets no no slot.
 //   - A gate in a no slot tests the ones that failed: an else-if.
 func (h *Hex) Routes(start int) [Slots]Route {
+	if h.Laid() {
+		w := h.wired()
+		r := w.arm
+		for s := range r {
+			if w.runs&bit(s) == 0 || (r[s].Gate >= 0 && w.runs&bit(int(r[s].Gate)) == 0) {
+				r[s] = Route{Gate: -1}
+			}
+		}
+		return r
+	}
 	var r [Slots]Route
 	for i := range r {
 		r[i].Gate = -1

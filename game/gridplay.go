@@ -445,7 +445,7 @@ func (s *Sim) PreviewPart(hex, slot int, p skill.Part) (what string, ok bool) {
 		return "", false
 	}
 	h := s.Load.Hex(hex)
-	if !h.Shape.Has(slot) || h.Slots[slot].Kind == skill.SlotNested {
+	if !h.HasSlot(slot) || h.Slots[slot].Kind == skill.SlotNested {
 		return "no slot there", false
 	}
 	if err := fits(h, slot, p, s.Load.IsMod(hex), s.Reg); err != nil {
@@ -459,7 +459,7 @@ func (s *Sim) PreviewPart(hex, slot int, p skill.Part) (what string, ok bool) {
 // LockerIn puts locker part idx in a hex slot; the slot's old part takes
 // its place in the locker.
 func (s *Sim) LockerIn(hex, slot, idx int) error {
-	if !s.Load.Has(hex) || idx < 0 || idx >= len(s.Locker) || !s.Load.Hex(hex).Shape.Has(slot) {
+	if !s.Load.Has(hex) || idx < 0 || idx >= len(s.Locker) || !s.Load.Hex(hex).HasSlot(slot) {
 		return errors.New("no such slot")
 	}
 	h := s.Load.Hex(hex)
@@ -490,7 +490,7 @@ func (s *Sim) LockerIn(hex, slot, idx int) error {
 
 // LockerOut takes the part in a hex slot out into the locker.
 func (s *Sim) LockerOut(hex, slot int) error {
-	if !s.Load.Has(hex) || !s.Load.Hex(hex).Shape.Has(slot) {
+	if !s.Load.Has(hex) || !s.Load.Hex(hex).HasSlot(slot) {
 		return errors.New("no such slot")
 	}
 	h := s.Load.Hex(hex)

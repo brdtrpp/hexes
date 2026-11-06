@@ -244,7 +244,7 @@ var ErrNeedsTrigger = errors.New("a hex needs a trigger in its top slot")
 // may be empty: an empty cell takes the slot's part out, an empty slot
 // takes the cell's part in.
 func (s *Sim) SwapIn(hex, slot, cell int) error {
-	if !s.Load.Has(hex) || cell < 0 || cell >= loot.InventorySize || !s.Load.Hex(hex).Shape.Has(slot) {
+	if !s.Load.Has(hex) || cell < 0 || cell >= loot.InventorySize || !s.Load.Hex(hex).HasSlot(slot) {
 		return errors.New("no such slot")
 	}
 	h := s.Load.Hex(hex)
@@ -291,7 +291,7 @@ func (s *Sim) SwapIn(hex, slot, cell int) error {
 // SwapSlots trades two slots of one hex, which rewires it: order and
 // neighbors are the whole game.
 func (s *Sim) SwapSlots(hex, a, b int) error {
-	if !s.Load.Has(hex) || !s.Load.Hex(hex).Shape.Has(a) || !s.Load.Hex(hex).Shape.Has(b) {
+	if !s.Load.Has(hex) || !s.Load.Hex(hex).HasSlot(a) || !s.Load.Hex(hex).HasSlot(b) {
 		return errors.New("no such slot")
 	}
 	if a == b {
@@ -336,7 +336,7 @@ func (s *Sim) PreviewIn(hex, slot, cell int) (what string, ok bool) {
 	}
 	h := s.Load.Hex(hex)
 	p := s.Stash.Inv.Parts[cell]
-	if !h.Shape.Has(slot) || h.Slots[slot].Kind == skill.SlotNested {
+	if !h.HasSlot(slot) || h.Slots[slot].Kind == skill.SlotNested {
 		return "no slot there", false
 	}
 	if err := fits(h, slot, p, s.Load.IsMod(hex), s.Reg); err != nil {
@@ -354,7 +354,7 @@ func (s *Sim) PreviewSwap(hex, a, b int) (what string, ok bool) {
 		return "", false
 	}
 	h := s.Load.Hex(hex)
-	if !h.Shape.Has(a) || !h.Shape.Has(b) || h.Slots[a].Kind == skill.SlotNested || h.Slots[b].Kind == skill.SlotNested {
+	if !h.HasSlot(a) || !h.HasSlot(b) || h.Slots[a].Kind == skill.SlotNested || h.Slots[b].Kind == skill.SlotNested {
 		return "no slot there", false
 	}
 	sa, sb := h.Slots[a], h.Slots[b]
@@ -565,10 +565,14 @@ func (s *Sim) recompile(hex int) error {
 		was = s.Load.Edited[hex]
 		s.Load.Edited[hex] = true
 	}
+	h := s.Load.Hex(hex)
+	lay := h.Lay
+	h.Settle()
 	if err := s.rebuildAll(hex); err != nil {
+		h.Lay = lay
 		if !mod {
 			s.Load.Edited[hex] = was
-			if h := s.Load.Hexes[hex]; h.Slots[h.Shape.Entry()].Kind == skill.SlotEmpty {
+			if !h.HasTrigger() && h.Slots[h.Shape.Entry()].Kind == skill.SlotEmpty {
 				return ErrNeedsTrigger
 			}
 		}

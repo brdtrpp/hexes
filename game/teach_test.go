@@ -21,8 +21,8 @@ func TestFreshSaveStartsWithOneHex(t *testing.T) {
 		t.Fatalf("starter shape %v", h.Shape)
 	}
 	order, n := h.Flow(h.TriggerSlot())
-	if n != 3 || h.Slots[order[0]].Part.Trigger != skill.OnCast || h.Slots[order[1]].Part.Kind != skill.KindEffect ||
-		h.Slots[order[2]].Kind != skill.SlotEmpty {
+	if n != 2 || h.Slots[order[0]].Part.Trigger != skill.OnCast || h.Slots[order[1]].Part.Kind != skill.KindEffect ||
+		h.Slots[2].Kind != skill.SlotEmpty {
 		t.Fatalf("starter hex slots %+v", h.Slots)
 	}
 	if s.Load.Keys[0] != 1 || !s.Load.Castable(0) {

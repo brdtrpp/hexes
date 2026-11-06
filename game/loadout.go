@@ -145,6 +145,14 @@ func (l *Loadout) Rebuild(reg *skill.Registry, level, maxDepth, edited int) erro
 			return err
 		}
 	}
+	// The equipped hexes lay their parts as pieces (see skill.Piece):
+	// a hex from before pieces is laid out the way it ran.
+	for _, h := range l.Hexes {
+		if h != nil {
+			h.EnsureLaid()
+			h.Settle()
+		}
+	}
 	var progs [MaxSlots]*skill.Program
 	order := []int{0, 1, 2, 3}
 	if edited >= 0 && edited < MaxSlots {

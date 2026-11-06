@@ -158,7 +158,7 @@ func CompileModule(h *Hex, reg *Registry, maxDepth int) (*Program, error) {
 		if s.Kind == SlotEmpty {
 			continue
 		}
-		if !shape.Has(i) {
+		if !h.HasSlot(i) {
 			return nil, errNotInShape(i, shape)
 		}
 		if s.Kind == SlotPart && s.Part.Kind == KindTrigger {
@@ -199,11 +199,27 @@ func errNotInShape(i int, s Shape) error {
 // there.
 func (c *compiler) dock(h *Hex, order []int, carry [Slots]int, landing uint8, seen map[*Hex]bool) error {
 	for _, s := range order {
-		nh := h.Docks[s]
+		// The way out is on a shape slot; on a laid hex, on the piece
+		// covering that slot's pad.
+		port := s
+		if h.Laid() {
+			port = -1
+			ps, np := h.Shape.Ports()
+			for _, p := range ps[:np] {
+				if !p.In && h.pad(int(p.Slot)) == s {
+					port = int(p.Slot)
+					break
+				}
+			}
+			if port < 0 {
+				continue
+			}
+		}
+		nh := h.Docks[port]
 		if nh == nil || seen[nh] {
 			continue
 		}
-		if _, ok := h.Shape.OutPort(s); !ok {
+		if _, ok := h.Shape.OutPort(port); !ok {
 			continue
 		}
 		if c.docked >= MaxDocked {

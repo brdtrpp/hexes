@@ -61,7 +61,7 @@ func build(h *Hex, reg *Registry, maxDepth int, work *Working) (*Program, error)
 		if s.Kind == SlotEmpty {
 			continue
 		}
-		if !shape.Has(i) {
+		if !h.HasSlot(i) {
 			return nil, errNotInShape(i, shape)
 		}
 		if s.Kind == SlotPart && s.Part.Kind == KindTrigger {
@@ -75,6 +75,9 @@ func build(h *Hex, reg *Registry, maxDepth int, work *Working) (*Program, error)
 		return nil, errors.New("hex has no trigger")
 	}
 	switch {
+	case h.Laid() && !h.Lay.Pos[trig].On:
+		return nil, errors.New("the trigger isn't laid on the hex")
+	case h.Laid(): // a laid hex's trigger sits wherever it was laid
 	case shape.Kind == ShapeFork && trig != Center:
 		return nil, errors.New("a fork's trigger sits in its center")
 	case shape.Kind.Legacy() && shape.Kind != ShapeFork && trig == Center:
@@ -392,7 +395,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			g := half(r)
 			return g, g, nil
 		}
-		src, err = c.feed(h, s, order[:n], tgt, landing)
+		src, err = c.feed(h, s, order[:n], tgt, carry, landing)
 		return src, RegCaster, err
 	}
 
@@ -829,7 +832,7 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 			var done []bool
 			before := c.snapTags()
 			for _, a := range order[:n] {
-				if a == s || h.Shape.Graph().Out[a]&bit(s) == 0 || !h.Feeds(a, s) {
+				if a == s || h.Graph().Out[a]&bit(s) == 0 || !h.Feeds(a, s) {
 					continue
 				}
 				f := resolved(a)
@@ -927,7 +930,7 @@ func (c *compiler) callLib(lib *Hex, p Part, origin, src uint8, depth int, seen 
 		return 0, errBrokenShape(lib.Shape)
 	}
 	for i, sl := range lib.Slots {
-		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && lib.Shape.Has(i) {
+		if sl.Kind == SlotPart && sl.Part.Kind == KindTrigger && lib.HasSlot(i) {
 			return 0, fmt.Errorf("library %s has a trigger", lib.Name)
 		}
 	}
@@ -1048,7 +1051,7 @@ func acts(steps []Step) bool {
 // foes, or "" if nothing does: a watch runs its library on every check.
 func finderOnly(lib *Hex) string {
 	for i, sl := range lib.Slots {
-		if !lib.Shape.Has(i) {
+		if !lib.HasSlot(i) || (lib.Laid() && !lib.Runs(i)) {
 			continue
 		}
 		switch {
@@ -1115,21 +1118,30 @@ func (c *compiler) relay(st Step) error {
 // feed returns the register an effect or nested hex in slot s lands on:
 // the targets in every slot that feeds it, gathered with no one twice.
 // With none, it's the landing.
-func (c *compiler) feed(h *Hex, s int, order []int, tgt [Slots]int, landing uint8) (uint8, error) {
+func (c *compiler) feed(h *Hex, s int, order []int, tgt, carry [Slots]int, landing uint8) (uint8, error) {
 	acc := -1
+	laid := h.Laid()
 	for _, a := range order {
-		if tgt[a] < 0 || !h.Feeds(a, s) {
+		if !h.Feeds(a, s) {
+			continue
+		}
+		in := tgt[a]
+		if in < 0 && laid && carry[a] >= 0 && carry[a] != RegCaster {
+			// A laid effect's group plug passes on who it landed on.
+			in = carry[a]
+		}
+		if in < 0 {
 			continue
 		}
 		if acc < 0 {
-			acc = tgt[a]
+			acc = in
 			continue
 		}
 		r, err := c.alloc()
 		if err != nil {
 			return 0, err
 		}
-		c.emit(Step{Op: OpUnion, Src: uint8(acc), Src2: uint8(tgt[a]), Dst: r})
+		c.emit(Step{Op: OpUnion, Src: uint8(acc), Src2: uint8(in), Dst: r})
 		acc = int(r)
 	}
 	if acc < 0 {

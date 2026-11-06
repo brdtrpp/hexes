@@ -386,12 +386,12 @@ func (h *Hex) Frame(s int) Frame {
 	if s < 0 || s >= Slots {
 		return Frame{}
 	}
-	if s == h.Shape.Twin() {
+	if s == h.pad(h.Shape.Twin()) {
 		f := NewFrame(BendTwin)
 		f.Shaped = true
 		return f
 	}
-	if s == h.Shape.Surge() {
+	if s == h.pad(h.Shape.Surge()) {
 		f := NewFrame(BendSurge)
 		f.Shaped = true
 		return f

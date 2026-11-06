@@ -533,6 +533,8 @@ type Part struct {
 	Form   FormKind   `json:",omitempty"`
 	Cost   CostKind   `json:",omitempty"`
 	Stance StanceKind `json:",omitempty"`
+	// Fit is which silhouette the part rolled as a piece (see PartPiece).
+	Fit uint8 `json:",omitempty"`
 }
 
 // Opt is one multiplier riding on a call as an option. It keeps what it

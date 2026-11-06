@@ -380,6 +380,10 @@ func rollQuirk(s *Shape, next func() uint64) {
 // link from b to a. On the original ring shapes a cut ring edge (Linked)
 // feeds neither way, and a one-way quirk stops the backward half.
 func (h *Hex) Feeds(a, b int) bool {
+	if h.Laid() {
+		g := h.Graph()
+		return a != b && a >= 0 && b >= 0 && a < Slots && b < Slots && g.Out[a]&bit(b) != 0
+	}
 	g := h.Shape.Graph()
 	if a == b || !g.Has(a) || !g.Has(b) {
 		return false
@@ -416,7 +420,7 @@ func (h *Hex) FedBy(s int, order []int) (in [Slots]int, n int) {
 // inFeed is the slot whose output s takes as "the slot before it": the
 // latest slot before s in flow order with a link into s, or -1.
 func (h *Hex) inFeed(s int, order []int) int {
-	g := h.Shape.Graph()
+	g := h.Graph()
 	best := -1
 	for _, a := range order {
 		if a == s {
@@ -432,12 +436,20 @@ func (h *Hex) inFeed(s int, order []int) int {
 // merge reports whether s takes links from two or more slots: a Hub's
 // center, or any generated merge. A merge pools what feeds it and is
 // never one of a gate's branches.
-func (h *Hex) merge(s int) bool { return h.Shape.Graph().Ins(s) >= 2 }
+func (h *Hex) merge(s int) bool { return h.Graph().Ins(s) >= 2 }
 
 // loopSlot is the slot whose carry runs the hex again, or -1: the last
 // slot in flow of an original Loop if it links back to the first, or a
 // generated shape's loop-back.
 func (h *Hex) loopSlot(start int) int {
+	if h.Laid() {
+		// The piece on the shape's loop pad carries the loop.
+		s := h.pad(h.Shape.Graph().LoopFrom())
+		if s < 0 || s == start || !h.Runs(s) {
+			return -1
+		}
+		return s
+	}
 	switch h.Shape.Kind {
 	case ShapeLoop:
 		order, n := h.Flow(start)
@@ -455,22 +467,39 @@ func (h *Hex) loopSlot(start int) int {
 // where its shape puts one.
 func (h *Hex) TriggerSlot() int {
 	for i, s := range h.Slots {
-		if s.Kind == SlotPart && s.Part.Kind == KindTrigger && h.Shape.Has(i) {
+		if s.Kind == SlotPart && s.Part.Kind == KindTrigger && h.HasSlot(i) && (!h.Laid() || h.Lay.Pos[i].On) {
 			return i
 		}
 	}
-	return h.Shape.Entry()
+	return h.entry()
 }
 
 // Flow is the order the hex runs in from slot start, and how many slots
 // that is (see Graph.Flow): around a ring from start, then a Hub's center
 // last; a Fork's center, then chain 0-2, then chain 3-5.
 func (h *Hex) Flow(start int) (order [Slots]int, n int) {
+	if h.Laid() {
+		// Only the pieces that run, in the order the plugs make.
+		w := h.wired()
+		all, m := w.g.Flow(start)
+		for _, s := range all[:m] {
+			if w.runs&bit(s) != 0 {
+				order[n] = s
+				n++
+			}
+		}
+		return order, n
+	}
 	return h.Shape.Graph().Flow(start)
 }
 
 // entry is where a hex with no trigger (a nested one) starts.
-func (h *Hex) entry() int { return h.Shape.Entry() }
+func (h *Hex) entry() int {
+	if h.Laid() {
+		return int(h.wired().g.Entry)
+	}
+	return h.Shape.Entry()
+}
 
 // SlotName is a slot as the editor numbers it: from 1, or C for an
 // original Hub's or Fork's center.

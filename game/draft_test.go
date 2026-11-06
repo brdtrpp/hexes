@@ -225,8 +225,8 @@ func TestKitPick(t *testing.T) {
 	h := s.Load.Hexes[0]
 	order, n := h.Flow(h.TriggerSlot())
 	eff := h.Slots[order[1]].Part
-	if h.Shape.Kind != skill.ShapeTriangle || n != 3 || h.Slots[order[0]].Part.Trigger != skill.OnCast ||
-		eff.Type != s.Reg.MustID(kt.StartType()) || h.Slots[order[2]].Kind != skill.SlotEmpty {
+	if h.Shape.Kind != skill.ShapeTriangle || n != 2 || h.Slots[order[0]].Part.Trigger != skill.OnCast ||
+		eff.Type != s.Reg.MustID(kt.StartType()) || h.Slots[2].Kind != skill.SlotEmpty {
 		t.Fatalf("kit starter hex %+v", h.Slots)
 	}
 	if s.Load.Names[0] != kt.KitName() || s.CardT <= 0 || s.Card != 0 || !s.Load.Castable(0) || s.Load.Keys[0] != 1 {

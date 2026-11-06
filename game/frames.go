@@ -123,7 +123,7 @@ func (s *Sim) FrameChoices() []skill.Frame {
 // frameFits says whether frame f could sit on slot of h as the slot is
 // now, and why not.
 func frameFits(h *skill.Hex, slot int, f skill.Frame, reg *skill.Registry) error {
-	if !h.Shape.Has(slot) {
+	if !h.HasSlot(slot) {
 		return errors.New("no slot there")
 	}
 	if cur := h.Frame(slot); cur.Shaped {

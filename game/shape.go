@@ -173,7 +173,10 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	}
 	h := s.Load.Hex(hex)
 	old := *h
+	// The parts move the way a reshape always moved them, then the new
+	// room lays them out to run that way.
 	nh := old
+	nh.Lay = skill.Layout{}
 	nh.Shape = sh
 	nh.Sockets = ShapeSockets(sh)
 	if s.Load.IsMod(hex) {
@@ -225,6 +228,7 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	if room := MaxFrames - len(s.Frames); room < len(back) {
 		return fmt.Errorf("a %s has fewer slots for frames: scrap %d from the rack first", sh.Name(), len(back)-room)
 	}
+	nh.LayOut(skill.RoomFor(sh))
 	*h = nh
 	if err := s.recompile(hex); err != nil {
 		*h = old
