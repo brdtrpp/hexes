@@ -7,44 +7,44 @@ import "hexes/skill"
 type FXKind uint8
 
 const (
-	FXNumber  FXKind = iota // floating damage number at At
-	FXBolt                  // a hex's hit, From caster to At
-	FXRing                  // a hex fired from At
-	FXPush                  // a push slid something From to At
-	FXSlam                  // pushed into a wall at At (wall at From)
-	FXFall                  // fell into the pit at At
-	FXKill                  // something died at At
-	FXClaw                  // enemy melee From attacker to At
-	FXVent                  // the rig vented at At
-	FXLoot                  // picked up a part at At; Slot is its rarity
-	FXFull                  // walked over a part with a full inventory
-	FXSalvage               // recovered a salvage cache at At; Value is how many parts
-	FXShape                 // learned a shape at At; Slot is its kind
-	FXTile                  // learned a logic tile at At; Slot is its kind
-	FXWave                  // a hex touched a round area: centre X, Y, Value is its radius in hexes
-	FXCone                  // a hex swept a cone from X, Y along DX, DY, Value hexes long
-	FXChain                 // a hex chained through Pts, in hop order
-	FXLens                  // picked up a lens at At; Slot is Optics points gained, Value the new light radius
-	FXFrame                 // racked a frame at At; Slot is its bend
-	FXMend                  // a Mend restored Value hull at At; Mag is how much of max hull
-	FXShield                // a Shield added Value buffer at At; Mag is how much of max hull
-	FXPurge                 // a Purge took Value Heat off the rig at At
-	FXSoak                  // a shield at At soaked Value of a hit; Hurt if it's the player's
-	FXLesson                // took a lesson pickup at At; Slot is its rung on the Ladder
-	FXData                  // earned Value Data at At
-	FXSignal                // found a signal fragment at At
-	FXMuzzle                // a gunner fired from X, Y along DX, DY
-	FXZap                   // a gunner's shot stopped at X, Y (Hurt: on the player)
-	FXBeam                  // a hex swept a line from X, Y along DX, DY, Value hexes long; Slot 1 both ways
-	FXWreck                 // a wreck at At was used up; Slot is its kind
-	FXRaise                 // a wreck at At got up as a minion; Slot is its kind
-	FXDeploy                // a device was placed at At; Slot is its form
-	FXDeviceFire            // a device at At ran its hex; Slot is its form
-	FXExpire                // a device (or a minion, Value 1) at At ran out
-	FXThorns                // thorns hit back at At, From you
-	FXTaunt                 // a taunt landed on At, From the taunter
-	FXBuff                  // thorns or haste came on at At; Slot is the effect
-	FXAmbush                // a hit out of stealth landed on At
+	FXNumber     FXKind = iota // floating damage number at At
+	FXBolt                     // a hex's hit, From caster to At
+	FXRing                     // a hex fired from At
+	FXPush                     // a push slid something From to At
+	FXSlam                     // pushed into a wall at At (wall at From)
+	FXFall                     // fell into the pit at At
+	FXKill                     // something died at At
+	FXClaw                     // enemy melee From attacker to At
+	FXVent                     // the rig vented at At
+	FXLoot                     // picked up a part at At; Slot is its rarity
+	FXFull                     // walked over a part with a full inventory
+	FXSalvage                  // recovered a salvage cache at At; Value is how many parts
+	FXShape                    // learned a shape at At; Slot is its kind
+	FXTile                     // learned a logic tile at At; Slot is its kind
+	FXWave                     // a hex touched a round area: centre X, Y, Value is its radius in hexes
+	FXCone                     // a hex swept a cone from X, Y along DX, DY, Value hexes long
+	FXChain                    // a hex chained through Pts, in hop order
+	FXLens                     // picked up a lens at At; Slot is Optics points gained, Value the new light radius
+	FXFrame                    // racked a frame at At; Slot is its bend
+	FXMend                     // a Mend restored Value hull at At; Mag is how much of max hull
+	FXShield                   // a Shield added Value buffer at At; Mag is how much of max hull
+	FXPurge                    // a Purge took Value Heat off the rig at At
+	FXSoak                     // a shield at At soaked Value of a hit; Hurt if it's the player's
+	FXLesson                   // took a lesson pickup at At; Slot is its rung on the Ladder
+	FXData                     // earned Value Data at At
+	FXSignal                   // found a signal fragment at At
+	FXMuzzle                   // a gunner fired from X, Y along DX, DY
+	FXZap                      // a gunner's shot stopped at X, Y (Hurt: on the player)
+	FXBeam                     // a hex swept a line from X, Y along DX, DY, Value hexes long; Slot 1 both ways
+	FXWreck                    // a wreck at At was used up; Slot is its kind
+	FXRaise                    // a wreck at At got up as a minion; Slot is its kind
+	FXDeploy                   // a device was placed at At; Slot is its form
+	FXDeviceFire               // a device at At ran its hex; Slot is its form
+	FXExpire                   // a device (or a minion, Value 1) at At ran out
+	FXThorns                   // thorns hit back at At, From you
+	FXTaunt                    // a taunt landed on At, From the taunter
+	FXBuff                     // thorns or haste came on at At; Slot is the effect
+	FXAmbush                   // a hit out of stealth landed on At
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).
