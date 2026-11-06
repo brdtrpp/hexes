@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 
 	"hexes/loot"
 	"hexes/skill"
@@ -348,62 +347,21 @@ func (s *Sim) SetTestShapes(on bool) error {
 	return s.rebuildAll(-1)
 }
 
-// ShapeText says what a shape does, in a sentence or two, for the editor.
+// ShapeText says what a shape does, in a sentence or two, for the editor:
+// how big a room it gives the pieces, and what its marked cells do.
 func ShapeText(sh skill.Shape) string {
-	var t string
-	switch sh.Kind {
-	case skill.ShapeRing:
-		t = "Ring: six slots, clockwise, each feeding the next."
-	case skill.ShapeTriangle:
-		t = "Triangle: three slots in a line. Runs on 25% less heat."
-	case skill.ShapeHub:
-		t = "Hub: the ring all feeds the center. An effect there lands once on everything the ring targeted; a multiplier there scales the whole ring."
-	case skill.ShapeFork:
-		t = "Fork: the trigger in the center runs two chains of three, side by side."
-	case skill.ShapeLoop:
-		t = "Loop: the last slot feeds back to the first. Whoever it carries gets another pass, each costing heat."
-	case skill.ShapeGen:
-		t = genText(sh)
+	t := fmt.Sprintf("%s: a room of %d cells for your pieces.", sh.Name(), skill.RoomSize(sh))
+	if sh.Graph().LoopFrom() >= 0 {
+		t += " The piece on the LOOP cell sends whoever it carries round again, each pass costing heat."
 	}
 	switch sh.Quirk {
 	case skill.ShapeTwin:
-		t += fmt.Sprintf(" Twin: slot %d fires twice.", sh.At+1)
+		t += " The piece on the TWIN cell fires twice."
 	case skill.ShapeSurge:
-		t += fmt.Sprintf(" Surge: slot %d hits 50%% harder.", sh.At+1)
-	case skill.ShapeOneWay:
-		t += fmt.Sprintf(" One-way: edge %d-%d only feeds forward.", sh.At+1, sh.Graph().FirstTwo(int(sh.At))+1)
-	case skill.ShapeLean:
-		t += " Lean: 25% less heat."
+		t += " The piece on the SURGE cell hits 50% harder."
+	}
+	if x := sh.HeatScale(); x != 1 {
+		t += fmt.Sprintf(" Heat x%.2f.", x)
 	}
 	return t
-}
-
-// genText describes a generated shape from its features: how many slots,
-// where it splits and merges, whether it loops, and its heat.
-func genText(sh skill.Shape) string {
-	g := sh.Graph()
-	var splits, merges []string
-	for i := 0; i < int(g.N); i++ {
-		if g.Outs(i) >= 2 {
-			splits = append(splits, fmt.Sprint(i+1))
-		}
-		if g.Ins(i) >= 2 {
-			merges = append(merges, fmt.Sprint(i+1))
-		}
-	}
-	t := fmt.Sprintf("%s: %d slots", sh.Name(), g.N)
-	if len(splits) > 0 {
-		t += ", splits after " + strings.Join(splits, " and ")
-	}
-	if len(merges) > 0 {
-		t += ", merges at " + strings.Join(merges, " and ")
-	}
-	t += "."
-	if l := g.LoopFrom(); l >= 0 {
-		t += fmt.Sprintf(" Whoever slot %d carries loops back to 1.", l+1)
-	}
-	if len(merges) > 0 {
-		t += " A merge pools everything linked into it."
-	}
-	return t + fmt.Sprintf(" Heat x%.2f.", sh.HeatScale())
 }

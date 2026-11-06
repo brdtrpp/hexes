@@ -381,6 +381,9 @@ func useless(h *skill.Hex, slot int, what string) error {
 	if name == "slot C" {
 		name = "the center"
 	}
+	if h.Laid() {
+		return fmt.Errorf("it would do nothing there: %s", what)
+	}
 	return fmt.Errorf("it would do nothing in %s: %s", name, what)
 }
 

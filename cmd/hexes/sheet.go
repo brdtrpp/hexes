@@ -417,6 +417,14 @@ func (g *Game) edCard() edCardView {
 	if e.pick == pickSlot {
 		fr = h.Frame(e.at)
 	}
+	laid := h.Laid()
+	green := "Green slots are where it does something."
+	if laid {
+		green = "Green cells are where it fits: tap one to lay it, or a piece to swap it in."
+		if fit, held := g.edFits(h); held && len(fit) == 0 {
+			green = "No room left for it: drop it on a piece to swap them, or set one aside first."
+		}
+	}
 	pf, pickedFrame := g.edPickedFrame()
 	switch {
 	case pickedFrame && e.msg != "":
@@ -429,9 +437,9 @@ func (g *Game) edCard() edCardView {
 		}
 		return v
 	case e.pick == pickLocker && e.at < len(sim.Locker):
-		return part(sim.Locker[e.at], "Green slots are where it does something.", colText)
+		return part(sim.Locker[e.at], green, colText)
 	case e.pick == pickCell && inv.Has[e.at]:
-		lead := "Green slots are where it does something."
+		lead := green
 		if sim.Stash.Fresh[e.at] {
 			lead += fmt.Sprintf(" New: slot it or reach depth %d to keep it if you die.", sim.NextCheckpoint())
 		}
@@ -445,7 +453,9 @@ func (g *Game) edCard() edCardView {
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
 		p := h.Slots[e.at].Part
 		lead, c := "", colText
-		if what, ok := h.Use(e.at); what != "" {
+		if what, ok := h.Use(e.at); laid && !h.Runs(e.at) && what != "" {
+			lead, c = upFirst(what)+".", colDim
+		} else if what != "" {
 			lead = "Here it " + what + "."
 			if !ok {
 				lead, c = "Does nothing here: "+what+".", colHot
@@ -456,6 +466,13 @@ func (g *Game) edCard() edCardView {
 		}
 		if !fr.Plain() {
 			lead += " " + fr.Text(sim.Reg)
+		}
+		if laid && e.msg == "" {
+			if h.Lay.Pos[e.at].On {
+				lead += " Tap it again to turn it, a cell to move it, the tray to set it aside."
+			} else {
+				lead = "In the tray. Tap a cell to lay it."
+			}
 		}
 		return part(p, strings.TrimSpace(lead), c)
 	case e.pick == pickSlot && e.msg != "" && e.bad:
@@ -470,6 +487,9 @@ func (g *Game) edCard() edCardView {
 	}
 	// Nothing picked: the hex's own card.
 	v.top = "Tap a part, then tap where it goes. Slot to slot rewires the hex."
+	if laid {
+		v.top = "Tap a piece, then a cell. Plugs that meet join; only pieces the trigger reaches run."
+	}
 	if e.msg != "" {
 		v.top, v.topC = msg()
 	}

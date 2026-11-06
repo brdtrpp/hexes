@@ -477,6 +477,9 @@ func RoomFor(s Shape) Room {
 type Layout struct {
 	Room Room
 	Pos  [Slots]Place
+	// Kept is the pieces the player set aside on purpose: Settle leaves
+	// them off the room.
+	Kept uint16 `json:",omitempty"`
 }
 
 // Place is one piece's spot: its anchor cell and how it lies (Orient).
@@ -619,11 +622,24 @@ func (h *Hex) Place(s int, p Place) bool {
 		return false
 	}
 	h.Lay.Pos[s] = p
+	h.Lay.Kept &^= bit(s)
 	return true
 }
 
 // Lift takes piece s off the room (the hex keeps the part).
 func (h *Hex) Lift(s int) { h.Lay.Pos[s] = Place{} }
+
+// SetAside takes piece s off the room and keeps it off: the hex holds
+// the part, and it stays out until it's laid again.
+func (h *Hex) SetAside(s int) {
+	if s < 0 || s >= Slots {
+		return
+	}
+	h.Lift(s)
+	if h.Slots[s].Kind != SlotEmpty {
+		h.Lay.Kept |= bit(s)
+	}
+}
 
 // TurnPiece turns piece s a sixth clockwise in place (after six turns,
 // it flips), or on to the next way that fits. It reports whether it

@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"hexes/loot"
@@ -13,6 +14,26 @@ import (
 func PartSheet(p skill.Part, reg *skill.Registry) loot.Sheet {
 	sh := loot.PartSheet(p, reg, firstSentence(PlainHelp(p)))
 	sh.Sub += "  ·  " + SchoolOf(p, reg).Names()
+	if pc := skill.PartPiece(p); pc != nil {
+		// Its shape on a hex: how many cells, and sockets for multipliers.
+		v := fmt.Sprintf("%s, %d cell", pc.Name, pc.Size())
+		if pc.Size() != 1 {
+			v += "s"
+		}
+		n := 0
+		for _, pl := range pc.Plugs {
+			if pl.K == skill.PlugSocket {
+				n++
+			}
+		}
+		if n > 0 {
+			v += fmt.Sprintf(", %d socket", n)
+			if n > 1 {
+				v += "s"
+			}
+		}
+		sh.Lines = append(sh.Lines, loot.Line{Label: "Piece", Value: v})
+	}
 	return sh
 }
 

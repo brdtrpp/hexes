@@ -147,7 +147,7 @@ func (t *Table) RollFam(r *RNG, f int, rar skill.Rarity) skill.Part {
 	if rar == skill.Exotic && skill.QuirkHeated.Fits(p) {
 		p.Quirk = skill.QuirkHeated
 	}
-	return p
+	return r.withFit(p)
 }
 
 // Rider makes a rare typed effect carrying a second effect: what an
@@ -162,7 +162,7 @@ func (t *Table) Rider(r *RNG, rar skill.Rarity) skill.Part {
 	amt := float32(int(t.Damage[ty]*r.Range(0.8, 1.25) + 0.5))
 	p := skill.NewDamage(ty, max(1, amt)).WithRarity(rar)
 	p.Quirk = skill.QuirkRider
-	return p
+	return r.withFit(p)
 }
 
 // FamOf is the class family part p comes from, or -1 for a part of the

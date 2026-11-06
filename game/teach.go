@@ -80,17 +80,17 @@ var Ladder = [...]Lesson{
 	{Depth: 1, Name: "EFFECTS", Gives: UBench, Hexes: 1,
 		Card: "Effects are what a hex does. Swap this cryo into your hex at the purple workbench."},
 	{Depth: 2, Name: "TARGETS", Gives: UTargets, Hexes: 1, Trial: true,
-		Card: "Targets pick who your next slot hits. This one hits every foe within 2 of you."},
+		Card: "Targets pick who the pieces joined to them hit. This one hits every foe within 2 of you."},
 	{Depth: 3, Name: "TRIGGERS", Gives: UTriggers, Hexes: 2, Trial: true,
 		Card: "Hex 2 fires by itself whenever you land a hit. Only cast hexes need a button."},
 	{Depth: 4, Name: "MULTIPLIERS", Gives: UMults, Hexes: 2, Trial: true,
-		Card: "A multiplier boosts the slot before it. Your hexes grew to six slots to fit it."},
+		Card: "A multiplier plugs into a socket and boosts that piece. Your hexes grew a bigger room to fit it."},
 	{Depth: 5, Name: "SUSTAIN", Gives: USustain, Hexes: 2,
 		Card: "Mend patches your hull every time its hex fires. Stairs only give back 30%, so build for it."},
 	{Depth: 6, Name: "FRAMES", Gives: UFrames, Hexes: 2,
-		Card: "Frames bend the slot they sit on. A Doubler fires its effect twice: fit it from HEX, FRAMES."},
+		Card: "Frames bend the piece they sit on. A Doubler fires its effect twice: fit it from HEX, FRAMES."},
 	{Depth: 7, Name: "SHAPES", Gives: UShapes, Hexes: 3,
-		Card: "A shape is how a hex flows. A Fork runs two paths off one trigger. Hex 3 is online too."},
+		Card: "A shape sets how big a room your pieces get. A Fork's room is big enough for two paths. Hex 3 is online too."},
 	{Depth: 9, Name: "GATES", Gives: UGates, Hexes: 3, Trial: true,
 		Card: "A gate splits a hex: foes under 40% hull go down YES, the rest down NO."},
 	{Depth: 11, Name: "CHARGES", Gives: UCharges, Hexes: 3, Trial: true,
@@ -494,17 +494,17 @@ func PlainHelp(p skill.Part) string {
 	case skill.KindTarget:
 		switch p.Target {
 		case skill.TargetSelf:
-			return "This target points the slots after it at you."
+			return "This target points the pieces joined to it at you."
 		case skill.TargetNearest:
-			return "This target points the slots after it at the closest foes."
+			return "This target points the pieces joined to it at the closest foes."
 		case skill.TargetCone:
-			return "This target points the slots after it at every foe in a wedge in front of you."
+			return "This target points the pieces joined to it at every foe in a wedge in front of you."
 		case skill.TargetAdjacent:
-			return "This target points the slots after it at every foe close around the last one hit."
+			return "This target points the pieces joined to it at every foe close around the last one hit."
 		case skill.TargetChain:
 			return "This target jumps from foe to foe, hitting each one on the way."
 		}
-		return "A target picks who the slots after it hit."
+		return "A target picks who the pieces joined to it hit."
 	case skill.KindEffect:
 		switch p.Effect {
 		case skill.EffectDamage:
@@ -522,7 +522,7 @@ func PlainHelp(p skill.Part) string {
 		}
 		return "An effect is what the hex actually does."
 	case skill.KindMult:
-		return "A multiplier makes the slot right before it stronger, and costs a little more to fire."
+		return "A multiplier plugs into a piece's socket and makes it stronger, and costs a little more to fire."
 	case skill.KindGate:
 		switch p.Gate {
 		case skill.GateSpend:
@@ -537,9 +537,9 @@ func PlainHelp(p skill.Part) string {
 		return "A charge keeps a count that stays between firings, so the hex can remember."
 	case skill.KindCall:
 		if p.RunsNow() {
-			return "This call runs a docked hex right here, as if its parts were in this slot."
+			return "This call runs a docked hex right here, as if its parts were right here."
 		}
 		return "A call runs another of your hexes once this one finishes."
 	}
-	return "An empty slot: put a part here."
+	return "An empty spot: put a part here."
 }

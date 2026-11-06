@@ -66,7 +66,7 @@ func (h *Hex) Use(s int) (what string, ok bool) {
 			w = fmt.Sprintf("drains bank %s each firing", BankName(p.Bank))
 		}
 		if r := routes[s]; r.Gate >= 0 {
-			w += fmt.Sprintf(", only when someone %s slot %s", branchWord(r.Branch), h.SlotName(int(r.Gate)))
+			w += fmt.Sprintf(", only when someone %s %s", branchWord(r.Branch), h.ref(int(r.Gate)))
 		}
 		return w, true
 	case KindGate:
@@ -132,7 +132,7 @@ func (h *Hex) readsTargets(b, from int, routes [Slots]Route) bool {
 // whom is who an effect, Call or nested hex in slot s lands on.
 func (h *Hex) whom(s int, routes [Slots]Route) string {
 	if r := routes[s]; r.Gate >= 0 {
-		return fmt.Sprintf("whoever %s slot %s", branchWord(r.Branch), h.SlotName(int(r.Gate)))
+		return fmt.Sprintf("whoever %s %s", branchWord(r.Branch), h.ref(int(r.Gate)))
 	}
 	order, n := h.Flow(h.TriggerSlot())
 	var tgts []int
@@ -164,13 +164,13 @@ func (h *Hex) gateUse(s int, routes [Slots]Route) (string, bool) {
 		return "nothing after it to split into", false
 	}
 	if r := routes[s]; r.Gate >= 0 {
-		return fmt.Sprintf("splits whoever %s slot %s", branchWord(r.Branch), h.SlotName(int(r.Gate))), true
+		return fmt.Sprintf("splits whoever %s %s", branchWord(r.Branch), h.ref(int(r.Gate))), true
 	}
 	order, n := h.Flow(h.TriggerSlot())
 	if pred := h.inFeed(s, order[:n]); pred >= 0 && h.isTarget(pred) {
-		return fmt.Sprintf("splits slot %s's targets", h.SlotName(pred)), true
+		return fmt.Sprintf("splits %s's targets", h.ref(pred)), true
 	} else if pred >= 0 && h.carries(pred) {
-		return fmt.Sprintf("splits whoever slot %s reached", h.SlotName(pred)), true
+		return fmt.Sprintf("splits whoever %s reached", h.ref(pred)), true
 	}
 	if p := h.Slots[s].Part; p.Gate.Charged() {
 		return fmt.Sprintf("checks bank %s", BankName(p.Bank)), true
@@ -199,12 +199,12 @@ func (h *Hex) multUse(s int, p Part) (string, bool) {
 		ps := h.Slots[pred]
 		switch {
 		case ps.Kind == SlotEmpty:
-			return fmt.Sprintf("boosts what goes in slot %s", h.SlotName(pred)), true
+			return fmt.Sprintf("boosts what goes in %s", h.ref(pred)), true
 		case ps.Kind == SlotNested:
-			return fmt.Sprintf("boosts the hex in slot %s", h.SlotName(pred)), true
+			return fmt.Sprintf("boosts the hex in %s", h.ref(pred)), true
 		case ps.Part.Kind == KindMult:
 			if h.merge(pred) {
-				return fmt.Sprintf("boosts slot %s", h.SlotName(pred)), true
+				return fmt.Sprintf("boosts %s", h.ref(pred)), true
 			}
 			cur = pred
 			continue
@@ -212,7 +212,7 @@ func (h *Hex) multUse(s int, p Part) (string, bool) {
 		if why := multFits(p.Verb, ps.Part); why != "" {
 			return why, false
 		}
-		return fmt.Sprintf("boosts slot %s", h.SlotName(pred)), true
+		return fmt.Sprintf("boosts %s", h.ref(pred)), true
 	}
 }
 
@@ -344,7 +344,7 @@ func (h *Hex) sustainUse(s int, p Part, routes [Slots]Route) string {
 		w = "cools your rig"
 	}
 	if r := routes[s]; r.Gate >= 0 {
-		w += fmt.Sprintf(", when someone %s slot %s", branchWord(r.Branch), h.SlotName(int(r.Gate)))
+		w += fmt.Sprintf(", when someone %s %s", branchWord(r.Branch), h.ref(int(r.Gate)))
 	}
 	return w
 }
@@ -374,11 +374,37 @@ func (h *Hex) slotList(s []int) string {
 	names := make([]string, len(s))
 	for i, x := range s {
 		names[i] = h.SlotName(x)
+		if h.Laid() {
+			names[i] = h.ref(x)
+		}
 	}
-	if len(names) == 1 {
+	switch {
+	case h.Laid() && len(names) == 1:
+		return names[0]
+	case h.Laid():
+		return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	case len(names) == 1:
 		return "slot " + names[0]
 	}
 	return "slots " + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// ref names slot s in an explanation: "slot 3", or on a laid hex, whose
+// slots have no places of their own, its piece: "the cone".
+func (h *Hex) ref(s int) string {
+	if h.Laid() && s >= 0 && s < Slots && h.Slots[s].Kind == SlotPart {
+		p := h.Slots[s].Part
+		switch p.Kind {
+		case KindCall:
+			return "the call"
+		case KindMult:
+			return "the multiplier"
+		case KindTrigger:
+			return "the trigger"
+		}
+		return "the " + p.String()
+	}
+	return "slot " + h.SlotName(s)
 }
 
 func contains(s []int, x int) bool {

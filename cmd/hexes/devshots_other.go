@@ -17,6 +17,8 @@ package main
 // HEXES_ZOOM=<z> starts the dungeon view at that zoom.
 // HEXES_FRAMES=grid opens the skill grid on a save a few floors in;
 // HEXES_FRAMES=locker opens the locker on that save.
+// HEXES_FRAMES=pieces opens the editor on a hex of pieces (piecepick with
+// a piece picked, packpick with a pack part held).
 // HEXES_FRAMES=hexcard opens the editor on the first hex's card,
 // rename starts naming it, loot shows a picked-up part's card.
 // HEXES_FRAMES=draft opens a checkpoint's floor-end draft on that save
@@ -189,6 +191,17 @@ func (g *Game) devFrames(mode string) {
 			g.openEditor()
 			g.ed.hex = 1
 			g.edBind()
+		}
+	case "pieces", "piecepick", "packpick":
+		// The editor on a hex of pieces: nothing picked, a piece picked,
+		// or a pack part held over the room.
+		g.openEditor()
+		switch mode {
+		case "piecepick":
+			g.ed.pick, g.ed.at = pickSlot, 1
+		case "packpick":
+			cell := s.Stash.Inv.Add(skill.NewDamage(s.Reg.MustID("plasma"), 22))
+			g.ed.pick, g.ed.at = pickCell, cell
 		}
 	case "hexcard", "rename":
 		// The editor with nothing picked: the hex's own card; rename

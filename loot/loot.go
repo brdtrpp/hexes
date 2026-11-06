@@ -291,6 +291,17 @@ func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
 			}
 		}
 	}
+	return r.withFit(p)
+}
+
+// withFit gives p one of its piece shapes (see skill.Fits), from the
+// generator's state without drawing from it, so seeded rolls stay as
+// they were.
+func (r *RNG) withFit(p skill.Part) skill.Part {
+	if n := skill.Fits(p); n > 1 {
+		z := (r.s ^ uint64(p.Kind)<<56 ^ uint64(p.Effect)<<48 ^ uint64(p.Target)<<40) * 0xbf58476d1ce4e5b9
+		p.Fit = uint8((z >> 33) % uint64(n))
+	}
 	return p
 }
 

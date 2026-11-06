@@ -51,19 +51,27 @@ func (h *Hex) Settle() {
 		switch {
 		case h.Slots[s].Kind == SlotEmpty:
 			h.Lift(s)
+			h.Lay.Kept &^= bit(s)
 		case h.Lay.Pos[s].On && !h.CanPlace(s, h.Lay.Pos[s]):
 			h.Lift(s)
 		}
 	}
-	loose := h.Loose()
+	var loose []int
+	for _, s := range h.Loose() {
+		if h.Lay.Kept&bit(s) == 0 {
+			loose = append(loose, s)
+		}
+	}
 	// The trigger first, so everything else can join it.
 	for _, s := range loose {
 		if sl := h.Slots[s]; sl.Kind == SlotPart && sl.Part.Kind == KindTrigger {
 			h.AutoPlace(s, -1, ArmNone)
 		}
 	}
-	for _, s := range h.Loose() {
-		h.AutoPlace(s, -1, ArmNone)
+	for _, s := range loose {
+		if !h.Lay.Pos[s].On {
+			h.AutoPlace(s, -1, ArmNone)
+		}
 	}
 	// A new piece with nowhere to join where the rest lie: lay the whole
 	// hex out again, if that runs it without stopping anything else.
@@ -396,7 +404,11 @@ func (h *Hex) LayOut(room Room) {
 		}
 	}
 	pin := h.pins(room)
-	h.Lay = Layout{Room: room}
+	kept := h.Lay.Kept
+	if h.Lay.Room != room {
+		kept = 0
+	}
+	h.Lay = Layout{Room: room, Kept: kept}
 	var best Layout
 	bestScore := -1
 	budget := 4000 // spots tried, so a crowded room gives up quickly
@@ -405,6 +417,9 @@ func (h *Hex) LayOut(room Room) {
 	// quietly does something else.
 	perfect := 0
 	for _, s := range order {
+		if kept&bit(s) != 0 {
+			continue
+		}
 		perfect += 100
 		if pin[s] >= 0 {
 			perfect += 40
@@ -447,6 +462,10 @@ func (h *Hex) LayOut(room Room) {
 			return
 		}
 		s := order[k]
+		if kept&bit(s) != 0 {
+			dfs(k + 1) // set aside: it stays off
+			return
+		}
 		top := 4
 		if h.Slots[s].Kind == SlotPart && h.Slots[s].Part.Kind == KindTrigger {
 			top = 8 // where the trigger goes decides the most
@@ -476,7 +495,7 @@ func (h *Hex) LayOut(room Room) {
 	dfs(0)
 	h.Lay = best
 	if bestScore < 0 {
-		h.Lay = Layout{Room: room}
+		h.Lay = Layout{Room: room, Kept: kept}
 	}
 }
 

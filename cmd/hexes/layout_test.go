@@ -39,10 +39,11 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 			k := sh
 			g := &Game{sim: sim, w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
 			sim.Load.Hexes[0].Shape = sh
+			sim.Load.Hexes[0].Lay = skill.Layout{Room: skill.RoomFor(sh)}
 			l := g.edLayout()
 			W, H := float64(g.w), float64(g.h)
 			inr := l.slotR * math.Sqrt(3) / 2 // a flat-top tile's half height
-			if l.slotR/sc.k < 26 {
+			if !l.laid && l.slotR/sc.k < 26 {
 				t.Errorf("%s %s: tiles %.0f css px across, too small to tap", sc.name, k, 2*l.slotR/sc.k)
 			}
 			top := l.shape.y + l.shape.h
@@ -60,6 +61,27 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 			}
 			if l.test.w/sc.k < 60 || l.capW/sc.k < 60 {
 				t.Errorf("%s %s: TEST %.0f and caption %.0f css px wide", sc.name, k, l.test.w/sc.k, l.capW/sc.k)
+			}
+			if l.laid {
+				// Pieces: the room's cells touch, so a cell is the tap
+				// target, and they stay clear of the controls.
+				hx := sim.Load.Hexes[0]
+				if l.R/sc.k < 36 {
+					t.Errorf("%s %s: cells %.0f css px across, too small to tap", sc.name, k, l.R/sc.k)
+				}
+				for _, c := range hx.Lay.Room.Cells() {
+					x, y := l.cellXY(c)
+					cell := rect{x - l.slotR, y - l.R/2, 2 * l.slotR, l.R}
+					if cell.x < 0 || cell.x+cell.w > W || cell.y < top || cell.y+cell.h > H {
+						t.Errorf("%s %s: cell %v off its area", sc.name, k, c)
+					}
+					for _, r := range append([]rect{l.info, l.scrap, l.close, l.bind, l.pack, l.frames, l.tray, l.cells[0], l.cells[len(l.cells)-1]}, l.tabs[:]...) {
+						if overlaps(cell, r) {
+							t.Errorf("%s %s: cell %v overlaps a control", sc.name, k, c)
+						}
+					}
+				}
+				continue
 			}
 			for i, c := range l.slots {
 				if !k.Has(i) {
@@ -82,6 +104,7 @@ func TestEditorLayoutFitsEveryShape(t *testing.T) {
 		}
 	}
 	sim.Load.Hexes[0].Shape = skill.Shape{}
+	sim.Load.Hexes[0].Lay = skill.Layout{}
 }
 
 // The board view: at its starting zoom the whole board shows inside its

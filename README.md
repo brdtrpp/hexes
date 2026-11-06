@@ -146,6 +146,18 @@ Starter: **Arc Lance** has a Call in its last slot pointing at Nanite Swarm. Cas
 - **Loot:** Calls weigh 7 against charges' 8. Three in ten roll pointing at themselves, the rest at hex 1 to 4. No quirks.
 - Under the hood: `OpCall` queues `{program, subject}` on a fixed 32-slot ring in the Evaluator; `Run` drains it after the first program, charging Heat through `Ctx.Rig` before each one. `Ctx.Calls` is the dispatcher's equipped programs. `Result` gains `Calls`, `Called` (which hexes ran, for the HUD flash), `Dropped` and `Halted`. Still zero allocations per run: the 3x4 multiply is 69 calls in about 2 µs.
 
+## Pieces (`skill/piece.go`, `skill/piece_lay.go`, `game/pieces.go`, `cmd/hexes/pieces.go`)
+
+Every equipped hex is now built from pieces, not slots. Each part is a piece with its own silhouette and plugs on its edges, laid on a small room of hex cells. Two pieces join where an out-plug faces a matching in-plug across a shared edge, and only the pieces the trigger reaches through joins run. Nothing about order is fixed: the joins are the program.
+
+- Silhouettes follow what a part does: a cone is a wedge of three, a line a bar of three, a chain a dogleg, adjacent an arc around a hole, an aura a ring of six, a nova a flower of four. Damage is a two-cell slab with two sockets, a status or small effect one cell, a gate a three-cell vee, a multiplier a single nub.
+- Plugs: a trigger sends sparks, a target sends a group (who it picked), an effect passes on who it landed on. A who-plug takes sparks or groups; a socket takes only a multiplier's nub, so a multiplier scales the piece it plugs into. A gate's two out-plugs are its YES and NO arms.
+- A drop rolls one of its part's silhouettes (`Part.Fit`), so two plasma slabs can lie differently.
+- The room's size comes from the shape: 7 cells for a Triangle, 15 for a Ring or Loop, 17 for a Hub or Fork, up to 19. A shape's marked cells keep its quirks: whatever covers the TWIN cell fires twice, the SURGE cell hits 50% harder, the LOOP cell sends whoever it carries round again.
+- In the editor: tap a piece to pick it, tap it again to turn it (the seventh turn flips it), tap an empty cell to move it, tap the tray to set it aside. A pack part tapped onto an empty cell is laid there, onto a piece it swaps in. EDIT LOGIC opens a picked gate's condition. Green cells show where the held piece fits.
+- Old saves: a hex with no layout is laid out to run the way it ran (`Hex.LayOut`, a small search over the best spots for each piece, keeping who feeds whom and the gate arms). A part swapped in by slot settles where it joins best, and re-lays the hex only if that keeps everything that ran running off the same pieces.
+- Modules on the docking board still use slots.
+
 ## Shapes (`skill/shape.go`, `skill/compile.go`, `game/shape.go`)
 
 A hex's shape is its control flow. The parts are the same in every shape; the shape decides which slots feed which and in what order they run. Every hex used to be a six-slot ring; that's now one of five.

@@ -234,3 +234,20 @@ func TestLaidJSON(t *testing.T) {
 		t.Fatal("an unlaid hex saved a layout")
 	}
 }
+
+func TestSetAsideStaysOff(t *testing.T) {
+	h := laid(t, NewTrigger(OnCast), NewTarget(TargetNearest, 3, 1), NewDamage(id("kinetic"), 20))
+	join(t, h, 1, 0, ArmNone)
+	join(t, h, 2, 1, ArmNone)
+	h.SetAside(2)
+	h.Settle()
+	if h.Lay.Pos[2].On || h.Runs(2) {
+		t.Fatal("Settle laid a piece that was set aside")
+	}
+	if !h.AutoPlace(2, 1, ArmNone) {
+		t.Fatal("no spot")
+	}
+	if !h.Place(2, h.Lay.Pos[2]) || h.Lay.Kept != 0 {
+		t.Fatal("laying it again didn't clear the mark")
+	}
+}

@@ -98,6 +98,14 @@ type edLayout struct {
 	// side is set when the card stands in a column down the right (a
 	// phone on its side) rather than across above the buttons.
 	side bool
+	// laid is set for a hex of pieces: R is the distance between cell
+	// centers, and tray is the strip under the room that holds the
+	// pieces not laid on it (see pieces.go).
+	laid bool
+	R    float64
+	tray rect
+	// logic is the EDIT LOGIC button over a picked gate or watch.
+	logic rect
 }
 
 func (g *Game) edLayout() edLayout {
@@ -195,6 +203,7 @@ func (g *Game) edLayout() edLayout {
 	for i := range l.opts {
 		l.opts[i] = rect{l.capX + float64(i)*(ow+gap), ring.y, ow, capH}
 	}
+	l.logic = rect{l.capX, ring.y, math.Min(l.capW, 130*k), capH}
 	ring.y += capH + 6*k
 	ring.h -= capH + 6*k
 	l.ringX, l.ringY = ring.x+ring.w/2, ring.y+ring.h/2
@@ -202,13 +211,35 @@ func (g *Game) edLayout() edLayout {
 	// is just under R/sqrt(3) across. Every shape's slots sit on its own
 	// cells (a ring's six around the middle, which is a plate or a Hub's
 	// or Fork's center slot), scaled to fill the area and centered.
-	sh := &g.sim.Load.Hex(g.ed.hex).Shape
+	eh := g.sim.Load.Hex(g.ed.hex)
+	sh := &eh.Shape
 	gr := sh.Graph()
 	minX, maxX, minY, maxY := math.Inf(1), math.Inf(-1), math.Inf(1), math.Inf(-1)
 	for i := 0; i < int(gr.N); i++ {
 		x, y := gr.At[i].XY()
 		minX, maxX = math.Min(minX, x), math.Max(maxX, x)
 		minY, maxY = math.Min(minY, y), math.Max(maxY, y)
+	}
+	if eh.Laid() {
+		// A hex of pieces: the room's cells, with the tray under them.
+		l.laid = true
+		for _, c := range eh.Lay.Room.Cells() {
+			x, y := c.XY()
+			minX, maxX = math.Min(minX, x), math.Max(maxX, x)
+			minY, maxY = math.Min(minY, y), math.Max(maxY, y)
+		}
+		if ring.w > ring.h*1.3 {
+			// Wide and short: the tray stands down the right.
+			tw := math.Min(54*k, ring.w*0.14)
+			l.tray = rect{ring.x + ring.w - tw, ring.y, tw, ring.h}
+			ring.w -= tw + 4*k
+			l.ringX = ring.x + ring.w/2
+		} else {
+			th := math.Min(50*k, ring.h*0.18)
+			l.tray = rect{ring.x, ring.y + ring.h - th, ring.w, th}
+			ring.h -= th + 4*k
+			l.ringY = ring.y + ring.h/2
+		}
 	}
 	const tile = 0.54 // a tile's radius over R
 	R := math.Min(ring.w/(maxX-minX+2*tile+0.02), ring.h/(maxY-minY+2*tile*0.866+0.01))
@@ -218,8 +249,12 @@ func (g *Game) edLayout() edLayout {
 		x, y := gr.At[i].XY()
 		l.slots[i] = [2]float64{l.gridX + R*x, l.gridY + R*y}
 	}
-	l.plate = sh.Kind == skill.ShapeRing || sh.Kind == skill.ShapeLoop
+	l.plate = (sh.Kind == skill.ShapeRing || sh.Kind == skill.ShapeLoop) && !l.laid
 	l.slotR = R * 0.54
+	l.R = R
+	if l.laid {
+		l.slotR = R * 0.575 // cells touch: a tile is the whole cell
+	}
 	// PACK, LOCKER and FRAMES tabs over the grid.
 	stripH := 30 * k
 	third := (math.Min(grid.w, 4*110*k) - 2*gap) / 3
@@ -439,6 +474,10 @@ func (g *Game) edTap(x, y float64) {
 			return
 		}
 	}
+	if l.laid && g.edPickedLogic() && l.logic.hit(x, y) {
+		g.edCycle()
+		return
+	}
 	if l.shape.hit(x, y) && sim.Has(game.UShapes) {
 		sh, err := sim.CycleShape(e.hex)
 		e.pick, e.shape = pickNone, true
@@ -458,8 +497,11 @@ func (g *Game) edTap(x, y float64) {
 		e.pick, e.msg = pickNone, ""
 		return
 	}
+	if l.laid && g.edPieceTap(&l, x, y, confirm) {
+		return
+	}
 	for i, c := range l.slots {
-		if !sh.Has(i) || math.Hypot(x-c[0], y-c[1]) > l.slotR*0.95 {
+		if l.laid || !sh.Has(i) || math.Hypot(x-c[0], y-c[1]) > l.slotR*0.95 {
 			continue
 		}
 		hs := sim.Load.Hex(e.hex).Slots[i]
@@ -545,6 +587,18 @@ func (g *Game) edCycle() bool {
 		return g.openCond(e.hex, e.at)
 	}
 	return g.openCond(e.hex, e.at)
+}
+
+// edPickedLogic reports whether the picked piece is one whose logic the
+// condition builder edits (a gate, a watch trigger). On a laid hex a
+// second tap turns a piece, so these get a button.
+func (g *Game) edPickedLogic() bool {
+	e := &g.ed
+	if e.pick != pickSlot || !g.sim.Load.Has(e.hex) || e.at < 0 || e.at >= skill.Slots || !g.sim.Has(game.UQuirks) {
+		return false
+	}
+	sl := g.sim.Load.Hex(e.hex).Slots[e.at]
+	return sl.Kind == skill.SlotPart && (sl.Part.Kind == skill.KindGate || sl.Part.Kind == skill.KindTrigger && sl.Part.Trigger == skill.Watch)
 }
 
 // edPickedCall is the run-now call in the picked slot, if that's what is
@@ -897,7 +951,9 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	// center slot), then the slots.
 	h := sim.Load.Hex(e.hex)
 	kind := h.Shape.Kind
-	g.drawShapeEdges(screen, &l, h, false)
+	if !l.laid {
+		g.drawShapeEdges(screen, &l, h, false)
+	}
 	pw, ht := sim.HexPower(e.hex)
 	if l.plate {
 		px, py := l.gridX, l.gridY
@@ -938,6 +994,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 			g.drawRect(screen, r, fade(c, 0.2), c)
 			g.label(screen, g.small, fmt.Sprintf("x%.2g %s", 1+(o.Value-1)*o.Rarity.Scale(), shortVerb(o.Verb)), r.x+r.w/2, r.y+r.h/2, colText, true)
 		}
+	} else if l.laid && g.edPickedLogic() {
+		r := l.logic
+		g.drawRect(screen, r, fade(colGate, 0.2), colGate)
+		g.label(screen, g.small, "EDIT LOGIC", r.x+r.w/2, r.y+r.h/2, colGate, true)
 	} else {
 		g.label(screen, g.small, caption, l.capX, l.capY, colShape, false)
 	}
@@ -960,7 +1020,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 		loop = h.LoopSlot()
 	}
 	for i, c := range l.slots {
-		if !h.Shape.Has(i) {
+		if l.laid || !h.Shape.Has(i) {
 			continue
 		}
 		s := h.Slots[i]
@@ -1039,7 +1099,11 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 			g.label(screen, g.small, "NO", c[0], c[1]+l.slotR*0.62, colHot, true)
 		}
 	}
-	g.drawShapeEdges(screen, &l, h, true)
+	if l.laid {
+		g.drawPieces(screen, &l, h)
+	} else {
+		g.drawShapeEdges(screen, &l, h, true)
+	}
 	g.drawPorts(screen, &l, e.hex)
 
 	g.drawGridTabs(screen, &l)
