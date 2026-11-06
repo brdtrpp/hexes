@@ -31,6 +31,8 @@ const (
 	FXPurge                 // a Purge took Value Heat off the rig at At
 	FXSoak                  // a shield at At soaked Value of a hit; Hurt if it's the player's
 	FXLesson                // took a lesson pickup at At; Slot is its rung on the Ladder
+	FXData                  // earned Value Data at At
+	FXSignal                // found a signal fragment at At
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).

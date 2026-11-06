@@ -27,11 +27,11 @@ import (
 
 // Death and checkpoint tuning. Placeholder balance, all constants.
 const (
-	// SaveVersion 2 is the teaching ladder: saves from before it don't
-	// load, so they start fresh at the bottom of the ladder.
-	SaveVersion     = 2
-	CheckpointEvery = 5   // every 5th depth secures the pack
-	FallMin         = 2   // floors lost on death, at least, before mercy
+	// SaveVersion 3 is the skill grid: saves from before it don't load,
+	// so they start fresh with a new grid. (2 was the teaching ladder.)
+	SaveVersion     = 3
+	CheckpointEvery = 5   // every 5th depth secures the pack and banks Data
+	FallMin         = 1   // floors lost on death, at least, before mercy
 	FallFrac        = 0.1 // deep down you lose this share of your depth
 	MercyWindow     = 300 // seconds of play after a death when the next costs less
 	MercyMin        = 0.5 // a death right after another costs this share
@@ -46,6 +46,8 @@ type Cache struct {
 	At     skill.Coord
 	N      int
 	Parts  [loot.InventorySize]skill.Part
+	// Data is the unbanked Data that fell out with the parts.
+	Data int `json:",omitempty"`
 }
 
 // Death is what the last death cost, for the death screen.
@@ -54,6 +56,9 @@ type Death struct {
 	Lost     int  // parts dropped in the new salvage cache
 	Gone     int  // parts in an old cache that was never reached, now lost
 	Mercy    bool // the cost was eased because the last death was recent
+	Data     int  // unbanked Data dropped in the new salvage cache
+	DataGone int  // Data in an old cache that was never reached, now lost
+	LetGo    int  // grid cells let go (they turn into reclaim cells)
 }
 
 // FallFloors is how many floors a death at depth costs, sinceLast seconds
@@ -84,7 +89,7 @@ func (s *Sim) die() {
 	fall, mercy := FallFloors(s.Depth, since)
 	d := Death{From: s.Depth, To: max(1, s.Depth-fall), Mercy: mercy}
 	if s.Cache.Active {
-		d.Gone = s.Cache.N
+		d.Gone, d.DataGone = s.Cache.N, s.Cache.Data
 	}
 	s.Cache = Cache{}
 	inv := &s.Stash.Inv
@@ -95,14 +100,16 @@ func (s *Sim) die() {
 		}
 		s.Stash.Fresh[i] = false
 	}
-	if s.Cache.N > 0 {
+	s.Cache.Data, s.Unbanked = s.Unbanked, 0
+	if s.Cache.N > 0 || s.Cache.Data > 0 {
 		at, ok := s.dropSpot(s.P().At)
 		if !ok {
 			at = s.Floor.Start
 		}
 		s.Cache.Active, s.Cache.Depth, s.Cache.At = true, s.Depth, at
 	}
-	d.Lost = s.Cache.N
+	d.Lost, d.Data = s.Cache.N, s.Cache.Data
+	d.LetGo = s.shrinkGrid(mercy)
 	s.LastDeath = d
 	s.Deaths++
 	s.LastDeathAt = s.Time
@@ -115,9 +122,11 @@ func (s *Sim) respawn() {
 	s.load(s.LastDeath.To, 1)
 }
 
-// secure marks everything in the pack as safe from the next death.
+// secure marks everything in the pack as safe from the next death, and
+// banks the Data earned since the last checkpoint.
 func (s *Sim) secure() {
 	s.Stash.Fresh = [loot.InventorySize]bool{}
+	s.bank()
 }
 
 // Unsecured counts pack parts a death would drop into a salvage cache.
@@ -154,7 +163,9 @@ func (s *Sim) salvage(at skill.Coord) {
 			s.Stash.Drops = append(s.Stash.Drops, Drop{At: at, Part: p, Age: 1})
 		}
 	}
+	s.earn(c.Data + DataSalvage)
 	s.addFX(FX{Kind: FXSalvage, At: at, Value: float32(c.N), Life: 1.6})
+	s.addFX(FX{Kind: FXData, At: at, Value: float32(c.Data + DataSalvage), Life: 1.6})
 	*c = Cache{}
 	s.Dirty = true
 }
@@ -219,6 +230,43 @@ type Save struct {
 	// Example the example's name.
 	Mine    *MyBuild `json:",omitempty"`
 	Example string   `json:",omitempty"`
+
+	// The skill grid. The grid itself rolls again from RunSeed; these
+	// are what this save did with it, as node indexes.
+	Data          int
+	Unbanked      int          `json:",omitempty"`
+	Own           []int        `json:",omitempty"`
+	Seen          []int        `json:",omitempty"`
+	Glimpse       []int        `json:",omitempty"`
+	Reclaim       []int        `json:",omitempty"`
+	Locker        []skill.Part `json:",omitempty"`
+	Signals       int          `json:",omitempty"`
+	BoardKeys     int          `json:",omitempty"`
+	GridNewest    int          `json:",omitempty"`
+	GridRingsSeen int          `json:",omitempty"`
+}
+
+// marks lists the set entries of b.
+func marks(b []bool) []int {
+	var out []int
+	for i, v := range b {
+		if v {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// setMarks is b with the listed entries set; indexes off the end are
+// dropped.
+func setMarks(n int, idx []int) []bool {
+	b := make([]bool, n)
+	for _, i := range idx {
+		if i >= 0 && i < n {
+			b[i] = true
+		}
+	}
+	return b
 }
 
 // Snapshot is the current progress. While dead it already counts the
@@ -240,6 +288,10 @@ func (s *Sim) Snapshot() Save {
 		Board:        append([]Spot(nil), s.Load.Spots...),
 		Tiles:        s.Tiles,
 		Mine:         s.Mine, Example: s.Example,
+		Data:         s.Data, Unbanked: s.Unbanked,
+		Own:          marks(s.Own), Seen: marks(s.Seen), Glimpse: marks(s.Glimpse), Reclaim: marks(s.Reclaim),
+		Locker:       append([]skill.Part(nil), s.Locker...),
+		Signals:      s.Signals, BoardKeys: s.BoardKeys, GridNewest: s.GridNewest, GridRingsSeen: s.GridRingsSeen,
 	}
 	switch s.State {
 	case Dead:
@@ -346,6 +398,27 @@ func (s *Sim) Restore(sv Save) error {
 			s.Mine, s.Example = m, sv.Example
 		}
 	}
+	s.Grid = GenGrid(s.Reg, s.RunSeed, RingsFor(s.Best))
+	n := len(s.Grid.Nodes)
+	s.Own, s.Seen = setMarks(n, sv.Own), setMarks(n, sv.Seen)
+	s.Glimpse, s.Reclaim = setMarks(n, sv.Glimpse), setMarks(n, sv.Reclaim)
+	s.Own[0], s.Seen[0] = true, true
+	for i := range s.Own {
+		if s.Own[i] || s.Grid.Nodes[i].Kind == NodeVoid {
+			s.Reclaim[i] = false
+		}
+	}
+	s.Data, s.Unbanked = max(0, sv.Data), max(0, sv.Unbanked)
+	s.Locker = append(s.Locker[:0], sv.Locker...)
+	s.Signals, s.BoardKeys = max(0, sv.Signals), max(0, min(BoardCells, sv.BoardKeys))
+	s.GridNewest, s.GridRingsSeen = sv.GridNewest, sv.GridRingsSeen
+	if s.GridNewest < 0 || s.GridNewest >= n {
+		s.GridNewest = 0
+	}
+	if sv.Cache.Data < 0 {
+		sv.Cache.Data = 0
+	}
+	s.refreshGrid()
 	dirty := s.giveCall()
 	s.load(sv.Depth, sv.HPFrac)
 	s.Dirty = dirty

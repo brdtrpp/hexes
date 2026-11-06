@@ -219,6 +219,7 @@ func (s *Sim) ScrapFrame(i int) bool {
 		return false
 	}
 	s.Frames = append(s.Frames[:i], s.Frames[i+1:]...)
+	s.earn(DataScrap)
 	s.Dirty = true
 	return true
 }

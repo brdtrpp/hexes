@@ -194,6 +194,30 @@ type Sim struct {
 	Example  string
 	LastTile skill.TileKind
 
+	// The skill grid (grid.go, gridplay.go). Grid is rolled from RunSeed;
+	// the rest is what this save did with it. Data is banked, Unbanked is
+	// Data earned since the last checkpoint, which a death drops in the
+	// salvage crate. Own, Seen, Glimpse and Reclaim are per grid node.
+	// Locker holds every part bought on the grid. Signals are signal
+	// fragments not yet used, BoardKeys the board keystones bought,
+	// GridNewest the last node bought and GridRingsSeen how many rings
+	// were open the last time the GRID tab was looked at.
+	Grid          *Grid
+	Data          int
+	Unbanked      int
+	Own           []bool
+	Seen          []bool
+	Glimpse       []bool
+	Reclaim       []bool
+	Locker        []skill.Part
+	Signals       int
+	BoardKeys     int
+	GridNewest    int
+	GridRingsSeen int
+	// gridDist is each node's steps from the nearest owned node,
+	// recomputed when what you own changes.
+	gridDist []int16
+
 	// SlotFlash counts down after a slot tries to fire; SlotLast is how.
 	SlotFlash [MaxSlots]float32
 	SlotLast  [MaxSlots]skill.Outcome
@@ -251,6 +275,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.SustainGiven = false
 	s.Tiles, s.LastTile = 0, 0
 	s.Taught, s.Card, s.CardT = 1, 0, CardShow
+	s.newGrid()
 	if s.veteran {
 		s.Taught, s.CardT = len(Ladder), 0
 		s.SustainGiven, s.FrameGiven, s.ShapeGiven = true, true, true
@@ -270,7 +295,11 @@ func (s *Sim) floorSeed(depth int) uint64 {
 // share over from the floor above.
 func (s *Sim) load(depth int, hpFrac float32) {
 	s.Depth = depth
+	if depth > s.Best && s.Best > 0 {
+		s.earn(DataDepthBase + DataDepthStep*depth)
+	}
 	s.Best = max(s.Best, depth)
+	s.growGrid()
 	s.Visits++
 	s.CheckpointT = 0
 	if IsCheckpoint(depth) {
@@ -651,6 +680,7 @@ func (s *Sim) died(id skill.EntityID) {
 	}
 	if id != s.Player {
 		s.Kills++
+		s.earnKill(id)
 		s.dropLoot(id)
 	}
 }

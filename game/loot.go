@@ -14,16 +14,27 @@ import (
 // don't allocate; the edit calls run while the game is paused and
 // recompile the hex they touch.
 
-// Drop tuning. Placeholder balance, all constants.
+// Drop tuning. Placeholder balance, all constants. The grid decides what
+// you can build, so drops are rare extras: always a kind the grid has
+// given you, sometimes a rarity above your best. Where a part used to drop
+// and now doesn't, a Data shard does.
 const (
-	DropGrunt   = 0.30 // chance a grunt drops a part
-	DropSkitter = 0.22
-	DropBrute   = 0.55
-	DropElite   = 0.45 // added for foes above the floor's level
+	DropGrunt   = 0.06 // chance a grunt drops a part
+	DropSkitter = 0.04
+	DropBrute   = 0.11
+	DropElite   = 0.30 // a foe above the floor's level
+	DropBump    = 0.15 // chance a drop is a rarity above your best grid part
 	MaxDrops    = 96   // parts that can lie on one floor; more are lost
+
+	// The old chances: a roll between the new chance and these is a shard.
+	ShardGrunt   = 0.30
+	ShardSkitter = 0.22
+	ShardBrute   = 0.55
+	ShardElite   = 0.75
 )
 
 var dropChance = [...]float32{KindGrunt: DropGrunt, KindSkitter: DropSkitter, KindBrute: DropBrute}
+var shardChance = [...]float32{KindGrunt: ShardGrunt, KindSkitter: ShardSkitter, KindBrute: ShardBrute}
 
 // Drop is a part lying on the floor.
 type Drop struct {
@@ -107,29 +118,51 @@ func (s *Sim) loadLoot(level int) {
 
 // dropLoot rolls a dying enemy's drop. The roll is seeded by the floor,
 // the visit and the enemy, so one visit drops the same parts whatever
-// order things die in, and coming back to a floor rolls new ones.
+// order things die in, and coming back to a floor rolls new ones. Shapes
+// and frames come from the grid now, so they no longer drop.
 func (s *Sim) dropLoot(id skill.EntityID) {
 	a := &s.Actors[id]
-	if int(a.Kind) >= len(dropChance) || len(s.Stash.Drops) == cap(s.Stash.Drops) {
+	if int(a.Kind) >= len(dropChance) {
 		return
 	}
-	chance := dropChance[a.Kind]
+	chance, shard := dropChance[a.Kind], shardChance[a.Kind]
 	elite := a.U.Level > s.Depth
 	if elite {
-		chance += DropElite
+		chance, shard = DropElite, ShardElite
 	}
 	if at, ok := s.dropSpot(a.At); ok {
-		s.rollShapeDrop(id, at, elite)
 		s.rollTileDrop(id, at, elite)
 		s.rollLensDrop(id, at, elite)
-		s.rollFrameDrop(id, at, elite)
 	}
 	r := loot.NewRNG(loot.Seed(s.Floor.Seed^hash(uint64(s.Visits)), int(id)))
-	s.Stash.table.Allow = s.lootAllow()
-	p, ok := s.Stash.table.Drop(&r, s.Depth, chance)
-	if !ok {
+	x := r.Float()
+	if x >= chance {
+		if x < shard {
+			n := ShardMin + r.Intn(ShardMx-ShardMin+1)
+			s.earn(n)
+			s.addFX(FX{Kind: FXData, At: a.At, Value: float32(n), Life: 1.0, Small: true})
+		}
 		return
 	}
+	if len(s.Stash.Drops) == cap(s.Stash.Drops) {
+		return
+	}
+	allow := s.lootAllow()
+	kinds, sustain, best := s.gridKinds()
+	if !allow.Limit {
+		allow = loot.Allow{Limit: true, Kinds: 0xffff, Sustain: true, Spend: true, Quirks: true}
+	}
+	allow.Kinds &= kinds
+	allow.Sustain = allow.Sustain && sustain
+	s.Stash.table.Allow = allow
+	rar := best
+	if r.Float() < DropBump {
+		rar = min(skill.Exotic, rar+1)
+	}
+	if rar == skill.Exotic && !allow.Quirks {
+		rar = skill.Rare
+	}
+	p := s.Stash.table.RollAt(&r, rar)
 	at, ok := s.dropSpot(a.At)
 	if !ok {
 		return
@@ -479,11 +512,12 @@ func (s *Sim) MoveCell(a, b int) {
 	s.Dirty = true
 }
 
-// Scrap throws away the part in an inventory cell.
+// Scrap throws away the part in an inventory cell for DataScrap Data.
 func (s *Sim) Scrap(cell int) bool {
 	_, ok := s.Stash.Inv.Take(cell)
 	if ok {
 		s.Stash.Fresh[cell] = false
+		s.earn(DataScrap)
 		s.Dirty = true
 	}
 	return ok

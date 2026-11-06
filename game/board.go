@@ -229,7 +229,7 @@ func (s *Sim) BoardOpen() int {
 	if s.TestShapes {
 		return BoardCells
 	}
-	return BoardOpen(s.Best)
+	return min(BoardCells, BoardOpen(s.Best)+s.BoardKeys)
 }
 
 // CellOpen reports whether a hex can sit on c now.
@@ -241,7 +241,7 @@ func (s *Sim) CellOpen(c skill.Cell) bool {
 // NextCellAt is the deepest floor that opens the next board cell, or 0
 // when the whole board is open.
 func (s *Sim) NextCellAt() int {
-	open := BoardOpen(s.Best)
+	open := s.BoardOpen()
 	if open >= BoardCells {
 		return 0
 	}

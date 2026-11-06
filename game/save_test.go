@@ -79,7 +79,7 @@ func TestFallFloors(t *testing.T) {
 		since float64
 		want  int
 	}{
-		{1, -1, 2}, {12, -1, 2}, {30, -1, 3}, {50, -1, 5}, {100, -1, 10},
+		{1, -1, 1}, {12, -1, 1}, {20, -1, 2}, {30, -1, 3}, {50, -1, 5}, {100, -1, 10},
 		{50, 0, 3}, {50, MercyWindow / 2, 4}, {50, MercyWindow, 5}, {3, 0, 1},
 	}
 	for _, c := range cases {

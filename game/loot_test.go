@@ -103,7 +103,7 @@ func TestElitesDropMore(t *testing.T) {
 	}
 	e, p := float64(elite)/float64(eliteN), float64(plain)/float64(plainN)
 	t.Logf("elite drop rate %.2f (%d), grunt %.2f (%d)", e, eliteN, p, plainN)
-	if eliteN < 20 || e < p+0.25 {
+	if eliteN < 20 || e < p+0.15 {
 		t.Fatalf("elites should drop much more often: %.2f vs %.2f", e, p)
 	}
 }
