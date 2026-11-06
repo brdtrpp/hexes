@@ -77,7 +77,12 @@ func (t *Table) RollFam(r *RNG, f int, rar skill.Rarity) skill.Part {
 		case 1:
 			p = skill.NewTarget(skill.TargetMarked, float32(skill.NearestReach), uint8(2+r.Intn(3)))
 		case 2:
-			p = skill.NewBehindGate()
+			// The shadow's marked parts need something that marks.
+			if ty, ok := t.Reg.StatusOf(skill.StatusMark); ok {
+				p = skill.NewStatus(ty, half(r.Range(3, 6)))
+			} else {
+				p = skill.NewBehindGate()
+			}
 		case 3:
 			p = skill.NewMarkedMult(float32(int(r.Range(1.6, 2.4)*20)) / 20)
 		case 4:

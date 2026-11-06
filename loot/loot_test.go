@@ -243,3 +243,41 @@ func TestNoCloakDamageRolls(t *testing.T) {
 		t.Fatalf("cloak reads %q %q", title, detail)
 	}
 }
+
+// Every quirk that fits can roll, and a cloak never carries an arc or a
+// rider, which would do nothing on a status that only hides you.
+func TestQuirksAllRollAndSkipCloak(t *testing.T) {
+	tab := NewTable(reg)
+	r := NewRNG(5)
+	var seen [skill.NumQuirks]int
+	for i := 0; i < 6000; i++ {
+		p := tab.RollAt(&r, skill.Exotic)
+		seen[p.Quirk]++
+		if p.Kind == skill.KindEffect && reg.Cloak(p.Type) && (p.Quirk == skill.QuirkRelay || p.Quirk == skill.QuirkRider) {
+			t.Fatalf("%s carries %s on a cloak", p, p.Quirk)
+		}
+	}
+	for q := skill.Quirk(1); q < skill.NumQuirks; q++ {
+		if seen[q] == 0 {
+			t.Fatalf("%s never rolled: %v", q, seen)
+		}
+	}
+}
+
+// The shadow family rolls something that marks, so its marked target and
+// marked multiplier have something to work on.
+func TestShadowRollsAMark(t *testing.T) {
+	tab := NewTable(reg)
+	r := NewRNG(3)
+	mark, ok := reg.StatusOf(skill.StatusMark)
+	if !ok {
+		t.Skip("no mark type")
+	}
+	for i := 0; i < 400; i++ {
+		p := tab.RollFam(&r, 1, skill.Rare)
+		if p.Kind == skill.KindEffect && p.Effect == skill.EffectStatus && p.Type == mark {
+			return
+		}
+	}
+	t.Fatal("shadow family never rolled a mark")
+}

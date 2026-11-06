@@ -651,7 +651,7 @@ func (s *Sim) timers(dt float32) {
 		u.SlowLeft = max(0, u.SlowLeft-dt)
 		u.StunLeft = max(0, u.StunLeft-dt)
 		u.MarkLeft = max(0, u.MarkLeft-dt)
-		u.Stealth = max(0, u.Stealth-dt)
+		u.TickStealth(dt)
 		u.TauntLeft = max(0, u.TauntLeft-dt)
 		u.ThornsLeft = max(0, u.ThornsLeft-dt)
 		u.HasteLeft = max(0, u.HasteLeft-dt)
@@ -673,6 +673,9 @@ func (s *Sim) timers(dt float32) {
 				}
 				dealt, _ := s.Rules.ResolveTick(&a.U, d.PerTick, d.Type, int(d.AttackerLevel))
 				d.Left--
+				if dealt > 0 && int(d.Owner) < len(s.Actors) && a.U.Team != s.Actors[d.Owner].U.Team {
+					s.Actors[d.Owner].U.Reveal() // a burn or toxin ticking gives you away too
+				}
 				if dealt > 0 {
 					s.addFX(FX{Kind: FXNumber, At: a.At, Value: dealt, Type: d.Type, Small: true, Life: 0.6})
 				}

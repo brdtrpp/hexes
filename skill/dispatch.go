@@ -331,6 +331,7 @@ func (d *Dispatcher) Cast(owner EntityID, slot int, subject EntityID) Outcome {
 	o := d.fire(l, slot, Event{Trigger: OnCast, Actor: owner, Subject: subject, Slot: int8(slot)})
 	d.unambush(owner)
 	d.drain()
+	d.unhide(owner)
 	return o
 }
 
@@ -338,6 +339,13 @@ func (d *Dispatcher) Cast(owner EntityID, slot int, subject EntityID) Outcome {
 func (d *Dispatcher) unambush(owner EntityID) {
 	if u := d.World.Unit(owner); u != nil {
 		u.Ambush = false
+	}
+}
+
+// unhide ends what's left of a cast out of stealth once its events ran.
+func (d *Dispatcher) unhide(owner EntityID) {
+	if u := d.World.Unit(owner); u != nil {
+		u.Hidden = false
 	}
 }
 
@@ -392,6 +400,7 @@ func (d *Dispatcher) Strike(owner EntityID, p *Program, subject EntityID) Result
 	}
 	d.unambush(owner)
 	d.drain()
+	d.unhide(owner)
 	return res
 }
 
@@ -453,8 +462,9 @@ func (d *Dispatcher) surprise(owner, subject EntityID) {
 		return
 	}
 	if u.Stealth > 0 {
-		u.Stealth = 0
+		u.Reveal()
 		u.Ambush = true // this attack lands at AmbushMult
+		u.Hidden = true // and the cloak gate passes for it
 		d.push(Event{Trigger: FromStealth, Actor: owner, Subject: subject, Slot: -1})
 	}
 	if subject != NoEntity && d.senses != nil && d.senses.Behind(owner, subject) {

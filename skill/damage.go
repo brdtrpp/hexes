@@ -167,6 +167,16 @@ const (
 	CloakPerDamage float32 = 3.0 / 16
 )
 
+// StatusOf finds the first type whose status is st.
+func (r *Registry) StatusOf(st StatusKind) (TypeID, bool) {
+	for i := 0; i < r.n; i++ {
+		if r.defs[i].Status == st {
+			return TypeID(i), true
+		}
+	}
+	return 0, false
+}
+
 // Cloak reports whether t's status is a cloak.
 func (r *Registry) Cloak(t TypeID) bool {
 	return int(t) < r.n && r.defs[t].Status == StatusCloak
@@ -174,14 +184,15 @@ func (r *Registry) Cloak(t TypeID) bool {
 
 // SelfOnly turns a cloak damage part into the cloak status it should have
 // been: the same type and rarity, its damage read as seconds of stealth.
-// A Rider on a cloak status adds nothing, so it goes. Anything else comes
-// back as it was. The bool reports a change.
+// A Rider or a Relay on a cloak status adds nothing (the cloak only hides
+// you), so it goes. Anything else comes back as it was. The bool reports a
+// change.
 func (r *Registry) SelfOnly(p Part) (Part, bool) {
 	if p.Kind != KindEffect || !p.Effect.Typed() || !r.Cloak(p.Type) {
 		return p, false
 	}
 	if p.Effect == EffectStatus {
-		if p.Quirk == QuirkRider {
+		if p.Quirk == QuirkRider || p.Quirk == QuirkRelay {
 			p.Quirk = QuirkNone
 			return p, true
 		}
@@ -190,7 +201,7 @@ func (r *Registry) SelfOnly(p Part) (Part, bool) {
 	secs := min(CloakTimeMax, max(CloakTimeMin, p.Value*CloakPerDamage))
 	q := NewStatus(p.Type, float32(int(secs*2+0.5))/2)
 	q.Name, q.Rarity = p.Name, p.Rarity
-	if p.Quirk != QuirkRider && p.Quirk.Fits(q) {
+	if p.Quirk != QuirkRider && p.Quirk != QuirkRelay && p.Quirk.Fits(q) {
 		q.Quirk = p.Quirk
 	}
 	return q, true

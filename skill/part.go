@@ -207,6 +207,9 @@ const (
 	// AmbushMult is how hard the first hit out of stealth lands. Any hit
 	// breaks stealth.
 	AmbushMult = 2
+	// StealthRest is how long after stealth ends before a cloak can hide
+	// you again.
+	StealthRest = 4
 	// MinionMax is how many raised drones one caster keeps; raising
 	// more lets the oldest go.
 	MinionMax = 4

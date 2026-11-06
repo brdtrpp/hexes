@@ -264,3 +264,27 @@ func TestDevicesStepAllocFree(t *testing.T) {
 		t.Fatalf("%.2f allocs per step with devices up", allocs)
 	}
 }
+
+// A burn ticking on a foe, or a minion's blow, gives you away: stealth
+// can't hold a room still while damage does the work.
+func TestDotsAndMinionsBreakStealth(t *testing.T) {
+	s := classSim(t, "Rogue")
+	f := foeAt(s, 0, 3, 1000)
+	p := s.P()
+	p.U.Stealth = 5
+	s.Actors[f].U.AddDot(skill.Dot{PerTick: 3, Left: 4, Type: s.Reg.MustID("nanite"), AttackerLevel: 1, Owner: s.Player})
+	for k := 0; k < 90 && p.U.Stealth > 0; k++ {
+		s.Step(1.0 / 60)
+	}
+	if p.U.Stealth > 0 || p.U.StealthRest <= 0 {
+		t.Fatalf("a tick left stealth %v, rest %v", p.U.Stealth, p.U.StealthRest)
+	}
+	p.U.Stealth, p.U.StealthRest = 5, 0
+	m := foeAt(s, 3, 2, 1000)
+	s.Actors[m].Minion, s.Actors[m].Owner = true, s.Player
+	s.Actors[m].U.Team = p.U.Team
+	s.Hit(m, f, 5, 0, false)
+	if p.U.Stealth > 0 {
+		t.Fatal("a minion's blow left you hidden")
+	}
+}

@@ -278,19 +278,43 @@ func (t *Table) RollAt(r *RNG, rar skill.Rarity) skill.Part {
 		p.Count = uint8(max(2, int(p.Count)-int(rar)))
 	}
 	if t.Allow.quirks() && (rar == skill.Exotic || (rar == skill.Rare && r.Float() < RareQuirkChance)) {
-		p.Quirk = quirkFor(p)
+		p.Quirk = quirkFor(r, p, t.Reg)
+		if p.Quirk == skill.QuirkNone && rar == skill.Exotic && p.Kind == skill.KindEffect {
+			// An exotic always bends a rule. A cloak can't carry one, so
+			// the exotic rolls again rather than come out plain.
+			for try := 0; try < 8 && p.Quirk == skill.QuirkNone; try++ {
+				q := t.effect(r, rar).WithRarity(rar)
+				q.Quirk = quirkFor(r, q, t.Reg)
+				if q.Quirk != skill.QuirkNone {
+					p = q
+				}
+			}
+		}
 	}
 	return p
 }
 
-// quirkFor is the one quirk that fits a part, or none.
-func quirkFor(p skill.Part) skill.Quirk {
+// quirkFor picks one of the quirks that fit a part, or none: a typed
+// effect can roll relay or rider, a multiplier radiant or heated. A
+// cloak hides only you, so neither an arc nor a rider does anything on
+// it, and it rolls none.
+func quirkFor(r *RNG, p skill.Part, reg *skill.Registry) skill.Quirk {
+	var fit [skill.NumQuirks]skill.Quirk
+	n := 0
 	for q := skill.Quirk(1); q < skill.NumQuirks; q++ {
-		if q.Fits(p) {
-			return q
+		if !q.Fits(p) {
+			continue
 		}
+		if (q == skill.QuirkRelay || q == skill.QuirkRider) && reg != nil && p.Kind == skill.KindEffect && reg.Cloak(p.Type) {
+			continue
+		}
+		fit[n] = q
+		n++
 	}
-	return skill.QuirkNone
+	if n == 0 {
+		return skill.QuirkNone
+	}
+	return fit[r.Intn(n)]
 }
 
 func (t *Table) trigger(r *RNG, rar skill.Rarity) skill.Part {

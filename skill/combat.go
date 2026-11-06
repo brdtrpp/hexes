@@ -39,7 +39,13 @@ type Unit struct {
 	MarkLeft  float32
 	MarkOwner EntityID
 	Stealth   float32 // seconds of stealth left
-	Dots      [MaxDots]Dot
+	// StealthRest is seconds before stealth can be taken again, from when
+	// it last ended: a cloak can't be kept up back to back.
+	StealthRest float32
+	// Hidden is set while a cast that started out of stealth runs, for
+	// the cloak gate (Ambush is the hit bonus, which only damage reads).
+	Hidden bool
+	Dots   [MaxDots]Dot
 
 	// Shield is hull buffer that soaks hits before hull does; it lasts
 	// ShieldLeft more seconds. MendStrain and ShieldStrain are how many
@@ -249,5 +255,25 @@ func (r *Rules) Decay(u *Unit, dt float32) {
 	k := float32(math.Exp(-float64(r.DecayPerSec * dt)))
 	for i := range u.Resist {
 		u.Resist[i] *= k
+	}
+}
+
+// Reveal ends a unit's stealth, if it has any, and starts its rest.
+func (u *Unit) Reveal() {
+	if u.Stealth > 0 {
+		u.Stealth = 0
+		u.StealthRest = StealthRest
+	}
+}
+
+// TickStealth runs stealth down by dt; running out starts the rest.
+func (u *Unit) TickStealth(dt float32) {
+	u.StealthRest = max(0, u.StealthRest-dt)
+	if u.Stealth > 0 {
+		u.Stealth -= dt
+		if u.Stealth <= 0 {
+			u.Stealth = 0
+			u.StealthRest = StealthRest
+		}
 	}
 }

@@ -424,8 +424,8 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 					r.Power = min(r.MaxPower, r.Power+(res.Damage-before)*LeechFrac)
 				}
 			}
-			if c != nil && e.n[s.Src] > 0 && c.Stealth > 0 {
-				c.Stealth = 0 // a hit gives you away
+			if c != nil && e.n[s.Src] > 0 {
+				c.Reveal() // a hit gives you away
 			}
 		case OpPush:
 			hexes := int(e.bent(ctx, s) + 0.5)
@@ -698,7 +698,7 @@ func (e *Evaluator) status(w World, ctx *Ctx, s *Step, dur float32, res *Result)
 		if e.n[s.Src2] == 0 {
 			return // in a gate branch nobody took
 		}
-		if c := w.Unit(ctx.Caster); c != nil && dur > c.Stealth {
+		if c := w.Unit(ctx.Caster); c != nil && dur > c.Stealth && c.StealthRest == 0 {
 			c.Stealth = dur
 		}
 		res.Statuses++
@@ -824,9 +824,9 @@ func (e *Evaluator) casterTest(w World, ctx *Ctx, s *Step) bool {
 		return r != nil && r.Heat > s.Value*r.MaxHeat
 	case GatePower:
 		return r != nil && r.Power > s.Value*r.MaxPower
-	case GateStatus: // a cloak type: the caster is stealthed right now
+	case GateStatus: // a cloak type: the caster is hidden, or this cast came out of hiding
 		u := w.Unit(ctx.Caster)
-		return u != nil && u.Stealth > 0
+		return u != nil && (u.Stealth > 0 || u.Hidden)
 	case GateHurt:
 		u := w.Unit(ctx.Caster)
 		return u != nil && u.HP < s.Value*u.MaxHP

@@ -255,3 +255,39 @@ func BenchmarkDispatch(b *testing.B) {
 	}
 	b.ReportMetric(float64(d.Stats.Fired)/float64(b.N), "firings/op")
 }
+
+// A cast out of stealth breaks it, but its own cloak gate still passes:
+// "if hidden" reads "this cast came out of hiding". Once stealth ends a
+// cloak can't hide you again until the rest runs out.
+func TestCloakGateAndRest(t *testing.T) {
+	a, c, d, rig, r := setup(t)
+	foe := a.Spawn(1, Coord{3, 6}, 10, 1e6)
+	h := NewHex("ambush", [6]SocketKind{T, W, W, W, W, W})
+	set(t, h, 0, NewTrigger(OnCast))
+	set(t, h, 1, NewTarget(TargetNearest, 0, 1))
+	set(t, h, 2, NewGate(GateStatus, 0))
+	h.Slots[2].Part.Type = id("cloak")
+	set(t, h, 3, NewDamage(id("kinetic"), 10))
+	d.Equip(c, rig, compile(t, h, 0))
+	a.Units[c].Stealth = 2
+	before := a.Unit(foe).HP
+	d.Cast(c, 0, foe)
+	if r.fired[0] != 1 || a.Unit(foe).HP >= before {
+		t.Fatalf("the ambush gate didn't pass: fired %v, hp %v", r.fired, a.Unit(foe).HP)
+	}
+	u := a.Unit(c)
+	if u.Stealth != 0 || u.Hidden || u.StealthRest <= 0 {
+		t.Fatalf("after the cast: stealth %v hidden %v rest %v", u.Stealth, u.Hidden, u.StealthRest)
+	}
+	hide := baseHex(t)
+	set(t, hide, 2, NewStatus(id("cloak"), 3))
+	NewEvaluator(reg, DefaultRules()).Run(compile(t, hide, 0), a, Ctx{Caster: c, Subject: NoEntity, Level: 10})
+	if u.Stealth != 0 {
+		t.Fatal("a cloak hid you during the rest")
+	}
+	u.TickStealth(StealthRest)
+	NewEvaluator(reg, DefaultRules()).Run(compile(t, hide, 0), a, Ctx{Caster: c, Subject: NoEntity, Level: 10})
+	if u.Stealth == 0 {
+		t.Fatal("a cloak didn't hide you after the rest")
+	}
+}

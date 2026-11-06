@@ -254,6 +254,16 @@ func (s *Sim) Hit(caster, target skill.EntityID, dealt float32, t skill.TypeID, 
 		s.addFX(FX{Kind: FXNumber, At: a.At, Value: dealt, Type: t, Terrain: terrain,
 			Hurt: target == s.Player, Mag: mag, Life: 0.8})
 	}
+	if !terrain && caster != target && dealt > 0 {
+		// Any hit you or your minions land gives you away.
+		who := &s.Actors[caster]
+		if who.Minion && int(who.Owner) < len(s.Actors) {
+			who = &s.Actors[who.Owner]
+		}
+		if who.U.Team != a.U.Team {
+			who.U.Reveal()
+		}
+	}
 	if !terrain && caster != target {
 		area := s.landForm(caster, target, dealt, mag, t)
 		from := s.Actors[caster].At
