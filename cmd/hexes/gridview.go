@@ -54,6 +54,7 @@ type gridView struct {
 func (g *Game) setGrid(on bool) {
 	e := &g.ed
 	e.grid, e.board, e.pick, e.shape = on, false, pickNone, false
+	g.sim.GridPeek = false // the fog comes back whenever you leave or open the grid
 	if !on {
 		return
 	}
@@ -316,14 +317,12 @@ func (g *Game) gridTap(x, y float64) {
 		}
 		return
 	case b.test.hit(x, y):
-		if !sim.TestShapes {
-			if err := sim.SetTestShapes(true); err != nil {
-				e.msg, e.bad = err.Error()+".", true
-				return
-			}
-			e.msg, e.bad = "Test switch on: every ring is open and the fog is gone. Buying still costs Data.", false
+		sim.GridPeek = !sim.GridPeek
+		if sim.GridPeek {
+			e.msg, e.bad = "Test look: the fog is lifted while TEST is lit. Nothing you see here counts as found, and sealed rings stay sealed. Tap TEST again, or leave the grid, and the fog is back.", false
+		} else {
+			e.msg, e.bad = "Fog's back.", false
 		}
-		g.openTestMenu()
 		return
 	}
 	if !b.area.hit(x, y) {
@@ -515,10 +514,10 @@ func (g *Game) drawGrid(dst *ebiten.Image) {
 		g.label(dst, g.small, s, x, cy, colSalvage, false)
 		x += float64(len(s))*7*k + 14*k
 	}
-	if at := sim.NextRingDepth(); at > 0 && !sim.TestShapes && x < b.status.x+b.status.w-100*k {
+	if at := sim.NextRingDepth(); at > 0 && x < b.status.x+b.status.w-100*k {
 		g.label(dst, g.small, fmt.Sprintf("ring %d opens at depth %d", sim.RingsOpen()+1, at), x, cy, colDim, false)
 	}
-	if sim.TestShapes {
+	if sim.GridPeek {
 		g.drawRect(dst, b.test, fade(colShape, 0.55), colShape)
 		g.label(dst, g.small, "TEST ON", b.test.x+b.test.w/2, b.test.y+b.test.h/2, colText, true)
 	} else {

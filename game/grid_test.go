@@ -265,17 +265,87 @@ func TestFogAndGlow(t *testing.T) {
 			}
 		}
 	}
-	// The test switch lifts the fog.
+	// The test switch leaves the fog and the rings alone.
+	before := make([]View, len(s.Grid.Nodes))
+	for i := range before {
+		before[i] = s.CellView(i)
+	}
+	open := s.RingsOpen()
 	if err := s.SetTestShapes(true); err != nil {
 		t.Fatal(err)
 	}
-	for i, n := range s.Grid.Nodes {
-		if v := s.CellView(i); n.Kind != NodeVoid && v != ViewOwned && v != ViewCard && v != ViewReclaim {
-			t.Fatalf("test switch: node shows %v", v)
+	for i := range before {
+		if v := s.CellView(i); v != before[i] {
+			t.Fatalf("test switch changed node %d from %v to %v", i, before[i], v)
 		}
 	}
-	if s.RingsOpen() != s.Grid.Rings {
-		t.Fatal("test switch should open every ring")
+	if s.RingsOpen() != open {
+		t.Fatal("test switch opened rings")
+	}
+	// The grid's test look lifts the fog, and only while it's on.
+	seen := append([]bool(nil), s.Seen...)
+	s.GridPeek = true
+	for i, n := range s.Grid.Nodes {
+		v := s.CellView(i)
+		if n.Kind != NodeVoid && v != ViewOwned && v != ViewCard && v != ViewReclaim && v != ViewSealed {
+			t.Fatalf("test look: node shows %v", v)
+		}
+	}
+	if s.RingsOpen() != open {
+		t.Fatal("test look opened rings")
+	}
+	s.GridPeek = false
+	for i := range before {
+		if v := s.CellView(i); v != before[i] || s.Seen[i] != seen[i] {
+			t.Fatalf("test look left node %d showing %v", i, v)
+		}
+	}
+}
+
+// TestFogSurvivesTestSave: a save made with TEST on and the test look lit
+// loads fogged, the switch still on.
+func TestFogSurvivesTestSave(t *testing.T) {
+	s := NewVeteran(5)
+	if err := s.SetTestShapes(true); err != nil {
+		t.Fatal(err)
+	}
+	s.GridPeek = true
+	s.GridRingsSeen = s.Grid.Rings
+	// What the old switch left behind: cells marked seen on sealed rings.
+	sealed := -1
+	for i, n := range s.Grid.Nodes {
+		if !s.RingOpen(n.Ring) && n.Kind != NodeVoid {
+			s.Seen[i], sealed = true, i
+		}
+	}
+	if sealed < 0 {
+		t.Skip("no sealed ring on this grid")
+	}
+	b, err := s.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewVeteran(6)
+	if err := r.LoadSave(b); err != nil {
+		t.Fatal(err)
+	}
+	if !r.TestShapes || r.GridPeek {
+		t.Fatalf("after load: switch %v, look %v", r.TestShapes, r.GridPeek)
+	}
+	dark := 0
+	for i := range r.Grid.Nodes {
+		if r.CellView(i) == ViewDark {
+			dark++
+		}
+	}
+	if dark == 0 {
+		t.Fatal("no fog after loading a TEST save")
+	}
+	if r.Seen[sealed] || r.CellView(sealed) == ViewCard {
+		t.Fatalf("a cell on a sealed ring still shows after load: %v", r.CellView(sealed))
+	}
+	if r.GridRingsSeen != r.RingsOpen() {
+		t.Fatalf("rings seen %d, open %d", r.GridRingsSeen, r.RingsOpen())
 	}
 }
 
