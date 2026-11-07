@@ -444,16 +444,21 @@ func (h *Hex) AutoWire(s int) bool {
 	}
 	from := h.autoFrom(s)
 	near := Cell{}
+	var want uint16
 	if from >= 0 && h.Lay.Pos[from].On {
-		near = h.Lay.Pos[from].At
+		near, want = h.Lay.Pos[from].At, bit(from)
 	}
-	c, ok := h.freeCell(near)
+	c, ok := h.fitNear(s, near, want)
 	if !ok {
 		return false
 	}
 	h.Lay.Pos[s] = Place{At: c, On: true}
 	h.Lay.Kept &^= bit(s)
-	h.wireIn(s, from)
+	if h.Lay.Touch {
+		h.Join(s)
+	} else {
+		h.wireIn(s, from)
+	}
 	return true
 }
 
@@ -520,7 +525,11 @@ func (h *Hex) autoFrom(s int) int {
 func (h *Hex) WireIn(s int) {
 	if s >= 0 && s < Slots && h.Lay.Pos[s].On && h.Slots[s].Kind != SlotEmpty {
 		h.Lay.Kept &^= bit(s)
-		h.wireIn(s, h.autoFrom(s))
+		if h.Lay.Touch {
+			h.Join(s)
+		} else {
+			h.wireIn(s, h.autoFrom(s))
+		}
 	}
 }
 
@@ -661,7 +670,7 @@ func (h *Hex) RungOf() (r [Slots]uint8) {
 // Remap is lay with its pieces moved to new slots (where[old] is the new
 // slot, or -1 for a piece that left the hex), wires and all.
 func (lay Layout) Remap(where [Slots]int) Layout {
-	out := Layout{Room: lay.Room, Wired: lay.Wired}
+	out := Layout{Room: lay.Room, Wired: lay.Wired, Touch: lay.Touch}
 	for a := 0; a < Slots; a++ {
 		na := where[a]
 		if na < 0 || na >= Slots {

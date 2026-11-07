@@ -57,20 +57,21 @@ func TestLayPiecesByHand(t *testing.T) {
 	if !moved || calls() != 1 {
 		t.Fatal("couldn't lay the call back beside the trigger")
 	}
-	// Its wire comes off with a tap and goes back on with another.
+	// Its wires come off with taps and one goes back on with another.
 	from := -1
 	for a := 0; a < skill.Slots; a++ {
-		if h.WireArm(a, 5) != 0 {
-			from = a
+		if h.WireArm(a, 5) == 0 {
+			continue
+		}
+		from = a
+		for i := 0; i < 3 && h.WireArm(a, 5) != 0; i++ {
+			if _, err := s.WirePiece(0, a, 5); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	if from < 0 {
 		t.Fatal("the call came back with no wire in")
-	}
-	for i := 0; i < 3 && h.WireArm(from, 5) != 0; i++ {
-		if _, err := s.WirePiece(0, from, 5); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if calls() != 0 {
 		t.Fatal("unwired, the call still runs")

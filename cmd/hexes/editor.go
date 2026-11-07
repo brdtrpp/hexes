@@ -904,15 +904,13 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 		fill = fade(edge, 0.35)
 		w = g.u(4)
 	}
+	drawHex(dst, x, y, r, flat, fill, edge, w)
 	if !has {
-		drawHex(dst, x, y, r, flat, fill, edge, w) // an empty socket
 		return
 	}
-	// A piece takes its kind's outline, the same as on the board
-	// (glyph.go), with a faint socket behind it.
-	drawHex(dst, x, y, r, flat, fade(fill, 0.5), fade(edge, 0.25), g.u(1))
-	g.drawKindShape(dst, p.Kind, x, y, r*0.86, fill, edge, w)
 	g.partGlyph(dst, x, y, r*0.6, p)
+	// The piece's silhouette, the shape it takes on the board.
+	g.silhouette(dst, x+r*0.5, y-r*0.5, r*0.32, p, fade(partCol(p), 0.85))
 	title, detail := loot.Label(p, g.sim.Reg)
 	if p.Kind == skill.KindCall {
 		detail = "to " + g.callName(g.ed.hex, p, true)

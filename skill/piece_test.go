@@ -15,7 +15,7 @@ func wild() *Hex {
 func laid(t *testing.T, parts ...Part) *Hex {
 	t.Helper()
 	h := wild()
-	h.Lay.Room = Room(1<<19 - 1)
+	h.Lay.Room = RoomBits(19)
 	for i, p := range parts {
 		set(t, h, i, p)
 	}

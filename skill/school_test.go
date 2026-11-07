@@ -9,7 +9,7 @@ func openBoard(t *testing.T, parts ...Part) *Hex {
 	for i, p := range parts {
 		set(t, h, i, p)
 	}
-	h.Lay = Layout{Room: Room(1<<19 - 1), Wired: true}
+	h.Lay = Layout{Room: RoomBits(19), Wired: true}
 	for i := range parts {
 		c, ok := h.freeCell(Cell{})
 		if !ok {

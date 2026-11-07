@@ -1,7 +1,10 @@
 package skill
 
 import (
+	"encoding/json"
 	"math/bits"
+	"strconv"
+	"strings"
 )
 
 // Pieces. A laid hex isn't a ring of identical slots: every part is a
@@ -353,18 +356,19 @@ func Fits(p Part) int {
 }
 
 // Rooms. A room is a set of cells within RoomRadius steps of the
-// middle: 61 at most. Bit i is roomCells[i], numbered middle out, so the
-// first 19 (two steps out, where shapes' cells sit) keep the bits they
-// had when rooms stopped there.
+// middle: 169 at most. Bit i is roomCells[i], numbered middle out, so the
+// first 19 (two steps out, where shapes' cells sit) and the first 61 (the
+// board before it grew) keep the bits they had.
 
 // RoomRadius is how far out a room reaches; Board is that whole disc,
 // the open board every wired hex is laid on.
-const RoomRadius = 4
-
-// Room is the cells a laid hex has to lay pieces on.
-type Room uint64
+const RoomRadius = 7
 
 const roomN = 1 + 3*RoomRadius*(RoomRadius+1)
+
+// Room is the cells a laid hex has to lay pieces on: a bit set over
+// roomCells.
+type Room [(roomN + 63) / 64]uint64
 
 var roomCells [roomN]Cell
 
@@ -384,7 +388,66 @@ func init() {
 			}
 		}
 	}
-	Board = Room(1<<roomN - 1)
+	for i := 0; i < roomN; i++ {
+		Board = Board.set(i)
+	}
+}
+
+// RoomBits is the room of the first n cells, middle out.
+func RoomBits(n int) Room {
+	var m Room
+	for i := 0; i < n && i < roomN; i++ {
+		m = m.set(i)
+	}
+	return m
+}
+
+func (m Room) bit(i int) bool { return m[i>>6]&(1<<uint(i&63)) != 0 }
+
+func (m Room) set(i int) Room {
+	m[i>>6] |= 1 << uint(i&63)
+	return m
+}
+
+// Empty reports whether the room has no cells.
+func (m Room) Empty() bool { return m == Room{} }
+
+// MarshalJSON writes a room as its words in hex, low word first, as a
+// string: a number this wide doesn't survive a trip through a float.
+func (m Room) MarshalJSON() ([]byte, error) {
+	parts := make([]string, len(m))
+	for i, w := range m {
+		parts[i] = strconv.FormatUint(w, 16)
+	}
+	return json.Marshal(strings.Join(parts, "."))
+}
+
+// UnmarshalJSON reads that, or the plain number older saves held.
+func (m *Room) UnmarshalJSON(b []byte) error {
+	*m = Room{}
+	if len(b) > 0 && b[0] == '"' {
+		var str string
+		if err := json.Unmarshal(b, &str); err != nil {
+			return err
+		}
+		for i, part := range strings.Split(str, ".") {
+			if i >= len(m) {
+				break
+			}
+			w, err := strconv.ParseUint(part, 16, 64)
+			if err != nil {
+				return err
+			}
+			m[i] = w
+		}
+		return nil
+	}
+	var w uint64
+	if err := json.Unmarshal(b, &w); err != nil {
+		return err
+	}
+	m[0] = w
+	return nil
 }
 
 // roomIndex is c's bit in a Room, or -1 outside.
@@ -396,7 +459,7 @@ func roomIndex(c Cell) int {
 	return int(roomAt[q][r])
 }
 
-var roomAt [2*RoomRadius + 1][2*RoomRadius + 1]int8
+var roomAt [2*RoomRadius + 1][2*RoomRadius + 1]int16
 
 func init() {
 	for q := range roomAt {
@@ -405,31 +468,37 @@ func init() {
 		}
 	}
 	for i, c := range roomCells {
-		roomAt[c.Q+RoomRadius][c.R+RoomRadius] = int8(i)
+		roomAt[c.Q+RoomRadius][c.R+RoomRadius] = int16(i)
 	}
 }
 
 // Has reports whether the room holds c.
 func (m Room) Has(c Cell) bool {
 	i := roomIndex(c)
-	return i >= 0 && m&(1<<uint(i)) != 0
+	return i >= 0 && m.bit(i)
 }
 
 // Len is how many cells the room has.
-func (m Room) Len() int { return bits.OnesCount64(uint64(m)) }
+func (m Room) Len() int {
+	n := 0
+	for _, w := range m {
+		n += bits.OnesCount64(w)
+	}
+	return n
+}
 
 // Cells are the room's cells, middle out.
 func (m Room) Cells() []Cell {
 	var out []Cell
 	for i, c := range roomCells {
-		if m&(1<<uint(i)) != 0 {
+		if m.bit(i) {
 			out = append(out, c)
 		}
 	}
 	return out
 }
 
-func (m Room) with(c Cell) Room { return m | 1<<uint(roomIndex(c)) }
+func (m Room) with(c Cell) Room { return m.set(roomIndex(c)) }
 
 // RoomSize is how many cells a shape's room has: a Triangle 7, a Ring 15,
 // growing with the shape's slots up to 19.
@@ -452,7 +521,7 @@ func RoomFor(s Shape) Room {
 			m = m.with(g.At[i])
 		}
 	}
-	if m == 0 {
+	if m.Empty() {
 		m = m.with(Cell{})
 	}
 	rng := splitmix{s.ID ^ uint64(s.Kind)*0x9e37 ^ 0x51ed}
@@ -461,7 +530,7 @@ func RoomFor(s Shape) Room {
 		// Cells next to the room, nearest the middle first, then rolled.
 		best, bestScore := -1, int64(-1)
 		for i, c := range roomCells {
-			if m&(1<<uint(i)) != 0 || c.Ring() > 2 {
+			if m.bit(i) || c.Ring() > 2 {
 				continue // shapes' rooms stay within two steps
 			}
 			next := false
@@ -479,7 +548,7 @@ func RoomFor(s Shape) Room {
 		if best < 0 {
 			break
 		}
-		m |= 1 << uint(best)
+		m = m.set(best)
 	}
 	return m
 }
@@ -497,6 +566,9 @@ type Layout struct {
 	// not what its edges touch. A Layout from before wires (Wired false)
 	// is wired from how its edges met the first time it loads.
 	Wired bool `json:",omitempty"`
+	// Touch is set once the open board's pieces keep their silhouettes
+	// and wires only join pieces that touch (piece_touch.go).
+	Touch bool `json:",omitempty"`
 	// Out is the wires: bit b of Out[s] is a wire from piece s to piece
 	// b (from a multiplier, it boosts b). Arm0 and Arm1 are each wire's
 	// arm, 1 + bit + 2*bit: a gate's YES (1) or NO (2), or the rung an
@@ -516,7 +588,7 @@ type Place struct {
 }
 
 // Laid reports whether the hex lays its parts as pieces.
-func (h *Hex) Laid() bool { return h.Lay.Room != 0 }
+func (h *Hex) Laid() bool { return !h.Lay.Room.Empty() }
 
 // HasSlot reports whether slot i can hold a part: any slot of a laid hex,
 // or one of its shape's slots.
@@ -535,7 +607,10 @@ func (h *Hex) PieceCells(s int) []Cell {
 		return nil
 	}
 	if h.Lay.Wired {
-		return []Cell{h.Lay.Pos[s].At}
+		if !h.Lay.Touch {
+			return []Cell{h.Lay.Pos[s].At}
+		}
+		return h.cellsAt(s, h.Lay.Pos[s].At)
 	}
 	out := make([]Cell, len(pc.Cells))
 	for i, c := range pc.Cells {
@@ -588,9 +663,18 @@ func (h *Hex) fill(b *board) {
 		if pc == nil || !at.On {
 			continue
 		}
-		if h.Lay.Wired {
+		if h.Lay.Wired && !h.Lay.Touch {
 			if i := roomIndex(at.At); i >= 0 {
 				b.occ[i] = int8(s)
+			}
+			continue
+		}
+		if h.Lay.Wired {
+			// The silhouette as it is: pieces on the open board never turn.
+			for _, c := range pc.Cells {
+				if i := roomIndex(at.At.Add(c)); i >= 0 {
+					b.occ[i] = int8(s)
+				}
 			}
 			continue
 		}

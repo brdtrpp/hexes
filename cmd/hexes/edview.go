@@ -16,7 +16,7 @@ import (
 
 // edZoomMax is how far in the board zooms, over the scale that shows it
 // whole.
-const edZoomMax = 5.0
+const edZoomMax = 12.0
 
 // edViewInput runs the editor's pointers while an open board shows.
 func (g *Game) edViewInput(l *edLayout) {

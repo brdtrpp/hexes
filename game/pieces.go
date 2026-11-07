@@ -25,9 +25,9 @@ func (s *Sim) laidPiece(hex, slot int) (*skill.Hex, error) {
 	return h, nil
 }
 
-// MovePiece moves piece slot onto tile at. A piece already there swaps
-// onto slot's old tile; a piece from the tray comes back wired the way
-// its kind usually is. Wires go with the piece.
+// MovePiece moves piece slot so its first cell sits on tile at. It has
+// to fit there whole. It joins every piece it touches there and lets go
+// of the ones it no longer touches.
 func (s *Sim) MovePiece(hex, slot int, at skill.Cell) error {
 	h, err := s.laidPiece(hex, slot)
 	if err != nil {
@@ -38,19 +38,21 @@ func (s *Sim) MovePiece(hex, slot int, at skill.Cell) error {
 	}
 	was := h.Lay
 	from := h.Lay.Pos[slot]
-	if o := h.PieceAt(at); o >= 0 && o != slot {
-		if !from.On {
-			return errors.New("a piece is there already: move it first")
-		}
-		h.Lay.Pos[o].At = from.At
-	}
 	back := !from.On
 	if back && h.Held() >= h.Budget() {
 		return fmt.Errorf("the board is full: this shape holds %d pieces", h.Budget())
 	}
+	if h.Lay.Touch && !h.FitsAt(slot, at) {
+		if !from.On {
+			return errors.New("it doesn't fit there: pick a spot with room for its whole shape")
+		}
+		return errors.New("it doesn't fit there: its whole shape needs free tiles")
+	}
 	h.Lay.Pos[slot] = skill.Place{At: at, On: true}
 	h.Lay.Kept &^= 1 << uint(slot)
-	if back {
+	if h.Lay.Touch {
+		h.Join(slot)
+	} else if back {
 		h.WireIn(slot)
 	}
 	if err := s.recompile(hex); err != nil {
@@ -62,7 +64,7 @@ func (s *Sim) MovePiece(hex, slot int, at skill.Cell) error {
 
 // TurnPiece is gone with the open board: pieces don't turn.
 func (s *Sim) TurnPiece(hex, slot int) error {
-	return errors.New("pieces don't turn: wire them instead")
+	return errors.New("pieces don't turn: move them so they touch")
 }
 
 // WirePiece is a tap from piece a on piece b: it puts a wire on, steps
@@ -77,6 +79,18 @@ func (s *Sim) WirePiece(hex, a, b int) (int, error) {
 		return 0, err
 	}
 	was := h.Lay
+	if h.Lay.Touch && h.WireArm(a, b) == 0 && h.WireArm(b, a) == 0 {
+		if _, _, ok := h.CanWireTouch(a, b); !ok {
+			_, why := h.WireWhyTouch(a, b)
+			if _, why2 := h.WireWhyTouch(b, a); why == "" {
+				why = why2
+			}
+			if why == "" {
+				why = "those two don't join"
+			}
+			return 0, errors.New(why)
+		}
+	}
 	arm := h.ToggleWire(a, b)
 	if arm < 0 {
 		_, why := h.WireWhy(a, b)
@@ -84,7 +98,7 @@ func (s *Sim) WirePiece(hex, a, b int) (int, error) {
 			why = why2
 		}
 		if why == "" {
-			why = "those two don't wire together"
+			why = "those two don't join"
 		}
 		return 0, errors.New(why)
 	}
@@ -153,12 +167,12 @@ func (s *Sim) PlaceIn(hex, cell int, at skill.Cell) error {
 	}
 	old, was := h.Slots[slot], h.Lay
 	h.Slots[slot] = skill.Slot{Kind: skill.SlotPart, Part: in}
-	if o := h.PieceAt(at); o >= 0 {
-		// Dropped on a piece: take the nearest free tile.
-		c, ok := h.FreeCell(at)
+	if !h.FitsAt(slot, at) {
+		// No room for its whole shape there: the nearest spot that has.
+		c, ok := h.FitNear(slot, at)
 		if !ok {
 			h.Slots[slot], h.Lay = old, was
-			return errors.New("no free tile on the board")
+			return errors.New("no room on the board for its shape")
 		}
 		at = c
 	}

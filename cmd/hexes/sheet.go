@@ -446,7 +446,7 @@ func (g *Game) edCard() edCardView {
 		}
 		if wired && e.msg == "" {
 			if h.Lay.Pos[e.at].On {
-				lead += " Tap a ringed piece to wire them, a free tile to move it, the tray to set it aside."
+				lead += " Pieces join where they touch: tap a free tile to move it there, a piece it touches to step their join, the tray to set it aside."
 			} else {
 				lead = "In the tray. Tap a free tile to lay it."
 			}
@@ -472,7 +472,7 @@ func (g *Game) edCard() edCardView {
 	v.top = "Tap a part, then tap where it goes. Slot to slot rewires the hex."
 	switch {
 	case wired:
-		v.top = "Tap a piece, then another to wire them. Only what the trigger's wires reach runs."
+		v.top = "Pieces join where they touch. Only what touches its way back to the trigger runs."
 	case laid:
 		v.top = "Tap a piece, then a cell. Plugs that meet join; only pieces the trigger reaches run."
 	}

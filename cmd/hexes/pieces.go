@@ -121,12 +121,13 @@ func (g *Game) edFits(h *skill.Hex) (fit map[skill.Cell]bool, held bool) {
 	}
 	fit = map[skill.Cell]bool{}
 	if h.Lay.Wired {
-		// Any free tile, while the board has room for one more.
+		// Every tile its first cell can go on with its whole shape free,
+		// while the board has room for one more.
 		if !h.Lay.Pos[s].On && h.Held() >= h.Budget() {
 			return fit, true
 		}
 		for _, c := range h.Lay.Room.Cells() {
-			if o := h.PieceAt(c); o < 0 || o == s {
+			if hc.FitsAt(s, c) {
 				fit[c] = true
 			}
 		}
@@ -415,8 +416,8 @@ func (g *Game) edPieceTap(l *edLayout, x, y float64, confirm int) bool {
 	case e.pick == pickSlot && t >= 0 && h.Lay.Wired && g.edWireTap(h, t):
 	case t >= 0:
 		e.pick, e.at, e.msg = pickSlot, t, ""
-		if n := kindShapeName(h.Slots[t].Part.Kind); n != "" && h.Lay.Wired {
-			e.msg = upFirst(n) + ". Tap another piece to wire to it, or an empty tile to move it."
+		if h.Lay.Wired {
+			e.msg = "Tap an empty tile to move it (green: its shape fits), or a piece it touches to step their join."
 		}
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
 		keep(sim.MovePiece(e.hex, e.at, c))
