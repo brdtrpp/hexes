@@ -358,3 +358,72 @@ func TestCastButtonsFit(t *testing.T) {
 		}
 	}
 }
+
+// The open board: a window on the whole 61-tile board, big enough to tap
+// at its starting zoom, clear of the controls, and it zooms and drags.
+func TestOpenBoardWindow(t *testing.T) {
+	screens := []struct {
+		name    string
+		w, h, k float64
+	}{
+		{"phone portrait", 390, 844, 3},
+		{"small phone", 360, 640, 2},
+		{"phone landscape", 844, 390, 3},
+		{"desktop", 1280, 800, 1},
+	}
+	sim := game.New(1)
+	defer func() { sim.Load.Hexes[0].Lay = skill.Layout{} }()
+	for _, sc := range screens {
+		g := &Game{sim: sim, w: int(sc.w * sc.k), h: int(sc.h * sc.k), k: sc.k}
+		g.ed.hex = 0
+		sim.Load.Hexes[0].Lay = skill.Layout{Room: skill.Board, Wired: true}
+		l := g.edLayout()
+		if !l.laid {
+			t.Fatalf("%s: a wired hex isn't laid", sc.name)
+		}
+		if l.R/sc.k < 36 {
+			t.Errorf("%s: cells %.0f css px across at the start, too small to tap", sc.name, l.R/sc.k)
+		}
+		b := l.board
+		if b.x < 0 || b.y < l.shape.y+l.shape.h || b.x+b.w > float64(g.w) || b.y+b.h > float64(g.h) {
+			t.Errorf("%s: board window off screen %+v", sc.name, b)
+		}
+		for _, r := range append([]rect{l.info, l.scrap, l.close, l.bind, l.pack, l.frames, l.tray, l.cells[0], l.cells[len(l.cells)-1]}, l.tabs[:]...) {
+			if overlaps(b, r) {
+				t.Errorf("%s: board window overlaps a control %+v", sc.name, r)
+			}
+		}
+		if !b.hit(l.zin.x, l.zin.y) || !b.hit(l.zout.x, l.zout.y) {
+			t.Errorf("%s: zoom buttons outside the board", sc.name)
+		}
+		// Zoom in at the middle, then all the way out: back to the whole
+		// board.
+		mx, my := b.x+b.w/2, b.y+b.h/2
+		r0 := l.R
+		g.edZoom(1.5, mx, my)
+		if l2 := g.edLayout(); math.Abs(l2.R-math.Min(r0*1.5, l.fitR*edZoomMax)) > 0.01 {
+			t.Errorf("%s: zoom in gave R %.1f from %.1f", sc.name, l2.R, r0)
+		}
+		g.edZoom(0.001, mx, my)
+		lo := g.edLayout()
+		if math.Abs(lo.R-lo.fitR) > 0.01 || lo.zoomed {
+			t.Errorf("%s: zoomed out R %.1f, fit %.1f, zoomed %v", sc.name, lo.R, lo.fitR, lo.zoomed)
+		}
+		for _, c := range skill.Board.Cells() {
+			x, y := lo.cellXY(c)
+			if !b.hit(x, y) {
+				t.Errorf("%s: zoomed out, cell %v off the board window", sc.name, c)
+			}
+		}
+		// Zoomed in, a drag moves the view the way the finger goes.
+		g.edZoom(3, mx, my)
+		a := g.edLayout()
+		p := &pointer{x0: mx, y0: my, x: mx, y: my}
+		g.edDrag(p, mx+40*sc.k, my, &a)
+		g.edDrag(p, mx+80*sc.k, my, &a)
+		if d := g.edLayout(); d.viewX >= a.viewX {
+			t.Errorf("%s: dragging right didn't show more on the left (%.2f to %.2f)", sc.name, a.viewX, d.viewX)
+		}
+		g.ed.bv = edView{}
+	}
+}

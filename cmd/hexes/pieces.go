@@ -11,6 +11,7 @@ package main
 // join, and only the pieces the trigger reaches through joins run.
 
 import (
+	"image"
 	"image/color"
 	"math"
 
@@ -36,6 +37,9 @@ func (l *edLayout) cellXY(c skill.Cell) (float64, float64) {
 
 // cellAt is the room cell under a tap.
 func (l *edLayout) cellAt(h *skill.Hex, x, y float64) (skill.Cell, bool) {
+	if l.board.w > 0 && !l.board.hit(x, y) {
+		return skill.Cell{}, false // off the board's window
+	}
 	for _, c := range h.Lay.Room.Cells() {
 		cx, cy := l.cellXY(c)
 		if math.Hypot(x-cx, y-cy) < l.R*0.52 {
@@ -145,8 +149,13 @@ func (g *Game) edFits(h *skill.Hex) (fit map[skill.Cell]bool, held bool) {
 // drawPieces draws a laid hex: its room, its pieces and their plugs, the
 // joins between them, and the tray.
 func (g *Game) drawPieces(dst *ebiten.Image, l *edLayout, h *skill.Hex) {
+	full := dst
+	if l.board.w > 0 {
+		// The board draws only inside its window; the tray sits outside.
+		dst = dst.SubImage(image.Rect(int(l.board.x), int(l.board.y), int(math.Ceil(l.board.x+l.board.w)), int(math.Ceil(l.board.y+l.board.h)))).(*ebiten.Image)
+	}
 	if h.Lay.Wired {
-		g.drawWired(dst, l, h)
+		g.drawWired(dst, full, l, h)
 		return
 	}
 	e := &g.ed
@@ -307,7 +316,7 @@ func (g *Game) drawPieces(dst *ebiten.Image, l *edLayout, h *skill.Hex) {
 		ux, uy := (bx-ax)*0.32, (by-ay)*0.32
 		vector.StrokeLine(dst, float32(mx-ux), float32(my-uy), float32(mx+ux), float32(my+uy), g.u(5), plugCol(k.Kind, k.Arm), true)
 	}
-	g.drawTray(dst, l, h, picked)
+	g.drawTray(full, l, h, picked)
 }
 
 // edPieceTap handles a tap on a laid hex's room or tray, and reports
@@ -406,6 +415,9 @@ func (g *Game) edPieceTap(l *edLayout, x, y float64, confirm int) bool {
 	case e.pick == pickSlot && t >= 0 && h.Lay.Wired && g.edWireTap(h, t):
 	case t >= 0:
 		e.pick, e.at, e.msg = pickSlot, t, ""
+		if n := kindShapeName(h.Slots[t].Part.Kind); n != "" && h.Lay.Wired {
+			e.msg = upFirst(n) + ". Tap another piece to wire to it, or an empty tile to move it."
+		}
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
 		keep(sim.MovePiece(e.hex, e.at, c))
 	default:

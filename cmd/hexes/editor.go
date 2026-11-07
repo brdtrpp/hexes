@@ -68,6 +68,22 @@ type editor struct {
 	lpage  int
 	grid   bool
 	gv     gridView
+	// bv is the open board's window: how far it's zoomed and dragged.
+	bv edView
+}
+
+// edView is where the open board's window looks: zoom over the scale
+// that shows it whole (0 for the default), and the board point at its
+// middle once dragged (set), for hex.
+type edView struct {
+	zoom    float64
+	cx, cy  float64
+	set     bool
+	hex     int
+	ptr     map[ebiten.TouchID]*pointer
+	mouse   *pointer
+	pinch   float64
+	pinchOn bool
 }
 
 type rect struct{ x, y, w, h float64 }
@@ -104,6 +120,15 @@ type edLayout struct {
 	laid bool
 	R    float64
 	tray rect
+	// board is the window the open board shows in, fitR the scale that
+	// shows it whole, viewX and viewY the board point at its middle, and
+	// zoomed is set when part of the board is out of view. zin and zout
+	// zoom in and out.
+	board        rect
+	fitR         float64
+	viewX, viewY float64
+	zoomed       bool
+	zin, zout    rect
 	// logic is the EDIT LOGIC button over a picked gate or watch.
 	logic rect
 }
@@ -245,6 +270,39 @@ func (g *Game) edLayout() edLayout {
 	R := math.Min(ring.w/(maxX-minX+2*tile+0.02), ring.h/(maxY-minY+2*tile*0.866+0.01))
 	R = math.Min(R, math.Min(ring.w/2.2, ring.h/2.2)) // small shapes don't balloon
 	l.gridX, l.gridY = l.ringX-R*(minX+maxX)/2, l.ringY-R*(minY+maxY)/2
+	if l.laid && eh.Lay.Wired {
+		// The open board is bigger than the area on a phone: it shows a
+		// window on it, zoomed so a tile is big enough to tap, which drags
+		// and zooms (edView). Zoom 1 shows it all.
+		l.board = ring
+		l.fitR = R
+		v := &g.ed.bv
+		z := v.zoom
+		if z <= 0 || v.hex != g.ed.hex {
+			z = math.Max(1, 46*k/R)
+		}
+		R *= z
+		cx, cy := (minX+maxX)/2, (minY+maxY)/2
+		if v.set && v.hex == g.ed.hex {
+			cx, cy = v.cx, v.cy
+		} else if x, y, ok := piecesMiddle(eh); ok {
+			cx, cy = x, y // start on the pieces
+		}
+		clampView := func(c, lo, hi, half float64) float64 {
+			if hi-lo <= 2*half {
+				return (lo + hi) / 2
+			}
+			return math.Max(lo+half, math.Min(hi-half, c))
+		}
+		cx = clampView(cx, minX-tile, maxX+tile, ring.w/(2*R))
+		cy = clampView(cy, minY-tile, maxY+tile, ring.h/(2*R))
+		l.viewX, l.viewY = cx, cy
+		l.gridX, l.gridY = l.ringX-R*cx, l.ringY-R*cy
+		l.zoomed = R*(maxX-minX+2*tile) > ring.w+1 || R*(maxY-minY+2*tile*0.866) > ring.h+1
+		zb := 30 * k
+		l.zin = rect{ring.x + ring.w - zb - 4*k, ring.y + ring.h - zb - 4*k, zb, zb}
+		l.zout = rect{l.zin.x - zb - 6*k, l.zin.y, zb, zb}
+	}
 	for i := 0; i < int(gr.N); i++ {
 		x, y := gr.At[i].XY()
 		l.slots[i] = [2]float64{l.gridX + R*x, l.gridY + R*y}
@@ -273,6 +331,21 @@ func (g *Game) edLayout() edLayout {
 		l.cells[i] = rect{gx + float64(c)*(cs+cg), gy + float64(r)*(cs+cg), cs, cs}
 	}
 	return l
+}
+
+// piecesMiddle is the middle of the pieces on a laid hex's board.
+func piecesMiddle(h *skill.Hex) (x, y float64, ok bool) {
+	n := 0.0
+	for s := 0; s < skill.Slots; s++ {
+		if p := h.Lay.Pos[s]; p.On {
+			px, py := p.At.XY()
+			x, y, n = x+px, y+py, n+1
+		}
+	}
+	if n == 0 {
+		return 0, 0, false
+	}
+	return x / n, y / n, true
 }
 
 func (g *Game) openEditor() {
@@ -354,6 +427,11 @@ func (g *Game) updateEditor() bool {
 		tap = g.testTap
 	case g.cd.on:
 		tap = g.condTap
+	default:
+		if l := g.edLayout(); l.board.w > 0 {
+			g.edViewInput(&l)
+			return true
+		}
 	}
 	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
 		g.touched = true
@@ -826,13 +904,15 @@ func (g *Game) partTile(dst *ebiten.Image, x, y, r float64, flat bool, p skill.P
 		fill = fade(edge, 0.35)
 		w = g.u(4)
 	}
-	drawHex(dst, x, y, r, flat, fill, edge, w)
 	if !has {
+		drawHex(dst, x, y, r, flat, fill, edge, w) // an empty socket
 		return
 	}
+	// A piece takes its kind's outline, the same as on the board
+	// (glyph.go), with a faint socket behind it.
+	drawHex(dst, x, y, r, flat, fade(fill, 0.5), fade(edge, 0.25), g.u(1))
+	g.drawKindShape(dst, p.Kind, x, y, r*0.86, fill, edge, w)
 	g.partGlyph(dst, x, y, r*0.6, p)
-	// The piece's silhouette, the same as on the board.
-	g.silhouette(dst, x+r*0.5, y-r*0.5, r*0.32, p, fade(partCol(p), 0.85))
 	title, detail := loot.Label(p, g.sim.Reg)
 	if p.Kind == skill.KindCall {
 		detail = "to " + g.callName(g.ed.hex, p, true)
@@ -1103,6 +1183,9 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	}
 	if l.laid {
 		g.drawPieces(screen, &l, h)
+		if l.board.w > 0 {
+			g.drawEdViewControls(screen, &l)
+		}
 	} else {
 		g.drawShapeEdges(screen, &l, h, true)
 	}

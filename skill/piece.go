@@ -352,19 +352,30 @@ func Fits(p Part) int {
 	return 1
 }
 
-// Rooms. A room is a set of cells within two steps of the middle: 19 at
-// most. Bit i is roomCells[i].
+// Rooms. A room is a set of cells within RoomRadius steps of the
+// middle: 61 at most. Bit i is roomCells[i], numbered middle out, so the
+// first 19 (two steps out, where shapes' cells sit) keep the bits they
+// had when rooms stopped there.
+
+// RoomRadius is how far out a room reaches; Board is that whole disc,
+// the open board every wired hex is laid on.
+const RoomRadius = 4
 
 // Room is the cells a laid hex has to lay pieces on.
-type Room uint32
+type Room uint64
 
-var roomCells [19]Cell
+const roomN = 1 + 3*RoomRadius*(RoomRadius+1)
+
+var roomCells [roomN]Cell
+
+// Board is the open board: every cell within RoomRadius.
+var Board Room
 
 func init() {
 	n := 0
-	for ring := 0; ring <= 2; ring++ {
-		for q := -2; q <= 2; q++ {
-			for r := -2; r <= 2; r++ {
+	for ring := 0; ring <= RoomRadius; ring++ {
+		for q := -RoomRadius; q <= RoomRadius; q++ {
+			for r := -RoomRadius; r <= RoomRadius; r++ {
 				c := Cell{int8(q), int8(r)}
 				if c.Ring() == ring {
 					roomCells[n] = c
@@ -373,18 +384,19 @@ func init() {
 			}
 		}
 	}
+	Board = Room(1<<roomN - 1)
 }
 
 // roomIndex is c's bit in a Room, or -1 outside.
 func roomIndex(c Cell) int {
-	q, r := int(c.Q)+2, int(c.R)+2
-	if q < 0 || q > 4 || r < 0 || r > 4 {
+	q, r := int(c.Q)+RoomRadius, int(c.R)+RoomRadius
+	if q < 0 || q > 2*RoomRadius || r < 0 || r > 2*RoomRadius {
 		return -1
 	}
 	return int(roomAt[q][r])
 }
 
-var roomAt [5][5]int8
+var roomAt [2*RoomRadius + 1][2*RoomRadius + 1]int8
 
 func init() {
 	for q := range roomAt {
@@ -393,7 +405,7 @@ func init() {
 		}
 	}
 	for i, c := range roomCells {
-		roomAt[c.Q+2][c.R+2] = int8(i)
+		roomAt[c.Q+RoomRadius][c.R+RoomRadius] = int8(i)
 	}
 }
 
@@ -404,7 +416,7 @@ func (m Room) Has(c Cell) bool {
 }
 
 // Len is how many cells the room has.
-func (m Room) Len() int { return bits.OnesCount32(uint32(m)) }
+func (m Room) Len() int { return bits.OnesCount64(uint64(m)) }
 
 // Cells are the room's cells, middle out.
 func (m Room) Cells() []Cell {
@@ -449,8 +461,8 @@ func RoomFor(s Shape) Room {
 		// Cells next to the room, nearest the middle first, then rolled.
 		best, bestScore := -1, int64(-1)
 		for i, c := range roomCells {
-			if m&(1<<uint(i)) != 0 {
-				continue
+			if m&(1<<uint(i)) != 0 || c.Ring() > 2 {
+				continue // shapes' rooms stay within two steps
 			}
 			next := false
 			for _, d := range CellDirs {
@@ -558,7 +570,7 @@ func (h *Hex) Plugs(s int) []PlugAt {
 // board is a laid hex's room as a grid, for working out joins without
 // allocating: which slot covers each cell, and every laid plug.
 type board struct {
-	occ   [19]int8
+	occ   [roomN]int8
 	plugs [Slots][maxPlugs]PlugAt
 	np    [Slots]uint8
 }

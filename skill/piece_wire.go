@@ -331,7 +331,7 @@ func (h *Hex) freeCell(near Cell) (Cell, bool) {
 func (h *Hex) wireFromSlots() {
 	order, w := h.wishes()
 	g := h.Shape.Graph()
-	room := RoomFor(h.Shape)
+	room := Board
 	h.Lay = Layout{Room: room, Wired: true}
 	var loose []int
 	for s := 0; s < Slots; s++ {

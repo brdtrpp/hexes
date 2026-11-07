@@ -539,6 +539,11 @@ func (h *Hex) EnsureLaid() {
 		h.wireFromSlots()
 	case !h.Lay.Wired:
 		h.wireFromEdges()
+		h.Lay.Room = Board
+	case h.Lay.Room != Board:
+		// A board from before it grew: the same tiles, now in the middle
+		// of the whole open board.
+		h.Lay.Room = Board
 	}
 }
 

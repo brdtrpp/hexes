@@ -235,9 +235,9 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	}
 	if old.Lay.Wired {
 		// The open board keeps every piece's tile and wire; the new shape
-		// only changes the board and how many pieces it holds.
+		// only changes how many pieces it holds and where its pads sit.
 		nh.Lay = old.Lay.Remap(where)
-		nh.Rebox(skill.RoomFor(sh))
+		nh.Rebox(skill.Board)
 		nh.Trim()
 	} else {
 		nh.EnsureLaid()

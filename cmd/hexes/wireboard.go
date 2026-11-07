@@ -4,8 +4,9 @@ package main
 // and wires join them. Tap a piece to pick it; with one picked, tap
 // another to wire them (again to step a gate's YES and NO or an
 // overload's rungs, and on past the last to take the wire off), tap an
-// empty tile to move it there, tap the tray to set it aside. Each tile
-// shows the piece's silhouette, which is its kind.
+// empty tile to move it there, tap the tray to set it aside. Each piece
+// is drawn as its kind's outline (glyph.go). The board is large, so it
+// drags and zooms (edView in editor.go).
 
 import (
 	"image/color"
@@ -20,28 +21,6 @@ import (
 
 var rungNames = [...]string{"", "I", "II", "III"}
 
-// silhouette draws piece p's shape small, centered on x, y and size
-// across: the same outline it has on every card and drop.
-func (g *Game) silhouette(dst *ebiten.Image, x, y, size float64, p skill.Part, col color.RGBA) {
-	pc := skill.PartPiece(p)
-	if pc == nil || len(pc.Cells) == 0 {
-		return
-	}
-	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
-	for _, c := range pc.Cells {
-		cx, cy := c.XY()
-		minX, minY = math.Min(minX, cx), math.Min(minY, cy)
-		maxX, maxY = math.Max(maxX, cx), math.Max(maxY, cy)
-	}
-	span := math.Max(maxX-minX+1, maxY-minY+1)
-	r := size / span / 1.05
-	ox, oy := (minX+maxX)/2, (minY+maxY)/2
-	for _, c := range pc.Cells {
-		cx, cy := c.XY()
-		drawHex(dst, x+(cx-ox)*r, y+(cy-oy)*r, r*0.56, true, fade(col, 0.55), col, g.u(1))
-	}
-}
-
 func wireCol(k skill.PlugKind, arm uint8, rung bool) color.RGBA {
 	if rung {
 		return colCharge
@@ -51,7 +30,7 @@ func wireCol(k skill.PlugKind, arm uint8, rung bool) color.RGBA {
 
 // drawWired draws a wired hex: its tiles, its pieces, the wires and the
 // tray.
-func (g *Game) drawWired(dst *ebiten.Image, l *edLayout, h *skill.Hex) {
+func (g *Game) drawWired(dst, full *ebiten.Image, l *edLayout, h *skill.Hex) {
 	e := &g.ed
 	r := l.slotR
 	picked := -1
@@ -168,8 +147,9 @@ func (g *Game) drawWired(dst *ebiten.Image, l *edLayout, h *skill.Hex) {
 		if s == picked {
 			fill, edge, w = fade(col, 0.5), colText, g.u(4)
 		}
-		drawHex(dst, cx, cy, r*0.8, true, fill, edge, w)
-		g.silhouette(dst, cx, cy-r*0.26, r*0.5, p, edge)
+		// The piece is its kind's outline, not a tile: a trigger is a
+		// circle, a target a diamond, an effect a square (glyph.go).
+		g.drawKindShape(dst, p.Kind, cx, cy, r*0.86, fill, edge, w)
 		tc := colText
 		if !run {
 			tc = fade(colDim, 0.8)
@@ -195,7 +175,7 @@ func (g *Game) drawWired(dst *ebiten.Image, l *edLayout, h *skill.Hex) {
 			g.label(dst, g.small, tag, cx, cy, fade(colShape, 0.8), true)
 		}
 	}
-	g.drawTray(dst, l, h, picked)
+	g.drawTray(full, l, h, picked)
 }
 
 // drawTray draws the tray of pieces set aside.
