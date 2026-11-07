@@ -84,6 +84,8 @@ type Actor struct {
 	// in, so the oldest makes room first.
 	Keeps bool
 	Seq   uint32
+	// Prey is the foe a drone is hunting, or skill.NoEntity.
+	Prey skill.EntityID
 	// PulledAt is when a Warden's kinetic hit last pulled it, HeldAt
 	// when one last landed, which keeps that hit from shoving it back
 	// out (warden.go).
@@ -336,8 +338,14 @@ type Sim struct {
 	Stance uint8
 	// emitter is the device whose hex is running, so its bolts start from
 	// it; dashFromX, dashFromY is where the last dash began.
-	emitter              skill.EntityID
-	emitting             bool
+	emitter  skill.EntityID
+	emitting bool
+	// lastHit is the foe you last hit yourself (not a device), at
+	// lastHitAt, so a rare drone can go for another one.
+	lastHit   skill.EntityID
+	lastHitAt float64
+	// kits are the drone guns compiled so far (see droneKit).
+	kits                 map[kitKey]*skill.Program
 	dashFromX, dashFromY float64
 
 	occ      []skill.EntityID

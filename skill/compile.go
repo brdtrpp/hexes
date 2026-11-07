@@ -130,6 +130,7 @@ func build(h *Hex, reg *Registry, maxDepth int, work *Working) (*Program, error)
 	for _, i := range func() []int { o, n := h.Flow(trig); return o[:n] }() {
 		if sl := h.Slots[i]; sl.Kind == SlotPart && sl.Part.Kind == KindForm && sl.Part.Form.Placed() {
 			c.device, c.deviceRule = uint8(sl.Part.Form)+1, sl.Part.Rule()
+			c.deviceSeed, c.deviceRarity = sl.Part.Seed, sl.Part.Rarity
 			break
 		}
 	}
@@ -154,13 +155,19 @@ func build(h *Hex, reg *Registry, maxDepth int, work *Working) (*Program, error)
 		if body > 0xffff {
 			return nil, errors.New("device hex too large")
 		}
+		if FormKind(c.device-1) == FormDrone {
+			// A drone carries its own gun: the hex's body stays yours and
+			// runs from you, after the launch.
+			body = 0
+		}
 		if FormKind(c.device-1) == FormZone {
 			c.why = "zone, runs often"
 			c.scale(span{at, len(c.p.Steps), body > 0}, VerbDamage, ZoneScale)
 		}
 		c.p.Steps = append(c.p.Steps, Step{})
 		copy(c.p.Steps[at+1:], c.p.Steps[at:])
-		c.p.Steps[at] = Step{Op: OpDeploy, Count: c.device - 1, Bank: c.deviceRule, Span: uint16(body)}
+		c.p.Steps[at] = Step{Op: OpDeploy, Count: c.device - 1, Bank: c.deviceRule, Span: uint16(body),
+			Value: float32(c.deviceSeed & (1<<24 - 1)), Dst: uint8(c.deviceRarity)}
 		c.p.Device = c.device
 	}
 	if t.Quirk == QuirkEcho {
@@ -257,8 +264,11 @@ type compiler struct {
 	// rule deviceRule. back is the move a rare dash makes at the end.
 	device     uint8
 	deviceRule uint8
-	back       MoveMode
-	backSet    bool
+	// deviceSeed and deviceRarity are a drone part's, for its gun.
+	deviceSeed   uint32
+	deviceRarity Rarity
+	back         MoveMode
+	backSet      bool
 	// pay is the hex's first cost part, stance its first stance part.
 	pay    *Part
 	stance *Part
@@ -1063,7 +1073,7 @@ func (c *compiler) watch(h *Hex, trig int, t Part, seen map[*Hex]bool) (uint8, e
 }
 
 // acts reports whether steps do anything when they run: hit, push,
-// afflict, charge a bank or call a hex. An equipped hex that doesn't act
+// afflict, charge a bank, call a hex or launch a drone. An equipped hex that doesn't act
 // is Inert and won't fire, so it never spends Power for nothing.
 func acts(steps []Step) bool {
 	for _, s := range steps {
@@ -1071,6 +1081,10 @@ func acts(steps []Step) bool {
 		case OpDamage, OpPush, OpStatus, OpCharge, OpCall, OpMend, OpShield, OpPurge,
 			OpTaunt, OpBuff, OpRaise, OpMove, OpConsume:
 			return true
+		case OpDeploy:
+			if FormKind(s.Count) == FormDrone {
+				return true // a drone carries its own gun
+			}
 		}
 	}
 	return false

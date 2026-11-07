@@ -547,12 +547,19 @@ func (s *Sim) giveCall() bool {
 // selfOnly turns every cloak damage part a save holds into the cloak it
 // is now (skill.Registry.SelfOnly): in the hexes and modules, your own
 // build under an example, the pack, a death's salvage and the locker.
-// Nothing is dropped. It reports whether anything changed.
+// Nothing is dropped. It also gives a drone part from before drones
+// carried their own guns a gun of its own (skill.DroneKit), so two old
+// drones needn't shoot alike. It reports whether anything changed.
 func selfOnly(reg *skill.Registry, sv *Save) bool {
 	changed := false
+	n := uint32(0)
 	part := func(p *skill.Part) {
 		if q, ok := reg.SelfOnly(*p); ok {
 			*p, changed = q, true
+		}
+		if p.Kind == skill.KindForm && p.Form == skill.FormDrone && p.Seed == 0 {
+			n++
+			p.Seed, changed = skill.DroneSeed(uint64(sv.RunSeed)+uint64(n)*0x9e3779b97f4a7c15), true
 		}
 	}
 	seen := map[*skill.Hex]bool{}

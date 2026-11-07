@@ -79,6 +79,9 @@ type Deployment struct {
 	Prog *Program
 	Lo   int
 	Hi   int
+	// Seed and Rarity are a drone part's, for the gun it carries.
+	Seed   uint32
+	Rarity Rarity
 }
 
 // Ctx is the moment a program fires.
@@ -595,7 +598,7 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 				}
 			}
 			if lo >= 0 && a.Deploy(Deployment{Caster: ctx.Caster, At: at, Form: FormKind(s.Count), Rule: s.Bank,
-				Prog: e.cur, Lo: lo, Hi: lo + int(s.Span)}) {
+				Prog: e.cur, Lo: lo, Hi: lo + int(s.Span), Seed: uint32(s.Value), Rarity: Rarity(s.Dst)}) {
 				res.Statuses++
 				pc += int(s.Span)
 			}

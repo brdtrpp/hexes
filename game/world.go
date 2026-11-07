@@ -160,6 +160,10 @@ next:
 // Push implements skill.World: shove id away from `from`, one tile at a
 // time, stopping at walls and bodies. A pit swallows it.
 func (s *Sim) Push(id, from skill.EntityID, hexes int) skill.Terrain {
+	if s.emitting && int(s.emitter) < len(s.Actors) && from == s.Actors[s.emitter].Owner &&
+		s.Actors[s.emitter].Kind == KindDevice && s.Actors[s.emitter].Dev == skill.FormDrone {
+		from = s.emitter // a drone's shot shoves away from the drone
+	}
 	a := &s.Actors[id]
 	f := &s.Actors[from]
 	if from == s.Player && a.HeldAt > 0 && a.HeldAt == s.Time && !s.bursting {
@@ -256,6 +260,9 @@ func (s *Sim) Hit(caster, target skill.EntityID, dealt float32, t skill.TypeID, 
 	mag := magOf(dealt, a.U.MaxHP)
 	if !terrain {
 		a.LastHit = t
+		if caster == s.Player && caster != target && !s.emitting {
+			s.lastHit, s.lastHitAt = target, s.Time
+		}
 		if caster == s.Player && caster != target && !s.bursting {
 			switch t {
 			case s.kineticType():

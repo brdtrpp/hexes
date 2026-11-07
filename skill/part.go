@@ -564,6 +564,9 @@ type Part struct {
 	Stance StanceKind `json:",omitempty"`
 	// Fit is which silhouette the part rolled as a piece (see PartPiece).
 	Fit uint8 `json:",omitempty"`
+	// Seed, on a drone part, rolls the gun the drone carries (DroneKit).
+	// It's under 1<<24.
+	Seed uint32 `json:",omitempty"`
 }
 
 // Opt is one multiplier riding on a call as an option. It keeps what it
@@ -960,9 +963,10 @@ const (
 	// FormTrap leaves a trap where you stand that runs the hex on what
 	// steps on it. Rare: it rearms twice. Exotic: and it stuns.
 	FormTrap
-	// FormDrone launches a drone that follows you and runs the hex at
-	// the nearest foe every DroneEvery for DroneLife. Rare: two can fly.
-	// Exotic: it bursts the hex once more when it ends.
+	// FormDrone launches a drone that carries its own gun (DroneKit):
+	// it hunts a foe of its own and circles it, firing every DroneEvery.
+	// The rest of the hex runs from you. Rare: two can fly, and they go
+	// for the foe you aren't hitting. Exotic: it guards you instead.
 	FormDrone
 )
 

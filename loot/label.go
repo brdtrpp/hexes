@@ -149,6 +149,9 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			return "IF", CondShort(p.Cond, reg)
 		}
 	case skill.KindForm:
+		if p.Form == skill.FormDrone {
+			return "DRONE", p.DroneKit().Title() // the gun it carries
+		}
 		return strings.ToUpper(p.Form.String()), formDetail(p)
 	case skill.KindCost:
 		if p.Cost == skill.CostWrecks {
@@ -200,7 +203,7 @@ func formDetail(p skill.Part) string {
 	case skill.FormTrap:
 		return [...]string{"4 springs", "8 springs", "8, stuns"}[rule]
 	case skill.FormDrone:
-		return [...]string{"1 flies", "2 fly", "bursts at end"}[rule]
+		return [...]string{"hunts", "2 hunt, flank", "guards you"}[rule]
 	}
 	return ""
 }
@@ -407,6 +410,9 @@ func ClassText(p skill.Part) string {
 			return fmt.Sprintf("Builds a point on %s each time it runs; a finisher spends them", skill.BankName(p.Bank))
 		}
 	case skill.KindForm:
+		if p.Form == skill.FormDrone {
+			return droneText(p)
+		}
 		return formText(p.Form)
 	case skill.KindCost:
 		if p.Cost == skill.CostWrecks {
@@ -453,7 +459,14 @@ func formText(f skill.FormKind) string {
 	case skill.FormTrap:
 		return fmt.Sprintf("Leaves a trap where you stand that runs the hex on each foe that steps on it, %d times, until the floor ends. Rare: %d times. Exotic: and it stuns", skill.TrapArms, skill.TrapArmsRare)
 	case skill.FormDrone:
-		return fmt.Sprintf("Launches a drone that follows you and runs the hex at the nearest foe every %g s until the floor ends. Rare: two fly. Exotic: one last burst when a newer one takes its place", float32(skill.DroneEvery))
+		return droneText(skill.NewForm(skill.FormDrone))
 	}
 	return ""
+}
+
+// droneText is a drone part's line: what its own gun does, and how it
+// hunts. The rest of the hex runs from you, not the drone.
+func droneText(p skill.Part) string {
+	return fmt.Sprintf("Launches a drone with its own gun: every %g s it fires %s. It hunts a foe of its own and circles it until the floor ends, while the rest of the hex runs from you. Rare: two hunt, going for the foe you aren't hitting or the most hurt. Exotic: it guards you, shooting what closes in or takes aim at you",
+		float32(skill.DroneEvery), p.DroneKit().Text())
 }

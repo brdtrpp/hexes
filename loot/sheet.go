@@ -205,6 +205,11 @@ func partLines(p skill.Part, reg *skill.Registry) []Line {
 		}
 	case skill.KindForm:
 		stat("Shape", formDetail(p), "")
+		if p.Form == skill.FormDrone {
+			k := p.DroneKit()
+			stat("Gun", k.Title(), droneRider(k))
+			stat("Gun hits", num(k.Damage), fmt.Sprintf("every %s s = %s a second, each foe", num(skill.DroneEvery), num(k.Damage/skill.DroneEvery)))
+		}
 	case skill.KindCost:
 		if p.Cost == skill.CostWrecks {
 			stat("Pays", "1 wreck a cast", fmt.Sprintf("and cuts its Heat by %s%%", num(100*skill.WreckHeatCut)))
@@ -508,4 +513,15 @@ func hexes(v float32) string {
 		return "1 hex"
 	}
 	return num(v) + " hexes"
+}
+
+// droneRider is what a drone gun does beside damage, for its sheet.
+func droneRider(k skill.DroneKit) string {
+	switch k.Rider {
+	case skill.RiderChill:
+		return fmt.Sprintf("chills %s s", num(skill.DroneChill))
+	case skill.RiderShove:
+		return fmt.Sprintf("shoves %s hex", num(skill.DroneShove))
+	}
+	return ""
 }

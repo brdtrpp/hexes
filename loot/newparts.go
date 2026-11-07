@@ -156,6 +156,11 @@ func (t *Table) RollFam(r *RNG, f int, rar skill.Rarity) skill.Part {
 	if rar == skill.Exotic && skill.QuirkHeated.Fits(p) {
 		p.Quirk = skill.QuirkHeated
 	}
+	if p.Kind == skill.KindForm && p.Form == skill.FormDrone {
+		// The gun it carries, from where the roll stands (no extra draw,
+		// so seeded rolls stay as they were).
+		p.Seed = skill.DroneSeed(r.s)
+	}
 	return r.withFit(p)
 }
 

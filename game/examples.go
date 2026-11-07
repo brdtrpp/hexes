@@ -65,6 +65,13 @@ func condGate(ts ...skill.Tile) skill.Part {
 	return skill.NewGate(skill.GateHull, 0.5).WithCond(tiles(ts...))
 }
 
+// wasp is the example drone: its seed rolls a chilling cryo pulse.
+func wasp() skill.Part {
+	p := skill.NewForm(skill.FormDrone)
+	p.Seed = 21
+	return p
+}
+
 // heated makes a rare multiplier with the Heated quirk.
 func heated(p skill.Part) skill.Part {
 	p = p.WithRarity(skill.Rare)
@@ -275,9 +282,8 @@ func Examples(reg *skill.Registry) []Example {
 				}), "Snare", "a trap that freezes eight times"},
 				{exHex("Wasp", ring, false, map[int]skill.Part{
 					0: skill.NewTrigger(skill.OnCast),
-					1: skill.NewForm(skill.FormDrone),
-					2: skill.NewDamage(ty("drone"), 10),
-				}), "Wasp", "a drone at your shoulder"},
+					1: wasp(),
+				}), "Wasp", "a drone that hunts with its own cryo gun"},
 			}},
 		{Name: "Warden", Blurb: "oaths: taunt, thorns, a stance and blood",
 			Hexes: []ExampleHex{

@@ -36,6 +36,14 @@ const (
 	ZoneChill     = 0.3  // an exotic zone's slow
 	lineWidth     = 0.95 // hex units either side of a line's centre
 	deviceFirstIn = 0.3  // seconds before a new device first runs
+
+	// Drones hunt (see drone).
+	DroneOrbit  = 1.6 // hexes a hunting drone circles its quarry at
+	DroneSpin   = 1.1 // radians a second it goes round
+	DroneLeash  = 8   // hexes from you a drone hunts within
+	DroneGuard  = 1.8 // hexes an exotic drone circles you at
+	DroneThreat = 3   // hexes from you a foe counts as closing in
+	DroneOthers = 2.0 // seconds a foe you hit counts as yours to a rare drone
 )
 
 // wreck reports whether actor i is a wreck: a foe's body, fresh, whole
@@ -212,6 +220,13 @@ func (s *Sim) closest(out []skill.EntityID, score func(i int) (float64, bool)) i
 func (s *Sim) aim(origin, caster skill.EntityID) (float64, float64) {
 	var near [1]skill.EntityID
 	o := &s.Actors[origin]
+	if s.emitting && origin == s.emitter && o.Kind == KindDevice && o.Dev == skill.FormDrone {
+		if q := o.Prey; q != skill.NoEntity && int(q) < len(s.Actors) && s.Actors[q].U.Alive {
+			if dx, dy := s.unitTo(o, &s.Actors[q]); dx != 0 || dy != 0 {
+				return dx, dy // a drone's lance runs through its quarry
+			}
+		}
+	}
 	if s.nearest(o.At, origin, caster, NearestRange, near[:], nil) == 1 {
 		ox, oy := o.Pos()
 		px, py := s.Actors[near[0]].Pos()
@@ -480,20 +495,15 @@ func (s *Sim) Deploy(d skill.Deployment) bool {
 		Kind: KindDevice, At: at, From: at, MoveT: 1, Free: true, X: x, Y: y, Awake: true,
 		Dev: d.Form, Rule: d.Rule, Life: life, Every: every, Clock: deviceFirstIn, Arms: arms,
 		Dep: d, Owner: d.Caster, FaceX: c.FaceX, FaceY: c.FaceY,
-		Keeps: skill.Standing(d.Form), Seq: s.nextSeq(),
+		Keeps: skill.Standing(d.Form), Seq: s.nextSeq(), Prey: skill.NoEntity,
 	}
 	s.addFX(FX{Kind: FXDeploy, At: at, Slot: int(d.Form), Life: 0.6})
 	return true
 }
 
 // retire ends a device that ran its course or made room for a newer
-// one: an exotic drone bursts once more on the way out.
-func (s *Sim) retire(i int) {
-	if a := &s.Actors[i]; a.U.Alive && a.Kind == KindDevice && a.Dev == skill.FormDrone && a.Rule >= 2 {
-		s.runDevice(i, skill.NoEntity)
-	}
-	s.expire(i)
-}
+// one.
+func (s *Sim) retire(i int) { s.expire(i) }
 
 // expire ends a device or a minion without a death: no kill, no loot.
 func (s *Sim) expire(i int) {
@@ -544,10 +554,8 @@ func (s *Sim) device(i int, dt float32) {
 	a := &s.Actors[i]
 	switch a.Dev {
 	case skill.FormDrone:
-		// Hang off your shoulder, the side away from where you face.
-		p := &s.Actors[a.Owner]
-		tx, ty := p.X-p.FaceY*1.1-p.FaceX*0.5, p.Y+p.FaceX*1.1-p.FaceY*0.5
-		s.slide(a, tx, ty, DroneSpeed*tileSpan*float64(dt), false)
+		s.drone(i, dt)
+		return
 	case skill.FormZone:
 		if a.Rule >= 1 {
 			if f := s.nearestFoe(a.At, NearestRange); f != skill.NoEntity {
@@ -603,6 +611,187 @@ func (s *Sim) device(i int, dt float32) {
 	}
 }
 
+// drone runs one drone for a frame. It hunts: it picks a foe of its own
+// (quarry), circles it and fires its own gun at it (droneKit), never the
+// hex that launched it. An exotic drone guards you instead: it circles
+// you and fires at whatever closes in or lines up a shot at you.
+func (s *Sim) drone(i int, dt float32) {
+	a := &s.Actors[i]
+	p := &s.Actors[a.Owner]
+	a.Prey = s.quarry(i)
+	px, py := p.Pos()
+	spin := float64(s.Time)*DroneSpin + float64(a.Seq)*2.1
+	var tx, ty float64
+	switch {
+	case a.Rule >= 2:
+		r := DroneGuard * tileSpan
+		tx, ty = px+math.Cos(spin)*r, py+math.Sin(spin)*r
+	case a.Prey != skill.NoEntity:
+		qx, qy := s.Actors[a.Prey].Pos()
+		r := DroneOrbit * tileSpan
+		tx, ty = qx+math.Cos(spin)*r, qy+math.Sin(spin)*r
+	default:
+		// Nothing to hunt: back to your shoulder.
+		tx, ty = px-p.FaceY*1.1-p.FaceX*0.5, py+p.FaceX*1.1-p.FaceY*0.5
+	}
+	s.slide(a, tx, ty, DroneSpeed*tileSpan*float64(dt), false)
+	if a.Prey != skill.NoEntity {
+		a.FaceX, a.FaceY = s.unitTo(a, &s.Actors[a.Prey])
+	}
+	a.Clock -= dt
+	if a.Clock > 0 || a.Prey == skill.NoEntity {
+		return
+	}
+	a.Clock = a.Every
+	s.runDevice(i, a.Prey)
+}
+
+// quarry is the foe drone i goes for now. A common drone keeps the foe it
+// picked till it falls or strays off the leash, then takes the one
+// nearest it. A rare drone goes for the most hurt foe that isn't the one
+// you're hitting (or another drone's). An exotic drone takes whatever
+// lines up a shot at you, else the nearest foe closing in; with nothing
+// near you it fires at the nearest foe it can reach.
+func (s *Sim) quarry(i int) skill.EntityID {
+	a := &s.Actors[i]
+	p := &s.Actors[a.Owner]
+	leashed := func(j int) bool {
+		return s.foe(a.Owner, j) && skill.Dist(s.Actors[j].At, p.At) <= DroneLeash
+	}
+	switch {
+	case a.Rule >= 2:
+		best, bestD := skill.NoEntity, math.MaxFloat64
+		for j := range s.Actors {
+			if !leashed(j) {
+				continue
+			}
+			f := &s.Actors[j]
+			d := s.distF(p, f)
+			switch {
+			case f.Aim > 0:
+				d -= 100 // lining up a shot at you: first
+			case d > DroneThreat+0.5:
+				d += 100 // not near you: only if nothing is
+			}
+			if d < bestD {
+				best, bestD = skill.EntityID(j), d
+			}
+		}
+		if best != skill.NoEntity && bestD > 100 && s.distF(a, &s.Actors[best]) > float64(NearestRange) {
+			return skill.NoEntity
+		}
+		return best
+	case a.Rule >= 1:
+		yours := skill.NoEntity
+		if s.Time-s.lastHitAt <= DroneOthers {
+			yours = s.lastHit
+		}
+		best, bestScore := skill.NoEntity, math.MaxFloat64
+		for j := range s.Actors {
+			if !leashed(j) {
+				continue
+			}
+			u := &s.Actors[j].U
+			score := float64(u.HP / max(1, u.MaxHP))
+			if skill.EntityID(j) == yours {
+				score += 10
+			}
+			if s.hunted(i, skill.EntityID(j)) {
+				score += 5
+			}
+			if score < bestScore {
+				best, bestScore = skill.EntityID(j), score
+			}
+		}
+		return best
+	}
+	if q := a.Prey; q != skill.NoEntity && int(q) < len(s.Actors) && leashed(int(q)) {
+		return q
+	}
+	best, bestD := skill.NoEntity, math.MaxFloat64
+	for j := range s.Actors {
+		if !leashed(j) {
+			continue
+		}
+		d := s.distF(a, &s.Actors[j])
+		if s.hunted(i, skill.EntityID(j)) {
+			d += 4
+		}
+		if d < bestD {
+			best, bestD = skill.EntityID(j), d
+		}
+	}
+	return best
+}
+
+// hunted reports whether another of drone i's owner's drones is on f.
+func (s *Sim) hunted(i int, f skill.EntityID) bool {
+	a := &s.Actors[i]
+	for j := range s.Actors {
+		b := &s.Actors[j]
+		if j != i && b.U.Alive && b.Kind == KindDevice && b.Dev == skill.FormDrone && b.Owner == a.Owner && b.Prey == f {
+			return true
+		}
+	}
+	return false
+}
+
+// kitKey picks out a compiled drone gun.
+type kitKey struct {
+	seed   uint32
+	rarity skill.Rarity
+	level  int
+}
+
+// droneKit is the program a drone's gun runs: built from its part's seed
+// and rarity (skill.DroneKit) and compiled once per level.
+func (s *Sim) droneKit(a *Actor) *skill.Program {
+	level := s.Actors[a.Owner].U.Level
+	key := kitKey{a.Dep.Seed, a.Dep.Rarity, level}
+	if p, ok := s.kits[key]; ok {
+		return p
+	}
+	if s.kits == nil {
+		s.kits = map[kitKey]*skill.Program{}
+	}
+	h := KitHex(s.Reg, skill.DroneKitOf(a.Dep.Seed, a.Dep.Rarity))
+	p, err := CompileHex(h, s.Reg, level, 4)
+	if err != nil {
+		p = nil
+	}
+	s.kits[key] = p
+	return p
+}
+
+// KitHex is the hex a drone gun is: fired by the drone, at its quarry.
+func KitHex(reg *skill.Registry, k skill.DroneKit) *skill.Hex {
+	parts := map[int]skill.Part{0: skill.NewTrigger(skill.OnCast)}
+	n := 1
+	switch k.Gun {
+	case skill.GunScatter:
+		parts[n] = skill.NewTarget(skill.TargetNearest, 0, 3)
+		n++
+	case skill.GunArc:
+		parts[n] = skill.NewTarget(skill.TargetChain, 3, 3)
+		n++
+	case skill.GunLance:
+		parts[n] = skill.NewTarget(skill.TargetLine, 4, 0)
+		n++
+	case skill.GunFlak:
+		parts[n] = skill.NewTarget(skill.TargetAdjacent, 2, 0)
+		n++
+	}
+	parts[n] = skill.NewDamage(reg.MustID(k.Type), k.Damage)
+	n++
+	switch k.Rider {
+	case skill.RiderChill:
+		parts[n] = skill.NewStatus(reg.MustID("cryo"), skill.DroneChill)
+	case skill.RiderShove:
+		parts[n] = skill.NewPush(skill.DroneShove)
+	}
+	return exHex("drone gun", skill.Shape{Kind: skill.ShapeRing}, false, parts)
+}
+
 // unitTo is the unit vector from a to b.
 func (s *Sim) unitTo(a, b *Actor) (float64, float64) {
 	ax, ay := a.Pos()
@@ -644,6 +833,14 @@ func (s *Sim) slide(a *Actor, x, y, step float64, stopShort bool) {
 func (s *Sim) runDevice(i int, subject skill.EntityID) {
 	a := &s.Actors[i]
 	dep := a.Dep
+	if a.Dev == skill.FormDrone {
+		// A drone fires its own gun, not the hex that launched it.
+		dep.Prog = s.droneKit(a)
+		dep.Lo, dep.Hi = 0, 0
+		if dep.Prog != nil {
+			dep.Hi = len(dep.Prog.Steps)
+		}
+	}
 	s.emitter, s.emitting = skill.EntityID(i), true
 	s.Disp.RunDevice(dep, skill.EntityID(i), subject)
 	// Engineer blueprints: every device runs them too, from where it
@@ -835,4 +1032,31 @@ func (a *Actor) Extra() bool { return a.extra() }
 func (s *Sim) StanceOn(i int) bool {
 	l := s.Disp.Loadout(s.Player)
 	return l != nil && i >= 0 && i < len(l.On) && l.On[i]
+}
+
+// DevDrones is a dev and screenshot hook: depth d with three foes round
+// you and three drones up, one of each grade, hunting.
+func (s *Sim) DevDrones(d int) {
+	s.load(d, 1)
+	p := s.P()
+	spots := s.openAround(p.At, 10)
+	n := 0
+	for i := range s.Actors {
+		a := &s.Actors[i]
+		if n >= 3 || n*3+4 >= len(spots) || !a.U.Alive || a.Kind == KindPlayer || a.extra() {
+			continue
+		}
+		to := spots[n*3+4]
+		s.occ[s.Floor.Index(a.At)] = skill.NoEntity
+		s.occ[s.Floor.Index(to)] = skill.EntityID(i)
+		a.At, a.From, a.MoveT = to, to, 1
+		a.X, a.Y = to.Pixel()
+		a.U.MaxHP *= 20
+		a.U.HP = a.U.MaxHP
+		n++
+	}
+	for r := uint8(0); r < 3; r++ {
+		s.Deploy(skill.Deployment{Caster: s.Player, At: skill.NoEntity, Form: skill.FormDrone, Rule: r,
+			Seed: skill.DroneSeed(uint64(r) + 3), Rarity: skill.Rarity(r + 1)})
+	}
 }

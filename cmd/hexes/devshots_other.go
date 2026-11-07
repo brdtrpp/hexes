@@ -15,6 +15,7 @@ package main
 // HEXES_FRAMES=bench stands still beside the start bench.
 // HEXES_FRAMES=pad stands hurt on a repair pad (HEXES_DEPTH, default 3).
 // HEXES_FRAMES=stances shows rage, a hot rig, marked foes and a pull.
+// HEXES_FRAMES=drones shows three drones hunting; dronecard a drone's card.
 // HEXES_FRAMES=menu opens the menu; bigmap enlarges the chart.
 // HEXES_HOLD=1 holds button 1 most of the time; HEXES_TOUCH=1 shows the
 // phone's thumb buttons instead of the PC key bar.
@@ -287,6 +288,15 @@ func (g *Game) devFrames(mode string) {
 		// A raised army around you and a Brace half full.
 		s.DevArmy(envInt("HEXES_DEPTH", 3))
 		g.camX, g.camY = s.P().Pos()
+	case "drones":
+		// Three drones up, one of each grade, hunting three foes.
+		s.DevDrones(envInt("HEXES_DEPTH", 3))
+		g.camX, g.camY = s.P().Pos()
+	case "dronecard":
+		// A rare drone part's card: the gun it carries.
+		p := skill.NewForm(skill.FormDrone).WithRarity(skill.Rare)
+		p.Seed = 21
+		g.openSheet(game.PartSheet(p, s.Reg))
 	case "stances":
 		// Rage full and the rig hot, marked foes round you, one pulled in.
 		s.DevStances(envInt("HEXES_DEPTH", 3))
