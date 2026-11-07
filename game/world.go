@@ -162,6 +162,9 @@ next:
 func (s *Sim) Push(id, from skill.EntityID, hexes int) skill.Terrain {
 	a := &s.Actors[id]
 	f := &s.Actors[from]
+	if from == s.Player && a.HeldAt > 0 && a.HeldAt == s.Time && !s.bursting {
+		return skill.TerrainFloor // a Warden's kinetic hit just pulled it in
+	}
 	dir := uint8(f.Facing)
 	if a.At != f.At {
 		dir = dirTo(f.At, a.At)
@@ -253,8 +256,18 @@ func (s *Sim) Hit(caster, target skill.EntityID, dealt float32, t skill.TypeID, 
 	mag := magOf(dealt, a.U.MaxHP)
 	if !terrain {
 		a.LastHit = t
-		if caster == s.Player && dealt > 0 && t == s.kineticType() {
-			s.pull(target) // the Warden drags them in (warden.go)
+		if caster == s.Player && caster != target && !s.bursting {
+			switch t {
+			case s.kineticType():
+				if dealt > 0 {
+					s.pull(target) // the Warden drags them in (warden.go)
+				}
+			case s.naniteType():
+				s.furyHit() // the Berserker's streak (berserker.go)
+			}
+			if dealt > 0 {
+				s.expose(target, dealt, t) // the Rogue's marks (rogue.go)
+			}
 		}
 	}
 	if dealt > 0 || terrain {

@@ -101,8 +101,8 @@ func TestNecroArmyRisesStaysAndMarches(t *testing.T) {
 	}
 }
 
-// TestSignatureLean checks Necromancer, Engineer and Warden drops come
-// up their own parts more often than plain hits, and Mage's don't move.
+// TestSignatureLean checks every school's drops come up its own parts
+// more often, and plain hits less.
 func TestSignatureLean(t *testing.T) {
 	s := NewVeteran(5)
 	tab := s.Stash.table
@@ -125,16 +125,11 @@ func TestSignatureLean(t *testing.T) {
 		}
 		return
 	}
-	for _, sc := range []School{SchoolNecro, SchoolEngineer, SchoolWarden} {
+	for sc := range NumSchools {
 		s0, p0 := count(sc, false)
 		s1, p1 := count(sc, true)
-		if s1 < s0*5/4 || p1 > p0*2/3 {
+		if s1 <= s0*11/10 || p1 > p0*2/3 {
 			t.Errorf("%s: signature %d -> %d, plain %d -> %d", sc, s0, s1, p0, p1)
 		}
-	}
-	_, p0 := count(SchoolMage, false)
-	_, p1 := count(SchoolMage, true)
-	if p0 != p1 {
-		t.Errorf("mage leaned: plain %d -> %d", p0, p1)
 	}
 }

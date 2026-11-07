@@ -84,8 +84,14 @@ type Actor struct {
 	// in, so the oldest makes room first.
 	Keeps bool
 	Seq   uint32
-	// PulledAt is when a Warden's kinetic hit last pulled it (warden.go).
-	PulledAt float64
+	// PulledAt is when a Warden's kinetic hit last pulled it, HeldAt
+	// when one last landed, which keeps that hit from shoving it back
+	// out (warden.go).
+	PulledAt, HeldAt float64
+	// Exposed is the Rogue's stacks on it, ExposedT their seconds left
+	// (rogue.go).
+	Exposed  uint8
+	ExposedT float32
 }
 
 // Arrived reports whether the actor has finished its current step.
@@ -190,9 +196,16 @@ type Sim struct {
 	Brace    float32
 	braceT   float32
 	bursting bool
-	Best     int     // deepest floor ever reached
-	Time     float64 // seconds of play, ever
-	FX       FXBuf
+	// The Berserker's streak of nanite hits and when the last landed
+	// (berserker.go); berserk and mage are set while your hexes carry
+	// those schools' types; cashing is set while a Rogue cash-in lands.
+	furyStreak    int
+	furyAt        float64
+	berserk, mage bool
+	cashing       bool
+	Best          int     // deepest floor ever reached
+	Time          float64 // seconds of play, ever
+	FX            FXBuf
 	// forms are the target areas hexes picked during the current firing
 	// (see form.go); Fired turns the ones that landed into effects.
 	forms  [maxForms]form
@@ -500,6 +513,7 @@ func (s *Sim) enter(depth int, hpFrac float32, seed uint64) {
 	s.marchIn()
 	s.Stance = 0
 	s.Brace, s.braceT = 0, 0
+	s.furyStreak = 0
 
 	s.Rig = skill.NewRig(s.Points)
 	s.loadLoot(lvl)
@@ -610,7 +624,9 @@ func (s *Sim) playerInput(dt float32) {
 	p := s.P()
 	in := &s.Input
 	if in.Vent {
+		heat := s.Rig.Heat
 		if s.Rig.Vent() {
+			s.ventNova(heat) // the Mage lets it go (mage.go)
 			s.addFX(FX{Kind: FXVent, At: p.At, Life: 0.6})
 			s.Disp.Emit(skill.Event{Trigger: skill.OnVent, Actor: s.Player, Subject: skill.NoEntity, Chain: 1, Slot: -1})
 		}
@@ -754,6 +770,9 @@ func (s *Sim) timers(dt float32) {
 		u.TauntLeft = max(0, u.TauntLeft-dt)
 		u.ThornsLeft = max(0, u.ThornsLeft-dt)
 		u.HasteLeft = max(0, u.HasteLeft-dt)
+		if a.ExposedT = max(0, a.ExposedT-dt); a.ExposedT == 0 {
+			a.Exposed = 0
+		}
 		u.TickSustain(dt)
 		if u.StunLeft == 0 && u.Frozen {
 			u.Frozen, u.Chill = false, 0
@@ -772,6 +791,9 @@ func (s *Sim) timers(dt float32) {
 				}
 				dealt, _ := s.Rules.ResolveTick(&a.U, d.PerTick, d.Type, int(d.AttackerLevel))
 				d.Left--
+				if d.Owner == s.Player && d.Type == s.naniteType() && skill.EntityID(i) != s.Player {
+					s.fury(dealt) // the Berserker's nanite feeds the rage (berserker.go)
+				}
 				if dealt > 0 && int(d.Owner) < len(s.Actors) && a.U.Team != s.Actors[d.Owner].U.Team {
 					s.Actors[d.Owner].U.Reveal() // a burn or toxin ticking gives you away too
 				}
@@ -831,6 +853,7 @@ func (s *Sim) died(id skill.EntityID) {
 		s.earnKill(id)
 		s.dropLoot(id)
 		s.wrecked(id)
+		s.exposedDied(a)
 		if !a.Fell && a.LastHit == s.necroType() {
 			s.rise(id) // the Necromancer's dead get up (army.go)
 		}

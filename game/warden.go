@@ -3,7 +3,8 @@ package game
 import "hexes/skill"
 
 // The Warden's signature. Your kinetic hits drag foes a step toward you,
-// so they end up where your guard is; and every bit of a blow you turn
+// so they end up where your guard is (a foe already beside you still
+// takes the hit's shove, into a wall or a pit); and every bit of a blow you turn
 // aside (a taunt's cut, the bulwark stance, a shield soaking it) builds
 // Brace. When Brace reaches BraceFull of your hull it goes off as a
 // kinetic burst around you, BurstMult times what was stored, and throws
@@ -39,7 +40,7 @@ func (s *Sim) pull(id skill.EntityID) {
 	s.occ[s.Floor.Index(a.At)] = skill.NoEntity
 	s.occ[s.Floor.Index(next)] = id
 	a.At, a.From, a.MoveT, a.MoveDur = next, start, 0, 0.12
-	a.PulledAt = s.Time
+	a.PulledAt, a.HeldAt = s.Time, s.Time // the hit's own shove doesn't undo it
 	s.addFX(FX{Kind: FXPush, From: start, At: a.At, Life: 0.3})
 }
 

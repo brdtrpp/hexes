@@ -736,6 +736,12 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		sa := min(1, p.U.ShieldLeft/1.5)
 		vector.DrawFilledRect(screen, u(14), by, sw, u(4), fade(colShield, 0.9*sa), false)
 	}
+	if r := sim.RageShare(); r > 0 && sim.Carries(game.SchoolBerserker) {
+		// The Berserker's rage fills through the middle of the hull bar;
+		// its stages show as the bar's thirds.
+		nan := typeColor(game.SchoolType(sim.Reg, game.SchoolBerserker))
+		vector.DrawFilledRect(screen, u(14), by+u(5), bw*r, u(4), fade(nan, 0.95), false)
+	}
 	if b := sim.BraceShare(); b > 0 {
 		// The Warden's Brace fills along the bottom of the hull bar and
 		// bursts when it's full.

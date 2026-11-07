@@ -316,15 +316,16 @@ func (s *Sim) OpenSchools() SchoolSet {
 	return ss
 }
 
-// The lean: Necromancer, Engineer and Warden hexes are about their
-// signature parts (raising, devices, oaths), so when a drop or a pick
-// for one of them comes up a plain damage or status effect, LeanChance
-// of the time it's one of the school's own parts instead.
+// The lean: every school's hexes are about its signature parts (the
+// Mage's forms, the Engineer's devices, the Warden's and Berserker's
+// oaths, the Necromancer's wrecks, the Rogue's shadow), so when a drop
+// or a pick for a school comes up a plain damage or status effect,
+// LeanChance of the time it's one of the school's own parts instead.
 const LeanChance = 0.5
 
-// leanFam is each leaning school's family of signature parts, -1 for a
-// school that doesn't lean.
-var leanFam = [NumSchools]int{-1, 3, 4, -1, 2, -1}
+// leanFam is each school's family of signature parts (loot's family
+// order), -1 for a school that doesn't lean.
+var leanFam = [NumSchools]int{0, 3, 4, 4, 2, 1}
 
 // leaning wraps roll with the lean, drawing signature parts from t at
 // rarity rar. A family the ladder hasn't let in yet stays out.
@@ -343,12 +344,22 @@ func (s *Sim) leaning(r *loot.RNG, t *loot.Table, rar skill.Rarity, open SchoolS
 			return p
 		}
 		for k := 0; k < 4; k++ {
-			if q := t.RollFam(r, f, rar); SchoolOf(q, s.Reg).Has(sc) {
+			q := t.RollFam(r, f, rar)
+			if SchoolOf(q, s.Reg).Has(sc) && allowed(t.Allow, q) {
 				return q
 			}
 		}
 		return p
 	}
+}
+
+// allowed reports whether a limited table may hand out q: a kind of part
+// you own, and no sustain part before you have them.
+func allowed(a loot.Allow, q skill.Part) bool {
+	if !a.Limit {
+		return true
+	}
+	return a.Kinds&loot.KindBit(q.Kind) != 0 && (a.Sustain || !IsSustain(q))
 }
 
 // schoolRoll rolls until a part of an open school comes up (and ok likes

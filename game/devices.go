@@ -768,6 +768,11 @@ func (s *Sim) stances() {
 	}
 	s.Stance = m
 	p.U.Might = 1
+	s.berserk, s.mage = s.Carries(SchoolBerserker), s.Carries(SchoolMage)
+	if s.berserk {
+		p.U.Might += s.furyMight() // rage stages (berserker.go)
+	}
+	p.U.Might += s.heatMight() // a hot rig (mage.go)
 	s.Rig.ChargeMul, s.Rig.CoolMul = 1, 1
 	if m&(1<<skill.StanceHunter) != 0 {
 		p.U.Might += skill.HunterMight
@@ -810,6 +815,9 @@ func (s *Sim) speedMul() float64 {
 	}
 	if s.Stance&(1<<skill.StanceHunter) != 0 {
 		m *= 1 + skill.HunterSpeed
+	}
+	if s.berserk && s.rageRung() >= 2 {
+		m *= 1 + FurySpeed
 	}
 	return m
 }
