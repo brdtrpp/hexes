@@ -480,6 +480,18 @@ type Layout struct {
 	// Kept is the pieces the player set aside on purpose: Settle leaves
 	// them off the room.
 	Kept uint16 `json:",omitempty"`
+	// Wired is the open board: each piece takes one cell anywhere on the
+	// room, never turns, and joins what the player wires it to (Out),
+	// not what its edges touch. A Layout from before wires (Wired false)
+	// is wired from how its edges met the first time it loads.
+	Wired bool `json:",omitempty"`
+	// Out is the wires: bit b of Out[s] is a wire from piece s to piece
+	// b (from a multiplier, it boosts b). Arm0 and Arm1 are each wire's
+	// arm, 1 + bit + 2*bit: a gate's YES (1) or NO (2), or the rung an
+	// overload or rage trigger sends on (1, 2 or 3).
+	Out  [Slots]uint16 `json:",omitempty"`
+	Arm0 [Slots]uint16 `json:",omitempty"`
+	Arm1 [Slots]uint16 `json:",omitempty"`
 }
 
 // Place is one piece's spot: its anchor cell and how it lies (Orient).
@@ -509,6 +521,9 @@ func (h *Hex) PieceCells(s int) []Cell {
 	pc := PieceOf(h.Slots[s])
 	if pc == nil || !h.Lay.Pos[s].On {
 		return nil
+	}
+	if h.Lay.Wired {
+		return []Cell{h.Lay.Pos[s].At}
 	}
 	out := make([]Cell, len(pc.Cells))
 	for i, c := range pc.Cells {
@@ -561,6 +576,12 @@ func (h *Hex) fill(b *board) {
 		if pc == nil || !at.On {
 			continue
 		}
+		if h.Lay.Wired {
+			if i := roomIndex(at.At); i >= 0 {
+				b.occ[i] = int8(s)
+			}
+			continue
+		}
 		for _, c := range pc.Cells {
 			if i := roomIndex(at.At.Add(Orient(c, int(at.Rot)))); i >= 0 {
 				b.occ[i] = int8(s)
@@ -602,6 +623,10 @@ func (h *Hex) canPlace(b *board, s int, p Place) bool {
 	if pc == nil {
 		return false
 	}
+	if h.Lay.Wired {
+		o := b.at(p.At)
+		return h.Lay.Room.Has(p.At) && (o < 0 || o == s)
+	}
 	for _, c := range pc.Cells {
 		c = p.At.Add(Orient(c, int(p.Rot)))
 		if !h.Lay.Room.Has(c) {
@@ -626,8 +651,14 @@ func (h *Hex) Place(s int, p Place) bool {
 	return true
 }
 
-// Lift takes piece s off the room (the hex keeps the part).
-func (h *Hex) Lift(s int) { h.Lay.Pos[s] = Place{} }
+// Lift takes piece s off the room (the hex keeps the part), with its
+// wires.
+func (h *Hex) Lift(s int) {
+	h.Lay.Pos[s] = Place{}
+	if h.Lay.Wired {
+		h.unwireAll(s)
+	}
+}
 
 // SetAside takes piece s off the room and keeps it off: the hex holds
 // the part, and it stays out until it's laid again.
@@ -646,7 +677,7 @@ func (h *Hex) SetAside(s int) {
 // turned.
 func (h *Hex) TurnPiece(s int) bool {
 	p := h.Lay.Pos[s]
-	if !p.On {
+	if !p.On || h.Lay.Wired {
 		return false
 	}
 	for k := 1; k < Orients; k++ {
@@ -676,8 +707,18 @@ func (h *Hex) Links() []Link {
 	var b board
 	h.fill(&b)
 	var out []Link
-	links(&b, func(l Link) { out = append(out, l) })
+	h.eachLink(&b, func(l Link) { out = append(out, l) })
 	return out
+}
+
+// eachLink is every join: the wires on the open board, or where edges
+// meet on a layout from before wires.
+func (h *Hex) eachLink(b *board, each func(Link)) {
+	if h.Lay.Wired {
+		h.wireLinks(each)
+		return
+	}
+	links(b, each)
 }
 
 func links(b *board, each func(Link)) {
@@ -759,7 +800,7 @@ func (h *Hex) wireOn(b *board, w *lay) {
 			break
 		}
 	}
-	links(b, func(l Link) {
+	h.eachLink(b, func(l Link) {
 		from, into := l.From, l.To
 		if l.Kind == PlugBoost {
 			from, into = l.To, l.From

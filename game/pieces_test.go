@@ -57,9 +57,26 @@ func TestLayPiecesByHand(t *testing.T) {
 	if !moved || calls() != 1 {
 		t.Fatal("couldn't lay the call back beside the trigger")
 	}
-	before := h.Lay.Pos[5]
-	if err := s.TurnPiece(0, 5); err != nil || h.Lay.Pos[5].Rot == before.Rot {
-		t.Fatalf("turn: %v", err)
+	// Its wire comes off with a tap and goes back on with another.
+	from := -1
+	for a := 0; a < skill.Slots; a++ {
+		if h.WireArm(a, 5) != 0 {
+			from = a
+		}
+	}
+	if from < 0 {
+		t.Fatal("the call came back with no wire in")
+	}
+	for i := 0; i < 3 && h.WireArm(from, 5) != 0; i++ {
+		if _, err := s.WirePiece(0, from, 5); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls() != 0 {
+		t.Fatal("unwired, the call still runs")
+	}
+	if arm, err := s.WirePiece(0, from, 5); err != nil || arm == 0 || calls() != 1 {
+		t.Fatalf("wiring it back: %d %v", arm, err)
 	}
 	// A pack part dropped on an empty cell lands there.
 	s.Stash.Inv = loot.Inventory{}
@@ -78,7 +95,7 @@ func TestLayPiecesByHand(t *testing.T) {
 
 // A save from before pieces has hexes with no layout: they come back
 // laid out, running as they did.
-func TestOldSaveLaysOut(t *testing.T) {
+func TestOldSaveWiresUp(t *testing.T) {
 	s := NewVeteran(3)
 	want := s.Load.Progs[0].String()
 	sv := s.Snapshot()

@@ -418,8 +418,15 @@ func (g *Game) edCard() edCardView {
 		fr = h.Frame(e.at)
 	}
 	laid := h.Laid()
+	wired := laid && h.Lay.Wired
 	green := "Green slots are where it does something."
-	if laid {
+	switch {
+	case wired:
+		green = fmt.Sprintf("Tap any free tile to lay it (%d of %d on the board), or a piece to swap it in.", h.Held(), h.Budget())
+		if fit, held := g.edFits(h); held && len(fit) == 0 {
+			green = fmt.Sprintf("The board holds %d: drop it on a piece to swap them, or set one aside first.", h.Budget())
+		}
+	case laid:
 		green = "Green cells are where it fits: tap one to lay it, or a piece to swap it in."
 		if fit, held := g.edFits(h); held && len(fit) == 0 {
 			green = "No room left for it: drop it on a piece to swap them, or set one aside first."
@@ -467,7 +474,13 @@ func (g *Game) edCard() edCardView {
 		if !fr.Plain() {
 			lead += " " + fr.Text(sim.Reg)
 		}
-		if laid && e.msg == "" {
+		if wired && e.msg == "" {
+			if h.Lay.Pos[e.at].On {
+				lead += " Tap a ringed piece to wire them, a free tile to move it, the tray to set it aside."
+			} else {
+				lead = "In the tray. Tap a free tile to lay it."
+			}
+		} else if laid && e.msg == "" {
 			if h.Lay.Pos[e.at].On {
 				lead += " Tap it again to turn it, a cell to move it, the tray to set it aside."
 			} else {
@@ -487,7 +500,10 @@ func (g *Game) edCard() edCardView {
 	}
 	// Nothing picked: the hex's own card.
 	v.top = "Tap a part, then tap where it goes. Slot to slot rewires the hex."
-	if laid {
+	switch {
+	case wired:
+		v.top = "Tap a piece, then another to wire them. Only what the trigger's wires reach runs."
+	case laid:
 		v.top = "Tap a piece, then a cell. Plugs that meet join; only pieces the trigger reaches run."
 	}
 	if e.msg != "" {

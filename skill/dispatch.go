@@ -35,6 +35,16 @@ type Event struct {
 	Slot int8
 	// Pulse is a stance hex's pulse while it's on, not a toggle.
 	Pulse bool
+	// Rung is how high an overload was held or rage stood (1-3), for the
+	// pieces wired to rungs II and III. 0 runs every rung.
+	Rung uint8
+	// Scale multiplies the firing's damage: a guard's stored hits, a
+	// follow-up's step.
+	Scale float32
+	// AtOrigin runs the hex from where Origin stands, not the caster: a
+	// device running a blueprint, a minion's brain.
+	AtOrigin bool
+	Origin   EntityID
 }
 
 // Outcome is what happened when a slot tried to fire.
@@ -89,6 +99,93 @@ type Loadout struct {
 	Hold bool
 	// On is which stance hexes are on.
 	On [MaxEquip]bool
+
+	// Held is the overload or guard button held down (-1 none), and
+	// HeldFor how long it has been.
+	Held    int8
+	HeldFor float32
+	// Soak is the hull a held guard has taken, which its release spends.
+	Soak float32
+	// Rage is the berserker's meter, 0 to RageMax: kills and hull spent
+	// fill it, time drains it, a rage hex spends it.
+	Rage float32
+	// Combo is the seconds left to follow up on ComboFoe, the foe the
+	// last pressed hex hit, at step ComboStep.
+	Combo     float32
+	ComboFoe  EntityID
+	ComboStep uint8
+	lastHit   EntityID
+}
+
+// School tuning.
+const (
+	// OverloadRung2 and OverloadRung3 are the seconds held to reach
+	// rungs II and III.
+	OverloadRung2 = 0.6
+	OverloadRung3 = 1.4
+	// GuardSoak is how much of a hit a raised guard stops; GuardScale is
+	// what stored hull adds to the release (x1 + GuardScale x share of
+	// max hull taken), up to GuardMax.
+	GuardSoak  = 0.5
+	GuardScale = 6
+	GuardMax   = 4
+	// RageMax is a full meter; RageKill and RageHull (per share of max
+	// hull spent) fill it and RageDrain empties it per second.
+	RageMax   = 100
+	RageKill  = 20
+	RageHull  = 150
+	RageDrain = 6
+	// ComboWindow is the seconds after a pressed hex to follow up, and
+	// ComboStep what each step adds to a follow-up's damage.
+	ComboWindow = 1.5
+	ComboBonus  = 0.35
+	ComboSteps  = 4
+	// BrainCD is the least time between one slot's brain firings.
+	BrainCD = 0.5
+)
+
+// RageRung is the rung a rage hex fires at for a meter level.
+func RageRung(rage float32) uint8 {
+	switch {
+	case rage >= 2*RageMax/3:
+		return 3
+	case rage >= RageMax/3:
+		return 2
+	}
+	return 1
+}
+
+// HoldRung is the rung an overload held this long fires at.
+func HoldRung(held float32) uint8 {
+	switch {
+	case held >= OverloadRung3:
+		return 3
+	case held >= OverloadRung2:
+		return 2
+	}
+	return 1
+}
+
+// Guarding reports whether a guard hex is held up: hits on the owner
+// should go through Soaked.
+func (l *Loadout) Guarding() bool {
+	return l.Held >= 0 && l.Progs[l.Held] != nil && l.Progs[l.Held].Trigger == Guard
+}
+
+// Soaked takes a hit of raw damage on a held guard: it returns what
+// gets through and stores the rest for the release.
+func (l *Loadout) Soaked(raw float32) float32 {
+	if !l.Guarding() || raw <= 0 {
+		return raw
+	}
+	l.Soak += raw * GuardSoak
+	return raw * (1 - GuardSoak)
+}
+
+// Following reports whether a follow-up pressed now would land on the
+// last foe hit, and at what step.
+func (l *Loadout) Following() (EntityID, uint8, bool) {
+	return l.ComboFoe, l.ComboStep, l.Combo > 0 && l.ComboFoe != NoEntity
 }
 
 // Stances is the stances on right now, one bit per StanceKind.
@@ -151,6 +248,7 @@ func NewDispatcher(e *Evaluator, w World) *Dispatcher {
 	d := &Dispatcher{Eval: e, World: w, MaxChain: DefaultMaxChain}
 	d.ProcCooldown[OnHit] = DefaultHitProcCD
 	d.ProcCooldown[OnHurt] = DefaultHurtProcCD
+	d.ProcCooldown[Brain] = BrainCD
 	d.senses, _ = w.(Senses)
 	e.Obs = d
 	return d
@@ -169,7 +267,7 @@ func (d *Dispatcher) Equip(owner EntityID, rig *Rig, progs ...*Program) *Loadout
 		d.loads = append(d.loads, Loadout{})
 		l = &d.loads[len(d.loads)-1]
 	}
-	*l = Loadout{Owner: owner, Rig: rig}
+	*l = Loadout{Owner: owner, Rig: rig, Held: -1, ComboFoe: NoEntity, lastHit: NoEntity}
 	for i, p := range progs {
 		if i == MaxEquip {
 			break
@@ -234,6 +332,13 @@ func (d *Dispatcher) Update(dt float32) {
 	for i := range d.loads {
 		l := &d.loads[i]
 		l.Rig.Tick(dt)
+		if l.Held >= 0 {
+			l.HeldFor += dt
+		}
+		l.Rage = max(0, l.Rage-RageDrain*dt)
+		if l.Combo = max(0, l.Combo-dt); l.Combo == 0 {
+			l.ComboStep = 0
+		}
 		for s, p := range l.Progs {
 			if p == nil {
 				continue
@@ -346,6 +451,80 @@ func (d *Dispatcher) Cast(owner EntityID, slot int, subject EntityID) Outcome {
 	return o
 }
 
+// Press is a button press on one slot, for every hex a button runs: an
+// on-cast hex casts, a rage hex fires at the meter's rung and spends it,
+// a follow-up lands on the last foe hit, and an overload or guard starts
+// being held (Release fires it).
+func (d *Dispatcher) Press(owner EntityID, slot int, subject EntityID) Outcome {
+	l := d.Loadout(owner)
+	if l == nil || slot < 0 || slot >= MaxEquip || l.Progs[slot] == nil {
+		return Empty
+	}
+	p := l.Progs[slot]
+	ev := Event{Trigger: p.Trigger, Actor: owner, Subject: subject, Slot: int8(slot)}
+	switch p.Trigger {
+	case OnCast:
+		return d.Cast(owner, slot, subject)
+	case Overload, Guard:
+		if l.Held >= 0 {
+			return Empty
+		}
+		if l.Rig.Locked() {
+			return Locked
+		}
+		l.Held, l.HeldFor, l.Soak = int8(slot), 0, 0
+		return Fired
+	case Rage:
+		ev.Rung = RageRung(l.Rage)
+	case FollowUp:
+		if foe, step, ok := l.Following(); ok {
+			if u := d.World.Unit(foe); u != nil && u.Alive {
+				ev.Subject = foe
+				ev.Scale = 1 + ComboBonus*float32(step)
+			}
+		}
+	default:
+		return Empty
+	}
+	d.surprise(owner, ev.Subject)
+	o := d.fire(l, slot, ev)
+	if o == Fired && p.Trigger == Rage {
+		l.Rage = max(0, l.Rage-RageMax/3*float32(ev.Rung-1))
+	}
+	d.unambush(owner)
+	d.drain()
+	d.unhide(owner)
+	return o
+}
+
+// Release lets go of a held overload or guard and fires it: an overload
+// at the rung it was held to, a guard scaled by the hull it stored.
+func (d *Dispatcher) Release(owner EntityID, subject EntityID) Outcome {
+	l := d.Loadout(owner)
+	if l == nil || l.Held < 0 {
+		return Empty
+	}
+	slot := int(l.Held)
+	p := l.Progs[slot]
+	l.Held = -1
+	if p == nil {
+		return Empty
+	}
+	ev := Event{Trigger: p.Trigger, Actor: owner, Subject: subject, Slot: int8(slot)}
+	if p.Trigger == Overload {
+		ev.Rung = HoldRung(l.HeldFor)
+	} else if u := d.World.Unit(owner); u != nil && u.MaxHP > 0 {
+		ev.Scale = min(GuardMax, 1+GuardScale*l.Soak/u.MaxHP)
+	}
+	l.HeldFor, l.Soak = 0, 0
+	d.surprise(owner, subject)
+	o := d.fire(l, slot, ev)
+	d.unambush(owner)
+	d.drain()
+	d.unhide(owner)
+	return o
+}
+
 // unambush ends the ambush a cast or strike out of stealth had.
 func (d *Dispatcher) unambush(owner EntityID) {
 	if u := d.World.Unit(owner); u != nil {
@@ -437,6 +616,11 @@ func (d *Dispatcher) Hit(caster, target EntityID, dealt float32, t TypeID, terra
 		d.Listener.Hit(caster, target, dealt, t, terrain)
 	}
 	if !terrain {
+		if l := d.Loadout(caster); l != nil {
+			l.lastHit = target
+		}
+	}
+	if !terrain {
 		d.push(Event{Trigger: OnHit, Actor: caster, Subject: target, Chain: d.chain + 1, Slot: -1})
 	}
 }
@@ -461,6 +645,9 @@ func (d *Dispatcher) Statused(caster, target EntityID, t TypeID) {
 func (d *Dispatcher) Killed(caster, target EntityID) {
 	if d.Listener != nil {
 		d.Listener.Killed(caster, target)
+	}
+	if l := d.Loadout(caster); l != nil {
+		l.Rage = min(RageMax, l.Rage+RageKill)
 	}
 	d.push(Event{Trigger: OnKill, Actor: caster, Subject: target, Chain: d.chain + 1, Slot: -1})
 }
@@ -559,6 +746,7 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 	default:
 		if p.HullCost > 0 {
 			u.HP = max(1, u.HP-p.HullCost*u.MaxHP)
+			l.Rage = min(RageMax, l.Rage+RageHull*p.HullCost)
 		}
 		if p.WreckCost > 0 {
 			act.Wrecks(l.Owner, int(p.WreckCost), true)
@@ -582,8 +770,25 @@ func (d *Dispatcher) fire(l *Loadout, slot int, ev Event) Outcome {
 			l.Cool[slot] *= p.Haste
 		}
 		d.chain = ev.Chain
-		res = d.Eval.Run(p, d.World, Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level, Rig: l.Rig,
-			Bank: l.Bank(slot), Calls: &l.Progs, Board: l.Board})
+		ctx := Ctx{Caster: l.Owner, Subject: ev.Subject, Level: u.Level, Rig: l.Rig,
+			Bank: l.Bank(slot), Calls: &l.Progs, Board: l.Board, Rung: ev.Rung, Scale: ev.Scale}
+		if ev.AtOrigin {
+			res = d.Eval.RunAt(p, 0, len(p.Steps), d.World, ctx, ev.Origin)
+		} else {
+			l.lastHit = NoEntity
+			res = d.Eval.Run(p, d.World, ctx)
+		}
+		if p.Trigger.Pressed() || p.Trigger.Held() {
+			// A pressed hex opens the follow-up window on who it hit last.
+			if l.lastHit != NoEntity {
+				if p.Trigger == FollowUp && l.Combo > 0 {
+					l.ComboStep = min(ComboSteps, l.ComboStep+1)
+				} else {
+					l.ComboStep = 1
+				}
+				l.Combo, l.ComboFoe = ComboWindow, l.lastHit
+			}
+		}
 	}
 	if d.Listener != nil {
 		d.Listener.Fired(l.Owner, slot, p, o, res)

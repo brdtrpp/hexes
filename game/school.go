@@ -162,6 +162,18 @@ func SchoolOf(p skill.Part, reg *skill.Registry) SchoolSet {
 			return set(rogu)
 		case skill.OnVent:
 			return set(bers, engi)
+		case skill.Overload:
+			return set(mage)
+		case skill.Guard:
+			return set(ward)
+		case skill.Rage:
+			return set(bers)
+		case skill.Blueprint:
+			return set(engi)
+		case skill.Brain:
+			return set(necr)
+		case skill.FollowUp:
+			return set(rogu)
 		}
 	case skill.KindTarget:
 		switch p.Target {

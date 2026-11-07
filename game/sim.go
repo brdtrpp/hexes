@@ -117,6 +117,9 @@ type Input struct {
 	Restart      bool
 	// Hold is whether CAST is held down, for channel hexes.
 	Hold bool
+	// Held is which slots' buttons are held down, for overload and guard
+	// hexes: letting go fires them.
+	Held [MaxSlots]bool
 }
 
 // Tuning for the slice. All of it is placeholder balance.
@@ -597,8 +600,14 @@ func (s *Sim) playerInput(dt float32) {
 		if !pressed || s.Load.Progs[slot] == nil {
 			continue
 		}
-		o := s.Disp.Cast(s.Player, slot, s.nearestFoe(p.At, NearestRange))
+		o := s.Disp.Press(s.Player, slot, s.nearestFoe(p.At, NearestRange))
 		if o != skill.Fired {
+			s.SlotFlash[slot], s.SlotLast[slot] = 0.4, o
+		}
+	}
+	if l := s.Disp.Loadout(s.Player); l != nil && l.Held >= 0 && (!in.Held[l.Held] || !p.U.Alive) {
+		slot := int(l.Held)
+		if o := s.Disp.Release(s.Player, s.nearestFoe(p.At, NearestRange)); o != skill.Fired && slot < MaxSlots {
 			s.SlotFlash[slot], s.SlotLast[slot] = 0.4, o
 		}
 	}
@@ -681,7 +690,7 @@ func (s *Sim) refreshField() {
 func (s *Sim) claw(attacker skill.EntityID, raw float32) {
 	p := s.P()
 	a := &s.Actors[attacker]
-	raw = s.taunted(attacker, raw) * s.guard()
+	raw = s.soak(s.taunted(attacker, raw) * s.guard())
 	hit := min(raw, s.Rules.HitCap(a.U.Level, p.U.Level, p.U.MaxHP))
 	left := p.U.Soak(hit) // a shield takes it first
 	dealt := min(left, p.U.HP)

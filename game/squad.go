@@ -711,7 +711,7 @@ func (s *Sim) shotHit(sh *Shot) {
 	if int(sh.Owner) < len(s.Actors) {
 		lvl = s.Actors[sh.Owner].U.Level
 	}
-	hit := min(s.taunted(sh.Owner, sh.Dmg)*s.guard(), s.Rules.HitCap(lvl, p.U.Level, p.U.MaxHP))
+	hit := min(s.soak(s.taunted(sh.Owner, sh.Dmg)*s.guard()), s.Rules.HitCap(lvl, p.U.Level, p.U.MaxHP))
 	left := p.U.Soak(hit)
 	dealt := min(left, p.U.HP)
 	p.U.HP -= dealt

@@ -71,10 +71,14 @@ const (
 	// after it: the device runs them from where it stands (see
 	// Deployment). A world that can't place devices runs them here once.
 	OpDeploy
+	// OpRung skips the next Span steps unless the firing reached rung
+	// Value (an overload held that long, rage that high). A firing with
+	// no rung reaches every rung.
+	OpRung
 )
 
 var opNames = [...]string{"select", "union", "damage", "push", "status", "foreach", "gate", "charge", "call", "ifkill", "mend", "shield", "purge",
-	"taunt", "buff", "raise", "move", "consume", "deploy"}
+	"taunt", "buff", "raise", "move", "consume", "deploy", "rung"}
 
 // MoveMode is how OpMove moves the caster.
 type MoveMode uint8
@@ -283,6 +287,9 @@ func (p *Program) String() string {
 			fmt.Fprintf(&b, "move mode=%d at r%d hexes=%.2f if r%d", s.Count, s.Src, s.Value, s.Src2)
 		case OpConsume:
 			fmt.Fprintf(&b, "consume r%d", s.Src)
+		case OpRung:
+			fmt.Fprintf(&b, "rung %g (%d steps)", s.Value, s.Span)
+			ends = append(ends, i+1+int(s.Span))
 		case OpDeploy:
 			fmt.Fprintf(&b, "deploy %s rule=%d (%d steps)", FormKind(s.Count), s.Bank, s.Span)
 			ends = append(ends, i+1+int(s.Span))

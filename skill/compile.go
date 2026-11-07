@@ -378,6 +378,27 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 	}
 	first := len(c.p.Steps)
 	routes := h.Routes(start)
+	// Pieces on rung II or III of an overload or rage trigger: each
+	// one's steps sit behind a check of how high the firing reached.
+	var rung [Slots]uint8
+	if depth == 0 && c.calling == 0 && c.docking == 0 {
+		rung = h.RungOf()
+	}
+	wrap := func(s, at int) {
+		if s < 0 || rung[s] < 2 || len(c.p.Steps) <= at {
+			return
+		}
+		body := len(c.p.Steps) - at
+		c.p.Steps = append(c.p.Steps, Step{})
+		copy(c.p.Steps[at+1:], c.p.Steps[at:])
+		c.p.Steps[at] = Step{Op: OpRung, Value: float32(rung[s]), Span: uint16(body)}
+		if f := &fed[s]; f.hi > f.lo && f.lo >= at {
+			f.lo++
+			f.hi++
+		} else if f.hi > at {
+			f.hi++
+		}
+	}
 	var pass, fail [Slots]uint8 // each gate's two halves
 	// half is the register a slot in a gate's branch works on.
 	half := func(r Route) uint8 {
@@ -405,7 +426,10 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 	for i := range allies {
 		allies[i] = -1
 	}
+	prev, prevAt := -1, 0
 	for _, s := range order[:n] {
+		wrap(prev, prevAt)
+		prev, prevAt = s, len(c.p.Steps)
 		sl := h.Slots[s]
 		if sl.Kind != SlotPart || (sl.Part.Kind != KindTarget && sl.Part.Kind != KindForm) {
 			continue
@@ -468,8 +492,13 @@ func (c *compiler) level(h *Hex, start, depth int, origin, landing uint8, seen m
 		c.frameCost(fr, pw, ht)
 	}
 
+	wrap(prev, prevAt)
+
 	// Pass 2: effects, gates, charges, calls and nested hexes, in flow.
+	prev = -1
 	for _, s := range order[:n] {
+		wrap(prev, prevAt)
+		prev, prevAt = s, len(c.p.Steps)
 		sl := h.Slots[s]
 		fr := frames[s]
 		if prismed[s] {

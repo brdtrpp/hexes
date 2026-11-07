@@ -25,6 +25,9 @@ var CellDirs = [6]Cell{{0, -1}, {1, -1}, {1, 0}, {0, 1}, {-1, 1}, {-1, 0}}
 // Add is c moved by d.
 func (c Cell) Add(d Cell) Cell { return Cell{c.Q + d.Q, c.R + d.R} }
 
+// Sub is c less d.
+func (c Cell) Sub(d Cell) Cell { return Cell{c.Q - d.Q, c.R - d.R} }
+
 // Ring is how many steps c is from the origin.
 func (c Cell) Ring() int {
 	q, r := int(c.Q), int(c.R)

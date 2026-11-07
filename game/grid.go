@@ -807,7 +807,7 @@ func classFams(k int) uint16 {
 	case ClassRing:
 		return loot.FamForms | loot.FamShadow
 	case ClassRing + 1:
-		return loot.FamWrecks | loot.FamDevices
+		return loot.FamWrecks | loot.FamDevices | loot.FamSchools
 	case ClassRing + 2:
 		return loot.FamOaths | loot.FamForms
 	}
@@ -830,14 +830,15 @@ func typeFam(name string) int {
 }
 
 // schoolFams is the class families a school's wedge draws from: its own,
-// and forms where one of them is the school's.
+// forms where one of them is the school's, and the school triggers (the
+// tries keep only the school's own).
 var schoolFams = [NumSchools]uint16{
-	SchoolMage:      loot.FamForms,
-	SchoolEngineer:  loot.FamDevices,
-	SchoolWarden:    loot.FamOaths | loot.FamForms,
-	SchoolBerserker: loot.FamOaths | loot.FamForms,
-	SchoolNecro:     loot.FamWrecks,
-	SchoolRogue:     loot.FamShadow | loot.FamForms,
+	SchoolMage:      loot.FamForms | loot.FamSchools,
+	SchoolEngineer:  loot.FamDevices | loot.FamSchools,
+	SchoolWarden:    loot.FamOaths | loot.FamForms | loot.FamSchools,
+	SchoolBerserker: loot.FamOaths | loot.FamForms | loot.FamSchools,
+	SchoolNecro:     loot.FamWrecks | loot.FamSchools,
+	SchoolRogue:     loot.FamShadow | loot.FamForms | loot.FamSchools,
 }
 
 // GenGridKeep is GenGrid with the class parts laid over rings ClassRing

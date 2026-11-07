@@ -1,6 +1,8 @@
 package main
 
-// The editor for a hex of pieces: the room's cells, each piece drawn as
+// The editor for a hex of pieces laid by edges (saves from before the
+// open board, until they're wired; wireboard.go draws the open board):
+// the room's cells, each piece drawn as
 // its own silhouette with the plugs on its edges, and a tray under the
 // room for the pieces set aside. Tap a piece to pick it, tap it again to
 // turn it (seven turns flip it over), tap an empty cell to move it there,
@@ -114,6 +116,18 @@ func (g *Game) edFits(h *skill.Hex) (fit map[skill.Cell]bool, held bool) {
 		return nil, false
 	}
 	fit = map[skill.Cell]bool{}
+	if h.Lay.Wired {
+		// Any free tile, while the board has room for one more.
+		if !h.Lay.Pos[s].On && h.Held() >= h.Budget() {
+			return fit, true
+		}
+		for _, c := range h.Lay.Room.Cells() {
+			if o := h.PieceAt(c); o < 0 || o == s {
+				fit[c] = true
+			}
+		}
+		return fit, true
+	}
 	for _, c := range h.Lay.Room.Cells() {
 		if o := h.PieceAt(c); o >= 0 && o != s {
 			continue
@@ -131,6 +145,10 @@ func (g *Game) edFits(h *skill.Hex) (fit map[skill.Cell]bool, held bool) {
 // drawPieces draws a laid hex: its room, its pieces and their plugs, the
 // joins between them, and the tray.
 func (g *Game) drawPieces(dst *ebiten.Image, l *edLayout, h *skill.Hex) {
+	if h.Lay.Wired {
+		g.drawWired(dst, l, h)
+		return
+	}
 	e := &g.ed
 	r := l.slotR
 	fit, held := g.edFits(h)
@@ -289,27 +307,7 @@ func (g *Game) drawPieces(dst *ebiten.Image, l *edLayout, h *skill.Hex) {
 		ux, uy := (bx-ax)*0.32, (by-ay)*0.32
 		vector.StrokeLine(dst, float32(mx-ux), float32(my-uy), float32(mx+ux), float32(my+uy), g.u(5), plugCol(k.Kind, k.Arm), true)
 	}
-	// The tray.
-	loose := h.Loose()
-	g.drawRect(dst, l.tray, colPanel, fade(colDim, 0.35))
-	if len(loose) == 0 {
-		msg := "TRAY: pieces set aside wait here"
-		if picked >= 0 && h.Lay.Pos[picked].On {
-			msg = "tap here to set the piece aside"
-		}
-		if l.tray.h > l.tray.w {
-			msg = "TRAY"
-			if picked >= 0 && h.Lay.Pos[picked].On {
-				msg = "SET ASIDE"
-			}
-		}
-		g.label(dst, g.small, msg, l.tray.x+l.tray.w/2, l.tray.y+l.tray.h/2, fade(colDim, 0.8), true)
-		return
-	}
-	for i, t := range l.trayTiles(len(loose)) {
-		s := loose[i]
-		g.partTile(dst, t.x+t.w/2, t.y+t.h/2, t.w*0.5, true, h.Slots[s].Part, true, s == picked)
-	}
+	g.drawTray(dst, l, h, picked)
 }
 
 // edPieceTap handles a tap on a laid hex's room or tray, and reports
@@ -394,12 +392,18 @@ func (g *Game) edPieceTap(l *edLayout, x, y float64, confirm int) bool {
 		g.edResult(sim.PlaceIn(e.hex, e.at, c))
 	case e.pick == pickSlot && t == e.at:
 		// Again on the picked piece: a charge or call switches what it
-		// does; anything else turns.
+		// does; on the open board anything else lets go, on a room it
+		// turns.
 		sl := h.Slots[t]
 		if sl.Kind == skill.SlotPart && (sl.Part.UsesBank() || sl.Part.Kind == skill.KindCall) && g.edCycle() {
 			return true
 		}
+		if h.Lay.Wired {
+			e.pick, e.msg = pickNone, ""
+			return true
+		}
 		keep(sim.TurnPiece(e.hex, t))
+	case e.pick == pickSlot && t >= 0 && h.Lay.Wired && g.edWireTap(h, t):
 	case t >= 0:
 		e.pick, e.at, e.msg = pickSlot, t, ""
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:

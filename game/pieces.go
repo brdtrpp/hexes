@@ -2,6 +2,7 @@ package game
 
 import (
 	"errors"
+	"fmt"
 
 	"hexes/skill"
 )
@@ -24,46 +25,74 @@ func (s *Sim) laidPiece(hex, slot int) (*skill.Hex, error) {
 	return h, nil
 }
 
-// MovePiece lays piece slot with its first cell on at, turned the way it
-// lies now if it fits that way, or the next way that does.
+// MovePiece moves piece slot onto tile at. A piece already there swaps
+// onto slot's old tile; a piece from the tray comes back wired the way
+// its kind usually is. Wires go with the piece.
 func (s *Sim) MovePiece(hex, slot int, at skill.Cell) error {
 	h, err := s.laidPiece(hex, slot)
 	if err != nil {
 		return err
 	}
 	if !h.Lay.Room.Has(at) {
-		return errors.New("that cell isn't part of this hex's room")
+		return errors.New("that tile isn't on this hex's board")
 	}
 	was := h.Lay
-	rot := h.Lay.Pos[slot].Rot
-	for k := uint8(0); k < skill.Orients; k++ {
-		if h.Place(slot, skill.Place{At: at, Rot: (rot + k) % skill.Orients}) {
-			if err := s.recompile(hex); err != nil {
-				h.Lay = was
-				return err
-			}
-			return nil
+	from := h.Lay.Pos[slot]
+	if o := h.PieceAt(at); o >= 0 && o != slot {
+		if !from.On {
+			return errors.New("a piece is there already: move it first")
 		}
+		h.Lay.Pos[o].At = from.At
 	}
-	return errors.New("it doesn't fit there: try a cell with more room around it")
-}
-
-// TurnPiece turns a laid piece a sixth clockwise (on the seventh turn it
-// flips over), skipping ways that don't fit.
-func (s *Sim) TurnPiece(hex, slot int) error {
-	h, err := s.laidPiece(hex, slot)
-	if err != nil {
-		return err
+	back := !from.On
+	if back && h.Held() >= h.Budget() {
+		return fmt.Errorf("the board is full: this shape holds %d pieces", h.Budget())
 	}
-	was := h.Lay
-	if !h.TurnPiece(slot) {
-		return errors.New("no room to turn it here")
+	h.Lay.Pos[slot] = skill.Place{At: at, On: true}
+	h.Lay.Kept &^= 1 << uint(slot)
+	if back {
+		h.WireIn(slot)
 	}
 	if err := s.recompile(hex); err != nil {
 		h.Lay = was
 		return err
 	}
 	return nil
+}
+
+// TurnPiece is gone with the open board: pieces don't turn.
+func (s *Sim) TurnPiece(hex, slot int) error {
+	return errors.New("pieces don't turn: wire them instead")
+}
+
+// WirePiece is a tap from piece a on piece b: it puts a wire on, steps
+// it to the sender's next arm (YES, NO; rung I, II, III) or takes it off.
+// It reports what's there now: the arm, or 0 for no wire.
+func (s *Sim) WirePiece(hex, a, b int) (int, error) {
+	h, err := s.laidPiece(hex, a)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := s.laidPiece(hex, b); err != nil {
+		return 0, err
+	}
+	was := h.Lay
+	arm := h.ToggleWire(a, b)
+	if arm < 0 {
+		_, why := h.WireWhy(a, b)
+		if _, why2 := h.WireWhy(b, a); why == "" {
+			why = why2
+		}
+		if why == "" {
+			why = "those two don't wire together"
+		}
+		return 0, errors.New(why)
+	}
+	if err := s.recompile(hex); err != nil {
+		h.Lay = was
+		return 0, err
+	}
+	return arm, nil
 }
 
 // SetPieceAside takes a piece off the room into the hex's tray, where it
@@ -108,7 +137,7 @@ func (s *Sim) PlaceIn(hex, cell int, at skill.Cell) error {
 	}
 	h := s.Load.Hex(hex)
 	if !h.Laid() || !h.Lay.Room.Has(at) {
-		return errors.New("that cell isn't part of this hex's room")
+		return errors.New("that tile isn't on this hex's board")
 	}
 	slot := s.FreeSlot(hex)
 	if slot < 0 {
@@ -119,16 +148,22 @@ func (s *Sim) PlaceIn(hex, cell int, at skill.Cell) error {
 	if err := fits(h, slot, in, s.Load.IsMod(hex), s.Reg); err != nil {
 		return err
 	}
+	if h.Held() >= h.Budget() {
+		return fmt.Errorf("the board is full: this shape holds %d pieces", h.Budget())
+	}
 	old, was := h.Slots[slot], h.Lay
 	h.Slots[slot] = skill.Slot{Kind: skill.SlotPart, Part: in}
-	placed := false
-	for k := uint8(0); k < skill.Orients && !placed; k++ {
-		placed = h.Place(slot, skill.Place{At: at, Rot: k})
+	if o := h.PieceAt(at); o >= 0 {
+		// Dropped on a piece: take the nearest free tile.
+		c, ok := h.FreeCell(at)
+		if !ok {
+			h.Slots[slot], h.Lay = old, was
+			return errors.New("no free tile on the board")
+		}
+		at = c
 	}
-	if !placed {
-		h.Slots[slot], h.Lay = old, was
-		return errors.New("it doesn't fit there: try a cell with more room around it")
-	}
+	h.Lay.Pos[slot] = skill.Place{At: at, On: true}
+	h.WireIn(slot)
 	inv.Take(cell)
 	s.Stash.Fresh[cell] = false
 	if err := s.recompile(hex); err != nil {

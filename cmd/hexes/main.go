@@ -279,8 +279,8 @@ func (g *Game) Update() error {
 				g.sim.Load.Press(i+1, &in)
 				in.Restart = true
 			}
-			if ebiten.IsKeyPressed(key) && g.sim.Load.Holds(i+1) {
-				in.Hold = true
+			if ebiten.IsKeyPressed(key) {
+				g.sim.Load.Hold(i+1, &in)
 			}
 		}
 	}
@@ -360,8 +360,8 @@ func (g *Game) Update() error {
 	for _, id := range ebiten.AppendTouchIDs(nil) {
 		x, y := ebiten.TouchPosition(id)
 		fx, fy := float64(x), float64(y)
-		if b := g.castButton(fx, fy); b > 0 && g.sim.Load.Holds(b) {
-			in.Hold = true
+		if b := g.castButton(fx, fy); b > 0 {
+			g.sim.Load.Hold(b, &in)
 		}
 		switch {
 		case g.zm.locked[int(id)]:
@@ -379,8 +379,8 @@ func (g *Game) Update() error {
 		press(mouseID, fmx, fmy)
 	}
 	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		if b := g.castButton(fmx, fmy); b > 0 && g.sim.Load.Holds(b) {
-			in.Hold = true
+		if b := g.castButton(fmx, fmy); b > 0 {
+			g.sim.Load.Hold(b, &in)
 		}
 		switch {
 		case g.stick.On && g.stick.ID == mouseID:

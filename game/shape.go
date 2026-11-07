@@ -187,6 +187,11 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	back := settleFrames(&old, &nh)
 	takes := func(i int, p skill.Part) bool { ok, _ := nh.Fits(i, p, s.Reg); return ok }
 	var extra []skill.Part
+	var extraFrom []int
+	var where [skill.Slots]int
+	for i := range where {
+		where[i] = -1
+	}
 	trig := sh.Entry()
 	for i, sl := range old.Slots {
 		switch sl.Kind {
@@ -198,20 +203,21 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 		p := sl.Part
 		switch {
 		case p.Kind == skill.KindTrigger:
-			nh.Slots[trig] = sl
+			nh.Slots[trig], where[i] = sl, trig
 		case sh.Has(i) && i != trig && takes(i, p):
-			nh.Slots[i] = sl
+			nh.Slots[i], where[i] = sl, i
 		default:
-			extra = append(extra, p)
+			extra, extraFrom = append(extra, p), append(extraFrom, i)
 		}
 	}
 	order, n := nh.Flow(trig)
 	var pack []skill.Part
-	for _, p := range extra {
+	for k, p := range extra {
 		placed := false
 		for _, i := range order[:n] {
 			if nh.Slots[i].Kind == skill.SlotEmpty && takes(i, p) {
 				nh.Slots[i] = skill.Slot{Kind: skill.SlotPart, Part: p}
+				where[extraFrom[k]] = i
 				placed = true
 				break
 			}
@@ -227,7 +233,15 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 	if room := MaxFrames - len(s.Frames); room < len(back) {
 		return fmt.Errorf("a %s has fewer slots for frames: scrap %d from the rack first", sh.Name(), len(back)-room)
 	}
-	nh.LayOut(skill.RoomFor(sh))
+	if old.Lay.Wired {
+		// The open board keeps every piece's tile and wire; the new shape
+		// only changes the board and how many pieces it holds.
+		nh.Lay = old.Lay.Remap(where)
+		nh.Rebox(skill.RoomFor(sh))
+		nh.Trim()
+	} else {
+		nh.EnsureLaid()
+	}
 	*h = nh
 	if err := s.recompile(hex); err != nil {
 		*h = old

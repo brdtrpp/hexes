@@ -8,9 +8,8 @@ import "math/bits"
 
 // layKey is what a laid hex's wiring depends on.
 type layKey struct {
-	room Room
-	pos  [Slots]Place
-	pc   [Slots]*Piece
+	lay Layout
+	pc  [Slots]*Piece
 }
 
 // layCache keeps a laid hex's last wiring, keyed by what it was built
@@ -21,7 +20,7 @@ type layCache struct {
 }
 
 func (h *Hex) layKey() layKey {
-	k := layKey{room: h.Lay.Room, pos: h.Lay.Pos}
+	k := layKey{lay: h.Lay}
 	for s := 0; s < Slots; s++ {
 		k.pc[s] = PieceOf(h.Slots[s])
 	}
@@ -45,6 +44,10 @@ func (h *Hex) wired() *lay {
 // best joins in, if there's anywhere it fits.
 func (h *Hex) Settle() {
 	if !h.Laid() {
+		return
+	}
+	if h.Lay.Wired {
+		h.settleWired()
 		return
 	}
 	for s := 0; s < Slots; s++ {
@@ -527,9 +530,43 @@ func (h *Hex) pins(room Room) (pin [Slots]int) {
 	return pin
 }
 
-// EnsureLaid makes a hex laid on its shape's room, if it isn't already.
+// EnsureLaid puts a hex on the open board, if it isn't already: one
+// from the slots runs the way its ring ran it, one laid by edges keeps
+// every join as a wire.
 func (h *Hex) EnsureLaid() {
-	if !h.Laid() {
-		h.LayOut(RoomFor(h.Shape))
+	switch {
+	case !h.Laid():
+		h.wireFromSlots()
+	case !h.Lay.Wired:
+		h.wireFromEdges()
+	}
+}
+
+// settleWired tidies the open board after parts changed: an empty slot
+// loses its tile and its wires, and a new piece goes on the free tile
+// nearest where it joins, wired the way its kind usually is. A piece set
+// aside stays in the tray.
+func (h *Hex) settleWired() {
+	for s := 0; s < Slots; s++ {
+		if h.Slots[s].Kind == SlotEmpty {
+			h.Lift(s)
+			h.unwireAll(s)
+			h.Lay.Kept &^= bit(s)
+		}
+	}
+	loose := h.Loose()
+	// The trigger first, so everything else can join it.
+	for pass := 0; pass < 2; pass++ {
+		for _, s := range loose {
+			if h.Lay.Kept&bit(s) != 0 || h.Lay.Pos[s].On {
+				continue
+			}
+			sl := h.Slots[s]
+			if trig := sl.Kind == SlotPart && sl.Part.Kind == KindTrigger; trig == (pass == 0) {
+				if trig || h.Held() < h.Budget() {
+					h.AutoWire(s)
+				}
+			}
+		}
 	}
 }

@@ -364,7 +364,113 @@ func Examples(reg *skill.Registry) []Example {
 					2: skill.NewDamage(ty("nanite"), 26),
 				}), "Thorn", "a plain shot for any stance"},
 			}},
+		{Name: "Mage: Overload", Blurb: "hold to charge, let go; more runs higher",
+			Hexes: []ExampleHex{
+				{rungs(exHex("Stormcall", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.Overload),
+					1: skill.NewTarget(skill.TargetNearest, 0, 1),
+					2: skill.NewDamage(ty("plasma"), 18),
+					3: skill.NewTarget(skill.TargetChain, 4, 3),
+					4: skill.NewDamage(ty("plasma"), 30),
+				}), map[int]uint8{3: 3}), "Stormcall", "tap: a bolt; hold to rung III: lightning through three"},
+				{rungs(exHex("Frost Lance", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.Overload),
+					1: skill.NewTarget(skill.TargetLine, 4, 0),
+					2: skill.NewStatus(ty("cryo"), 2),
+					3: skill.NewTarget(skill.TargetLine, 6, 0),
+					4: skill.NewDamage(ty("cryo"), 45),
+				}), map[int]uint8{3: 2}), "Frost Lance", "tap: a chilling line; hold to rung II: a long lance"},
+			}},
+		{Name: "Warden: Guard", Blurb: "hold: hits halve and store; let go",
+			Hexes: []ExampleHex{
+				{exHex("Bastion", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.Guard),
+					1: skill.NewForm(skill.FormNova),
+					2: skill.NewDamage(ty("kinetic"), 25),
+					3: skill.NewPush(2),
+				}), "Bastion", "hold: halve hits; let go: a blast as big as what it took"},
+				{exHex("Challenge", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormNova),
+					2: skill.NewTaunt(4),
+				}), "Challenge", "pull them onto your guard"},
+			}},
+		{Name: "Berserker: Rage", Blurb: "kills fill rage; rage hexes spend it",
+			Hexes: []ExampleHex{
+				{rungs(exHex("Bloodrush", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.Rage),
+					1: skill.NewTarget(skill.TargetAdjacent, 2, 0),
+					2: skill.NewDamage(ty("kinetic"), 25),
+					3: skill.NewTarget(skill.TargetAdjacent, 3, 0),
+					4: skill.NewDamage(ty("kinetic"), 70),
+				}), map[int]uint8{3: 3}), "Bloodrush", "a cleave; at full rage, a huge one"},
+				{exHex("Blood Price", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetNearest, 0, 1),
+					2: skill.NewDamage(ty("kinetic"), 30),
+					3: skill.NewCost(skill.CostBlood),
+				}), "Blood Price", "paid in hull, which fills rage"},
+			}},
+		{Name: "Engineer: Blueprint", Blurb: "every device you place runs it too",
+			Hexes: []ExampleHex{
+				{exHex("Sentry", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewForm(skill.FormTurret),
+					2: skill.NewDamage(ty("plasma"), 10),
+				}), "Sentry", "place a turret"},
+				{exHex("Cryo Plan", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.Blueprint),
+					1: skill.NewTarget(skill.TargetAdjacent, 2, 0),
+					2: skill.NewStatus(ty("cryo"), 1.5),
+					3: skill.NewDamage(ty("cryo"), 8),
+				}), "Cryo Plan", "every device chills all near it each time it fires"},
+			}},
+		{Name: "Necro: Brain", Blurb: "runs on every blow your minions land",
+			Hexes: []ExampleHex{
+				{exHex("Raise", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnKill),
+					1: skill.NewReanimate(12),
+				}), "Raise", "every kill gets up and fights for you"},
+				{exHex("Rot Mind", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.Brain),
+					1: skill.NewStatus(ty("nanite"), 3),
+					2: skill.NewDamage(ty("nanite"), 8),
+				}), "Rot Mind", "your minions' blows corrode"},
+				{exHex("Bolt", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetNearest, 0, 1),
+					2: skill.NewDamage(ty("plasma"), 22),
+				}), "Bolt", "a plain shot to get the first kill"},
+			}},
+		{Name: "Rogue: Follow-up", Blurb: "lands on who your last hex hit, harder",
+			Hexes: []ExampleHex{
+				{exHex("Jab", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.OnCast),
+					1: skill.NewTarget(skill.TargetNearest, 0, 1),
+					2: skill.NewDamage(ty("kinetic"), 14),
+				}), "Jab", "opens the combo"},
+				{exHex("Riposte", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.FollowUp),
+					1: skill.NewDamage(ty("nanite"), 26),
+					2: skill.NewStatus(ty("nanite"), 2),
+				}), "Riposte", "after Jab: lands on Jab's foe, harder"},
+				{exHex("Finisher", ring, false, map[int]skill.Part{
+					0: skill.NewTrigger(skill.FollowUp),
+					1: skill.NewDamage(ty("kinetic"), 40),
+				}), "Finisher", "after Riposte: harder again"},
+			}},
 	}
+}
+
+// rungs wires an example onto the open board with the trigger's wires to
+// some pieces on higher rungs.
+func rungs(h *skill.Hex, at map[int]uint8) *skill.Hex {
+	h.EnsureLaid()
+	t := h.TriggerSlot()
+	for s, k := range at {
+		h.Wire(t, s, k)
+	}
+	return h
 }
 
 // ErrNeedsTest is why an example won't load with the test switch off.

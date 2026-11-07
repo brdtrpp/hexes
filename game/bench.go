@@ -83,7 +83,7 @@ func (s *Sim) NearBench() (skill.Coord, bool) {
 // cast or hold.
 func (l *Loadout) Castable(i int) bool {
 	p := l.Progs[i]
-	return p != nil && (p.Trigger == skill.OnCast || p.Trigger == skill.Channel)
+	return p != nil && (p.Trigger.Pressed() || p.Trigger.Held() || p.Trigger == skill.Channel)
 }
 
 // FixKeys gives every castable hex without a button the lowest button no
@@ -170,14 +170,31 @@ func (l *Loadout) Press(b int, in *Input) (hold bool) {
 	return hold
 }
 
-// Holds reports whether button b has a hold hex on it.
+// Holds reports whether button b has a hex on it that holding does
+// something for: a channel, an overload or a guard.
 func (l *Loadout) Holds(b int) bool {
 	for i := range l.Keys {
-		if l.OnButton(i, b) && l.Progs[i].Trigger == skill.Channel {
+		if l.OnButton(i, b) && (l.Progs[i].Trigger == skill.Channel || l.Progs[i].Trigger.Held()) {
 			return true
 		}
 	}
 	return false
+}
+
+// Hold marks button b as held down this frame: its channel runs, its
+// overload charges, its guard stays up.
+func (l *Loadout) Hold(b int, in *Input) {
+	for i := range l.Keys {
+		if !l.OnButton(i, b) {
+			continue
+		}
+		switch t := l.Progs[i].Trigger; {
+		case t == skill.Channel:
+			in.Hold = true
+		case t.Held():
+			in.Held[i] = true
+		}
+	}
 }
 
 // CycleKey is Loadout.CycleKey for the player's build, marking the save.

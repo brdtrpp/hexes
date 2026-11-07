@@ -102,6 +102,12 @@ type Ctx struct {
 	// Board is the board's shared banks, X and Y. Nil gives the run a
 	// scratch pair that starts empty.
 	Board *BoardBank
+	// Rung is how high an overload or rage firing reached (1 to 3), 0
+	// for every rung.
+	Rung uint8
+	// Scale, above zero, multiplies the firing's damage: a guard's
+	// stored hits, a follow-up's step.
+	Scale float32
 }
 
 // Bank is one equipped hex's charge banks, A to D. Each is a counter that
@@ -406,8 +412,15 @@ func (e *Evaluator) exec(steps []Step, w World, ctx *Ctx, res *Result) {
 				n++
 			}
 			e.n[s.Dst] = uint8(n)
+		case OpRung:
+			if ctx.Rung != 0 && float32(ctx.Rung) < s.Value {
+				pc += int(s.Span)
+			}
 		case OpDamage:
 			v := e.bent(ctx, s)
+			if ctx.Scale > 0 {
+				v *= ctx.Scale
+			}
 			c := w.Unit(ctx.Caster)
 			if c != nil {
 				if c.Might > 0 {

@@ -78,23 +78,50 @@ const (
 	OnWreck                        // a foe within WreckRange leaves a wreck; subject is the wreck
 	OnDodge                        // a shot passes within a hex of the caster and misses
 	OnVent                         // the caster vents; subject is the nearest foe
+
+	// The schools' own ways to run a hex (see Rungs, Held, Owned).
+
+	Overload  // Mage: hold the button to charge, let go to fire; rungs I-III by how long
+	Guard     // Warden: hold to raise a guard that halves hits and stores them; let go to fire, harder for each hit stored
+	Rage      // Berserker: a press; rungs I-III by your rage, which kills and hull spent fill
+	Blueprint // Engineer: never cast; every device you've placed runs it on its own clock, from where it stands
+	Brain     // Necromancer: never cast; every minion you've raised runs it with each blow, on the foe it hit
+	FollowUp  // Rogue: a press; straight after another hex it lands on whoever that hex hit last, harder each step
 )
 
 // NumTriggers is how many trigger kinds exist.
-const NumTriggers = 12
+const NumTriggers = 18
+
+// Rungs reports whether the trigger sends on three rungs (I, II, III):
+// a piece wired to rung II only runs at rung II or more.
+func (t TriggerKind) Rungs() bool { return t == Overload || t == Rage }
+
+// Held reports whether the trigger fires when its button is let go,
+// after a hold.
+func (t TriggerKind) Held() bool { return t == Overload || t == Guard }
+
+// Pressed reports whether a press of the hex's button casts it.
+func (t TriggerKind) Pressed() bool { return t == OnCast || t == Rage || t == FollowUp }
+
+// Owned reports whether the trigger runs from something you own, a device
+// or a minion, rather than from you.
+func (t TriggerKind) Owned() bool { return t == Blueprint || t == Brain }
 
 // WreckRange is how near a wreck has to fall to fire on-wreck hexes.
 const WreckRange = 6
 
-var triggerNames = [...]string{"on-cast", "on-hit", "on-kill", "from-stealth", "from-behind", "periodic", "on-hurt", "channel", "watch", "on-wreck", "on-dodge", "on-vent"}
+var triggerNames = [...]string{"on-cast", "on-hit", "on-kill", "from-stealth", "from-behind", "periodic", "on-hurt", "channel", "watch", "on-wreck", "on-dodge", "on-vent",
+	"overload", "guard", "rage", "blueprint", "brain", "follow-up"}
 
 // Tier is how rare a trigger kind is: it drops only at that tier.
 func (t TriggerKind) Tier() Rarity {
 	switch t {
 	case OnCast:
 		return Common
-	case OnHit, OnKill, OnHurt, OnWreck:
+	case OnHit, OnKill, OnHurt, OnWreck, Overload, Guard, Rage, FollowUp:
 		return Uncommon
+	case Blueprint, Brain:
+		return Rare
 	case Watch:
 		return Exotic
 	}

@@ -630,6 +630,10 @@ func (s *Sim) runDevice(i int, subject skill.EntityID) {
 	dep := a.Dep
 	s.emitter, s.emitting = skill.EntityID(i), true
 	s.Disp.RunDevice(dep, skill.EntityID(i), subject)
+	// Engineer blueprints: every device runs them too, from where it
+	// stands.
+	s.Disp.Emit(skill.Event{Trigger: skill.Blueprint, Actor: dep.Caster, Subject: subject, Chain: 1, Slot: -1,
+		AtOrigin: true, Origin: skill.EntityID(i)})
 	s.emitting = false
 	s.flushForms(dep.Caster, dep.Prog, skill.Fired)
 	s.addFX(FX{Kind: FXDeviceFire, At: a.At, Slot: int(a.Dev), Life: 0.3})
@@ -666,6 +670,13 @@ func (s *Sim) minion(i int, dt float32) {
 	dmg := st.dmg * scale(a.U.Level) * MinionHit
 	dealt, _ := s.Rules.Resolve(&t.U, dmg, 0, a.U.Level, false)
 	s.Hit(skill.EntityID(i), f, dealt, 0, false)
+	if t.U.Alive {
+		// Necromancer brains: the minion runs them on the foe it hit.
+		s.emitter, s.emitting = skill.EntityID(i), true
+		s.Disp.Emit(skill.Event{Trigger: skill.Brain, Actor: a.Owner, Subject: f, Chain: 1, Slot: -1,
+			AtOrigin: true, Origin: skill.EntityID(i)})
+		s.emitting = false
+	}
 	if !t.U.Alive {
 		s.died(f)
 		s.addFX(FX{Kind: FXKill, At: t.At, Type: t.LastHit, Slot: int(t.Kind), Life: 0.5})
@@ -741,6 +752,15 @@ func (s *Sim) stances() {
 		s.Rig.CoolMul *= skill.FurnaceCool
 		s.Rig.ChargeMul *= skill.FurnaceCharge
 	}
+}
+
+// soak takes a hit on the player's raised guard hex, if one is held:
+// half is stopped and stored for the release.
+func (s *Sim) soak(raw float32) float32 {
+	if l := s.Disp.Loadout(s.Player); l != nil {
+		return l.Soaked(raw)
+	}
+	return raw
 }
 
 // guard is the share of a blow your stance lets through.

@@ -21,15 +21,18 @@ const (
 	// FamOaths: taunt, thorns, haste, the hurt gate, sacrifice, stances
 	// and the vent trigger.
 	FamOaths
+	// FamSchools: each school's own trigger, the way its hexes run:
+	// overload, guard, rage, blueprint, brain and follow-up.
+	FamSchools
 
 	// FamAll is every family.
 	FamAll uint16 = 1<<iota - 1
 )
 
 // NumFams is how many families there are.
-const NumFams = 5
+const NumFams = 6
 
-var famNames = [NumFams]string{"forms", "shadow", "wrecks", "devices", "oaths"}
+var famNames = [NumFams]string{"forms", "shadow", "wrecks", "devices", "oaths", "schools"}
 
 // FamName is a family's name.
 func FamName(f int) string { return famNames[f] }
@@ -117,6 +120,12 @@ func (t *Table) RollFam(r *RNG, f int, rar skill.Rarity) skill.Part {
 		}
 	case 3:
 		p = skill.NewForm(skill.FormZone + skill.FormKind(r.Intn(4)))
+	case 5:
+		ks := []skill.TriggerKind{skill.Overload, skill.Guard, skill.Rage, skill.FollowUp, skill.Blueprint, skill.Brain}
+		if rar < skill.Rare {
+			ks = ks[:4]
+		}
+		p = skill.NewTrigger(ks[r.Intn(len(ks))])
 	default:
 		switch r.Intn(8) {
 		case 0:
@@ -192,6 +201,8 @@ func FamOf(p skill.Part) int {
 			return 2
 		case skill.OnVent:
 			return 4
+		case skill.Overload, skill.Guard, skill.Rage, skill.FollowUp, skill.Blueprint, skill.Brain:
+			return 5
 		}
 	case skill.KindEffect:
 		switch p.Effect {

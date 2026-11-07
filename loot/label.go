@@ -36,6 +36,18 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 			title = "ON DODGE"
 		case skill.OnVent:
 			title = "ON VENT"
+		case skill.Overload:
+			return "OVERLOAD", "hold, let go"
+		case skill.Guard:
+			return "GUARD", "hold, let go"
+		case skill.Rage:
+			title = "RAGE"
+		case skill.Blueprint:
+			return "BLUEPRINT", "your devices"
+		case skill.Brain:
+			return "BRAIN", "your minions"
+		case skill.FollowUp:
+			title = "FOLLOW-UP"
 		case skill.Periodic:
 			return "EVERY", fmt.Sprintf("%gs", p.Period)
 		case skill.Channel:
@@ -341,6 +353,18 @@ func ClassText(p skill.Part) string {
 			return "Fires when a shot passes close by you without hitting"
 		case skill.OnVent:
 			return "Fires when you VENT, even though the vent locks your rig, into the Heat it just dumped"
+		case skill.Overload:
+			return "Hold its button to charge, let go to fire. Wire pieces to rung I, II or III: a short hold runs rung I, a full one all three"
+		case skill.Guard:
+			return "Hold its button to raise a guard that halves every hit on you and stores it. Let go to fire, harder for each hit stored"
+		case skill.Rage:
+			return "Fires on a press. Kills and hull you spend fill your rage, which drains when you stop: pieces on rung II or III only run once it's that high"
+		case skill.Blueprint:
+			return "Never cast. Every turret, trap, zone or drone you've placed runs this hex on its own clock, from where it stands"
+		case skill.Brain:
+			return "Never cast. Every minion you've raised runs this hex with each blow, on the foe it hit, from where it stands"
+		case skill.FollowUp:
+			return "Fires on a press. Straight after another hex, it lands on whoever that hex hit last and hits harder for each step in the chain"
 		}
 	case skill.KindTarget:
 		switch p.Target {
