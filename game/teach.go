@@ -106,7 +106,7 @@ var Ladder = [...]Lesson{
 	{Depth: 21, Name: "WRECKS", Gives: UWrecks, Hexes: 4, Trial: true,
 		Card: "A fallen foe leaves a wreck for a while. Reanimate gets it up on your side; detonate blows it up."},
 	{Depth: 23, Name: "DEVICES", Gives: UDevices, Hexes: 4,
-		Card: "A turret, trap, zone or drone stays behind and keeps running the hex. Your turret shoots for 12 s."},
+		Card: "A turret, trap, zone or drone stays behind and keeps running the hex. Turrets, traps and drones stand until the floor ends."},
 	{Depth: 25, Name: "OATHS", Gives: UOaths, Hexes: 4, Trial: true,
 		Card: "Taunt pulls foes onto you and thorns hands their hits back. A stance stays on until you cast it again."},
 }

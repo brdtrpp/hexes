@@ -325,7 +325,7 @@ func (g *Game) drawStanceRing(screen *ebiten.Image) {
 // minionTint lays a raised body's grave-green over its plate.
 func minionTint(op *ebiten.DrawImageOptions, screen, img *ebiten.Image, alpha float32) {
 	r, g, b := colorF(colMinion)
-	a := 0.45 * alpha
+	a := 0.7 * alpha
 	op.ColorScale.Reset()
 	op.ColorScale.Scale(r*a, g*a, b*a, a)
 	op.Blend = ebiten.BlendLighter

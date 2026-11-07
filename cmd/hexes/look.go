@@ -616,6 +616,10 @@ func (g *Game) drawBody(screen *ebiten.Image, i int) {
 	if a.U.Frozen {
 		cr, cg, cb = 0.75, 0.95, 1.2
 	}
+	if a.Minion {
+		// A raised body is yours: drained of its red, grave green.
+		cr, cg, cb = cr*0.4, cg*1.3, cb*0.5
+	}
 	img := g.look.body[a.Kind]
 	b := img.Bounds()
 	op := &ebiten.DrawImageOptions{}

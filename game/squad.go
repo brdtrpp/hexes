@@ -711,7 +711,9 @@ func (s *Sim) shotHit(sh *Shot) {
 	if int(sh.Owner) < len(s.Actors) {
 		lvl = s.Actors[sh.Owner].U.Level
 	}
-	hit := min(s.soak(s.taunted(sh.Owner, sh.Dmg)*s.guard()), s.Rules.HitCap(lvl, p.U.Level, p.U.MaxHP))
+	turned := s.taunted(sh.Owner, sh.Dmg) * s.guard()
+	block := max(0, sh.Dmg-turned) // what a taunt and the bulwark turned aside
+	hit := min(s.soak(turned), s.Rules.HitCap(lvl, p.U.Level, p.U.MaxHP))
 	left := p.U.Soak(hit)
 	dealt := min(left, p.U.HP)
 	p.U.HP -= dealt
@@ -726,6 +728,9 @@ func (s *Sim) shotHit(sh *Shot) {
 		s.addFX(FX{Kind: FXNumber, At: p.At, Value: dealt, Hurt: true, Life: 0.8})
 	}
 	s.FX.Add(FX{Kind: FXZap, At: p.At, X: sh.X, Y: sh.Y, DX: float32(sh.VX), DY: float32(sh.VY), Hurt: true, Life: 0.3})
+	if p.U.Alive {
+		s.blocked(block + hit - left)
+	}
 	if p.U.Alive && int(sh.Owner) < len(s.Actors) {
 		s.thorns(sh.Owner, hit)
 		s.Disp.Hurt(s.Player, sh.Owner)

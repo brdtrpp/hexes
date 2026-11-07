@@ -214,7 +214,7 @@ func (s *Sim) Push(id, from skill.EntityID, hexes int) skill.Terrain {
 
 // Raise implements skill.World: a body gets up for owner (devices.go).
 func (s *Sim) Raise(id, owner skill.EntityID) bool {
-	return s.Reanimate(id, owner, skill.MinionLife)
+	return s.Reanimate(id, owner, skill.ReanimateBase)
 }
 
 // Behind implements skill.Senses.
@@ -253,6 +253,9 @@ func (s *Sim) Hit(caster, target skill.EntityID, dealt float32, t skill.TypeID, 
 	mag := magOf(dealt, a.U.MaxHP)
 	if !terrain {
 		a.LastHit = t
+		if caster == s.Player && dealt > 0 && t == s.kineticType() {
+			s.pull(target) // the Warden drags them in (warden.go)
+		}
 	}
 	if dealt > 0 || terrain {
 		s.addFX(FX{Kind: FXNumber, At: a.At, Value: dealt, Type: t, Terrain: terrain,

@@ -96,7 +96,7 @@ func (g *Game) devInit() {
 				g.zm.z, g.zm.want = clampZoom(z), clampZoom(z)
 				g.size = g.zm.size()
 			}
-			d.still = m == "pad" || m == "sector" || m == "crossing" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits" || m == "menu" || m == "bigmap"
+			d.still = m == "pad" || m == "army" || m == "sector" || m == "crossing" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits" || m == "menu" || m == "bigmap"
 			d.gallery = m == "kinds" || m == "grades"
 		}
 	}
@@ -282,6 +282,10 @@ func (g *Game) devFrames(mode string) {
 				a.U.Alive, a.U.HP = false, 0
 			}
 		}
+	case "army":
+		// A raised army around you and a Brace half full.
+		s.DevArmy(envInt("HEXES_DEPTH", 3))
+		g.camX, g.camY = s.P().Pos()
 	case "pad":
 		// Standing hurt on a floor's repair pad, foes cleared.
 		s.DevDepth(envInt("HEXES_DEPTH", 3))

@@ -186,14 +186,45 @@ func TestEngineerDevices(t *testing.T) {
 	if s.Actors[g].U.HP >= hg || s.Actors[g].U.StunLeft <= 0 && s.Actors[g].U.SlowLeft <= 0 && !s.Actors[g].U.Frozen {
 		t.Fatalf("trap didn't go off on the foe beside it: hp %v -> %v", hg, s.Actors[g].U.HP)
 	}
-	// They run out.
+	// They stand for the floor: well past their old timers, the turret
+	// and the drone still run.
 	for k := 0; k < 60*30; k++ {
 		s.Step(1.0 / 60)
 	}
-	for i := range s.Actors {
-		if a := &s.Actors[i]; a.Kind == KindDevice && a.U.Alive && a.Dev != skill.FormTrap {
-			t.Fatalf("%s outlived its life", a.Dev)
+	for _, form := range []skill.FormKind{skill.FormTurret, skill.FormDrone} {
+		up := false
+		for i := range s.Actors {
+			if a := &s.Actors[i]; a.Kind == KindDevice && a.U.Alive && a.Dev == form {
+				up = true
+			}
 		}
+		if !up {
+			t.Fatalf("%s didn't last the floor", form)
+		}
+	}
+	// A newer one takes the oldest one's place.
+	cool(s)
+	var first uint32
+	for i := range s.Actors {
+		if a := &s.Actors[i]; a.Kind == KindDevice && a.U.Alive && a.Dev == skill.FormTurret {
+			first = a.Seq
+		}
+	}
+	if o := s.Disp.Cast(s.Player, 0, f); o != skill.Fired {
+		t.Fatalf("second turret %s", o)
+	}
+	s.Step(1.0 / 60)
+	n := 0
+	for i := range s.Actors {
+		if a := &s.Actors[i]; a.Kind == KindDevice && a.U.Alive && a.Dev == skill.FormTurret {
+			n++
+			if a.Seq == first {
+				t.Fatal("old turret stayed up past the limit")
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d turrets standing, want 1", n)
 	}
 }
 

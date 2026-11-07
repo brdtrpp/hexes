@@ -27,7 +27,6 @@ const (
 	MinionSpeed   = 3.4  // tiles per second
 	MinionEvery   = 0.9  // seconds between a minion's blows
 	MinionHit     = 0.7  // a minion's blow, share of its kind's
-	MinionHull    = 0.6  // a minion's hull, share of what it had alive
 	MinionReach   = 1.2  // hexes, centre to centre
 	DroneSpeed    = 6.0  // tiles per second
 	DriftSpeed    = 1.1  // a drifting zone, tiles per second
@@ -355,18 +354,21 @@ func (s *Sim) Wrecks(id skill.EntityID, n int, take bool) bool {
 	return true
 }
 
-// Reanimate implements skill.Actions: wreck id gets up on owner's side.
-func (s *Sim) Reanimate(id, owner skill.EntityID, seconds float32) bool {
+// Reanimate implements skill.Actions: wreck id gets up on owner's side
+// and stays until it's killed. value is the Reanimate's own number:
+// skill.ReanimateBase raises a body at MinionHull of the hull it had
+// alive, more or less in step.
+func (s *Sim) Reanimate(id, owner skill.EntityID, value float32) bool {
 	if id < 0 || int(id) >= len(s.Actors) || !s.wreck(int(id)) {
 		return false
 	}
 	// Past the cap, the oldest minion falls first.
-	n, oldest, oldLife := 0, -1, float32(math.MaxFloat32)
+	n, oldest, oldSeq := 0, -1, uint32(math.MaxUint32)
 	for i := range s.Actors {
-		if a := &s.Actors[i]; a.Minion && a.U.Alive {
+		if a := &s.Actors[i]; a.Minion && a.U.Alive && a.Owner == owner {
 			n++
-			if a.Life < oldLife {
-				oldest, oldLife = i, a.Life
+			if a.Seq < oldSeq {
+				oldest, oldSeq = i, a.Seq
 			}
 		}
 	}
@@ -374,10 +376,11 @@ func (s *Sim) Reanimate(id, owner skill.EntityID, seconds float32) bool {
 		s.expire(oldest)
 	}
 	a := &s.Actors[id]
-	hp := a.U.MaxHP * MinionHull
+	hp := a.U.MaxHP * skill.RaisedHull(value)
 	a.U = skill.Unit{ID: id, Team: s.Actors[owner].U.Team, Alive: true, HP: hp, MaxHP: hp,
 		Level: a.U.Level, MarkOwner: skill.NoEntity}
-	a.Minion, a.Owner, a.Life, a.DeadFor = true, owner, seconds, 0
+	a.Minion, a.Owner, a.Life, a.DeadFor = true, owner, 1, 0
+	a.Keeps, a.Seq = true, s.nextSeq()
 	a.Free, a.Awake = true, true
 	a.X, a.Y = a.At.Pixel()
 	a.Clock = MinionEvery / 2
@@ -403,7 +406,7 @@ func (s *Sim) Deploy(d skill.Deployment) bool {
 	case skill.FormTrap:
 		limit = 3
 	}
-	n, oldest, oldLife, total := 0, -1, float32(math.MaxFloat32), 0
+	n, oldest, oldSeq, total := 0, -1, uint32(math.MaxUint32), 0
 	for i := range s.Actors {
 		a := &s.Actors[i]
 		if a.Kind != KindDevice || !a.U.Alive {
@@ -412,13 +415,13 @@ func (s *Sim) Deploy(d skill.Deployment) bool {
 		total++
 		if a.Dev == d.Form && a.Owner == d.Caster {
 			n++
-			if a.Life < oldLife {
-				oldest, oldLife = i, a.Life
+			if a.Seq < oldSeq {
+				oldest, oldSeq = i, a.Seq
 			}
 		}
 	}
 	if n >= limit && oldest >= 0 {
-		s.expire(oldest)
+		s.retire(oldest)
 		total--
 	}
 	if total >= MaxDevices {
@@ -477,9 +480,19 @@ func (s *Sim) Deploy(d skill.Deployment) bool {
 		Kind: KindDevice, At: at, From: at, MoveT: 1, Free: true, X: x, Y: y, Awake: true,
 		Dev: d.Form, Rule: d.Rule, Life: life, Every: every, Clock: deviceFirstIn, Arms: arms,
 		Dep: d, Owner: d.Caster, FaceX: c.FaceX, FaceY: c.FaceY,
+		Keeps: skill.Standing(d.Form), Seq: s.nextSeq(),
 	}
 	s.addFX(FX{Kind: FXDeploy, At: at, Slot: int(d.Form), Life: 0.6})
 	return true
+}
+
+// retire ends a device that ran its course or made room for a newer
+// one: an exotic drone bursts once more on the way out.
+func (s *Sim) retire(i int) {
+	if a := &s.Actors[i]; a.U.Alive && a.Kind == KindDevice && a.Dev == skill.FormDrone && a.Rule >= 2 {
+		s.runDevice(i, skill.NoEntity)
+	}
+	s.expire(i)
 }
 
 // expire ends a device or a minion without a death: no kill, no loot.
@@ -507,12 +520,15 @@ func (s *Sim) extras(dt float32) {
 		if !a.U.Alive || !a.extra() {
 			continue
 		}
-		a.Life -= dt
+		if !a.Keeps {
+			a.Life -= dt
+		}
 		if a.Life <= 0 || int(a.Owner) >= len(s.Actors) || !s.Actors[a.Owner].U.Alive {
-			if a.Kind == KindDevice && a.Dev == skill.FormDrone && a.Rule >= 2 && a.Life <= 0 {
-				s.runDevice(i, skill.NoEntity) // an exotic drone bursts once more
+			if a.Life <= 0 {
+				s.retire(i)
+			} else {
+				s.expire(i)
 			}
-			s.expire(i)
 			continue
 		}
 		if a.Minion {
@@ -649,9 +665,16 @@ func (s *Sim) minion(i int, dt float32) {
 	}
 	f := s.nearestFoe(a.At, NearestRange+2)
 	if f == skill.NoEntity {
-		// Nothing to fight: keep near you.
+		// Nothing to fight: fall in around you, each in its own place.
 		p := &s.Actors[a.Owner]
-		s.slide(a, p.X, p.Y, MinionSpeed*tileSpan*float64(dt)*0.8, true)
+		ring := 1 + int(a.Seq/6)%2
+		spot := p.At
+		for range ring {
+			spot = spot.Add(skill.HexDirs[a.Seq%6])
+		}
+		sx, sy := spot.Pixel()
+		ox, oy := p.At.Pixel()
+		s.slide(a, p.X+sx-ox, p.Y+sy-oy, MinionSpeed*tileSpan*float64(dt)*0.8, false)
 		return
 	}
 	t := &s.Actors[f]
@@ -679,6 +702,7 @@ func (s *Sim) minion(i int, dt float32) {
 	}
 	if !t.U.Alive {
 		s.died(f)
+		s.rise(f) // what the army kills joins it, while there's room
 		s.addFX(FX{Kind: FXKill, At: t.At, Type: t.LastHit, Slot: int(t.Kind), Life: 0.5})
 		s.Disp.Emit(skill.Event{Trigger: skill.OnKill, Actor: a.Owner, Subject: f, Chain: 1, Slot: -1})
 	}

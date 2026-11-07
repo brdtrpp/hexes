@@ -230,6 +230,9 @@ type Save struct {
 	// hexes laid out so nothing docks.
 	Mods  []*skill.Hex `json:",omitempty"`
 	Board []Spot       `json:",omitempty"`
+	// Army is the Necromancer's raised bodies standing when it was saved
+	// (army.go). Saves from before the army have none.
+	Army []Raised `json:",omitempty"`
 	// Tiles are the logic tiles found (see tiles.go).
 	Tiles uint32 `json:",omitempty"`
 	// Mine is the player's own build while an example is loaded, and
@@ -334,6 +337,7 @@ func (s *Sim) Snapshot() Save {
 		if s.State == Playing {
 			sv.Pads, sv.PadsAt = s.padsLeft(), s.Depth
 		}
+		sv.Army = s.armyNow()
 	}
 	return sv
 }
@@ -502,6 +506,10 @@ func (s *Sim) Restore(sv Save) error {
 	s.DraftedTo = max(sv.DraftedTo, sv.Best-1)
 	s.Draft = Draft{}
 	dirty := s.giveCall() || migrated
+	s.Army = sv.Army
+	if len(s.Army) > skill.MinionMax {
+		s.Army = s.Army[:skill.MinionMax]
+	}
 	s.load(sv.Depth, sv.HPFrac)
 	s.restorePads(sv.PadsAt, sv.Pads)
 	s.Dirty = dirty

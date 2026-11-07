@@ -162,8 +162,11 @@ func partLines(p skill.Part, reg *skill.Registry) []Line {
 			stat("Lasts", num(skill.ShieldTime)+" s", fmt.Sprintf("up to %s%% of max hull", num(100*skill.ShieldCap)))
 		case skill.EffectPurge:
 			stat("Heat off", num(v), m)
-		case skill.EffectTaunt, skill.EffectThorns, skill.EffectHaste, skill.EffectReanimate:
+		case skill.EffectTaunt, skill.EffectThorns, skill.EffectHaste:
 			stat(strings.Title(p.Effect.String()), num(v)+" s", m)
+		case skill.EffectReanimate:
+			stat("Raised hull", num(100*skill.RaisedHull(v))+"%", "of the hull it had alive")
+			stat("Lasts", "until killed", fmt.Sprintf("up to %d at once", skill.MinionMax))
 		case skill.EffectBlink:
 			stat("Blink", hexes(v), m)
 		}

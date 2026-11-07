@@ -316,6 +316,41 @@ func (s *Sim) OpenSchools() SchoolSet {
 	return ss
 }
 
+// The lean: Necromancer, Engineer and Warden hexes are about their
+// signature parts (raising, devices, oaths), so when a drop or a pick
+// for one of them comes up a plain damage or status effect, LeanChance
+// of the time it's one of the school's own parts instead.
+const LeanChance = 0.5
+
+// leanFam is each leaning school's family of signature parts, -1 for a
+// school that doesn't lean.
+var leanFam = [NumSchools]int{-1, 3, 4, -1, 2, -1}
+
+// leaning wraps roll with the lean, drawing signature parts from t at
+// rarity rar. A family the ladder hasn't let in yet stays out.
+func (s *Sim) leaning(r *loot.RNG, t *loot.Table, rar skill.Rarity, open SchoolSet, roll func() skill.Part) func() skill.Part {
+	return func() skill.Part {
+		p := roll()
+		if !Typed(p) || p.Kind != skill.KindEffect {
+			return p
+		}
+		sc := TypeSchool(s.Reg, p.Type)
+		f := -1
+		if sc < NumSchools {
+			f = leanFam[sc]
+		}
+		if f < 0 || !open.Has(sc) || t.Allow.New&(1<<f) == 0 || r.Float() >= LeanChance {
+			return p
+		}
+		for k := 0; k < 4; k++ {
+			if q := t.RollFam(r, f, rar); SchoolOf(q, s.Reg).Has(sc) {
+				return q
+			}
+		}
+		return p
+	}
+}
+
 // schoolRoll rolls until a part of an open school comes up (and ok likes
 // it, when ok isn't nil). When none does in SchoolRolls goes, it keeps a
 // roll ok liked (a typed one if there was one) and a typed part takes an

@@ -213,8 +213,8 @@ const (
 	// whoever dealt it, for Value seconds.
 	EffectThorns
 	// EffectReanimate raises the wrecks it lands on as the caster's
-	// drones for Value seconds. With no target beside it, it finds the
-	// nearest wreck.
+	// drones, which stay until killed; Value sets how sturdy they get up
+	// (RaisedHull). With no target beside it, it finds the nearest wreck.
 	EffectReanimate
 	// EffectHaste speeds the caster up by HasteFrac for Value seconds.
 	EffectHaste
@@ -238,10 +238,12 @@ const (
 	// you again.
 	StealthRest = 4
 	// MinionMax is how many raised drones one caster keeps; raising
-	// more lets the oldest go.
-	MinionMax = 4
-	// MinionLife is how long a drone raised by a kill lasts.
-	MinionLife = 10
+	// more lets the oldest go. Raised drones stay until they're killed.
+	MinionMax = 6
+	// MinionHull is a raised drone's hull, a share of what it had alive,
+	// for a Reanimate of ReanimateBase (and any body raised by a kill).
+	MinionHull    = 0.6
+	ReanimateBase = 12
 	// RiderTime is the status a Rider damage effect leaves; RiderHit is
 	// the damage a Rider status effect deals.
 	RiderTime = 1.5
@@ -1125,12 +1127,29 @@ func NewThorns(seconds float32) Part {
 	return Part{Kind: KindEffect, Effect: EffectThorns, Value: seconds, Power: 4, Heat: 2}
 }
 
-// NewReanimate makes a Reanimate whose drones last seconds.
-func NewReanimate(seconds float32) Part {
-	if seconds <= 0 {
-		seconds = 12
+// NewReanimate makes a Reanimate of value (zero means ReanimateBase):
+// the bigger, the sturdier the drones it raises (RaisedHull).
+func NewReanimate(value float32) Part {
+	if value <= 0 {
+		value = ReanimateBase
 	}
-	return Part{Kind: KindEffect, Effect: EffectReanimate, Value: seconds, Power: 5, Heat: 2}
+	return Part{Kind: KindEffect, Effect: EffectReanimate, Value: value, Power: 5, Heat: 2}
+}
+
+// RaisedHull is the share of its living hull a body raised by a
+// Reanimate of value gets up with.
+func RaisedHull(value float32) float32 {
+	if value <= 0 {
+		value = ReanimateBase
+	}
+	return min(1, MinionHull*value/ReanimateBase)
+}
+
+// Standing reports whether a device of form f stays up for the whole
+// floor: the Engineer's turrets, traps and drones do (a trap still runs
+// out of triggers); a zone is a short field.
+func Standing(f FormKind) bool {
+	return f == FormTurret || f == FormTrap || f == FormDrone
 }
 
 // NewHaste makes a Haste that lasts seconds.

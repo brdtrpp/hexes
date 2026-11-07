@@ -258,7 +258,8 @@ func (s *Sim) draftPart(r *loot.RNG, rar skill.Rarity, ok func(skill.Part) bool)
 	old := t.Allow
 	t.Allow = allow
 	defer func() { t.Allow = old }()
-	return s.schoolRoll(r, s.OpenSchools(), func() skill.Part { return t.RollTaught(r, rar) }, ok)
+	open := s.OpenSchools()
+	return s.schoolRoll(r, open, s.leaning(r, t, rar, open, func() skill.Part { return t.RollTaught(r, rar) }), ok)
 }
 
 // rollShapeKind picks a found shape's kind for a draft.

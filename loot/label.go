@@ -107,7 +107,7 @@ func Label(p skill.Part, reg *skill.Registry) (title, detail string) {
 		case skill.EffectThorns:
 			return "THORNS", fmt.Sprintf("%.1fs", p.Value*sc)
 		case skill.EffectReanimate:
-			return "REANIMATE", fmt.Sprintf("%.0fs", p.Value*sc)
+			return "REANIMATE", fmt.Sprintf("%.0f%% hull", 100*skill.RaisedHull(p.Value*sc))
 		case skill.EffectHaste:
 			return "HASTE", fmt.Sprintf("%.1fs", p.Value*sc)
 		case skill.EffectBlink:
@@ -382,7 +382,7 @@ func ClassText(p skill.Part) string {
 		case skill.EffectThorns:
 			return fmt.Sprintf("On you, wherever it sits: hands back %.0f%% of every hit you take", 100*skill.ThornsFrac)
 		case skill.EffectReanimate:
-			return fmt.Sprintf("Raises the wreck it lands on (or the nearest one) to fight for you. Up to %d at once", skill.MinionMax)
+			return fmt.Sprintf("Raises the wreck it lands on (or the nearest one) to fight for you until it's killed, even down the stairs. Up to %d at once", skill.MinionMax)
 		case skill.EffectHaste:
 			return fmt.Sprintf("On you, wherever it sits: %.0f%% faster", 100*skill.HasteFrac)
 		case skill.EffectBlink:
@@ -449,11 +449,11 @@ func formText(f skill.FormKind) string {
 	case skill.FormZone:
 		return fmt.Sprintf("Leaves a field on the nearest foe that runs the hex every %g s for %g s, at %.0f%%. Rare: it drifts after foes. Exotic: and chills", float32(skill.ZoneEvery), float32(skill.ZoneLife), 100*skill.ZoneScale)
 	case skill.FormTurret:
-		return fmt.Sprintf("Places a turret beside you that runs the hex at the nearest foe every %g s for %g s. With an aura, it's a totem. Rare: two stand. Exotic: three", float32(skill.TurretEvery), float32(skill.TurretLife))
+		return fmt.Sprintf("Places a turret beside you that runs the hex at the nearest foe every %g s until the floor ends. With an aura, it's a totem. Rare: two stand. Exotic: three", float32(skill.TurretEvery))
 	case skill.FormTrap:
-		return fmt.Sprintf("Leaves a trap where you stand that runs the hex on each foe that steps on it, %d times, for %g s. Rare: %d times. Exotic: and it stuns", skill.TrapArms, float32(skill.TrapLife), skill.TrapArmsRare)
+		return fmt.Sprintf("Leaves a trap where you stand that runs the hex on each foe that steps on it, %d times, until the floor ends. Rare: %d times. Exotic: and it stuns", skill.TrapArms, skill.TrapArmsRare)
 	case skill.FormDrone:
-		return fmt.Sprintf("Launches a drone that follows you and runs the hex at the nearest foe every %g s for %g s. Rare: two fly. Exotic: one last burst when it ends", float32(skill.DroneEvery), float32(skill.DroneLife))
+		return fmt.Sprintf("Launches a drone that follows you and runs the hex at the nearest foe every %g s until the floor ends. Rare: two fly. Exotic: one last burst when a newer one takes its place", float32(skill.DroneEvery))
 	}
 	return ""
 }

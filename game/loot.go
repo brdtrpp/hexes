@@ -164,7 +164,9 @@ func (s *Sim) dropLoot(id skill.EntityID) {
 	if rar == skill.Exotic && !allow.Quirks {
 		rar = skill.Rare
 	}
-	p := s.schoolRoll(&r, s.OpenSchools(), func() skill.Part { return s.Stash.table.RollTaught(&r, rar) }, nil)
+	open := s.OpenSchools()
+	t := s.Stash.table
+	p := s.schoolRoll(&r, open, s.leaning(&r, t, rar, open, func() skill.Part { return t.RollTaught(&r, rar) }), nil)
 	at, ok := s.dropSpot(a.At)
 	if !ok {
 		return

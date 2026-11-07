@@ -736,6 +736,12 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		sa := min(1, p.U.ShieldLeft/1.5)
 		vector.DrawFilledRect(screen, u(14), by, sw, u(4), fade(colShield, 0.9*sa), false)
 	}
+	if b := sim.BraceShare(); b > 0 {
+		// The Warden's Brace fills along the bottom of the hull bar and
+		// bursts when it's full.
+		kin := typeColor(game.SchoolType(sim.Reg, game.SchoolWarden))
+		vector.DrawFilledRect(screen, u(14), by+u(10), bw*b, u(4), fade(kin, 0.95), false)
+	}
 
 	// Casting: the PC key bar, or the thumb arc with VENT and HEX.
 	pc := g.pcBar()

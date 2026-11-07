@@ -79,6 +79,13 @@ type Actor struct {
 	Dep    skill.Deployment
 	Minion bool
 	Used   bool
+	// Keeps marks a device or minion that stays until it's killed or
+	// the floor ends, its Life left alone; Seq is the order extras came
+	// in, so the oldest makes room first.
+	Keeps bool
+	Seq   uint32
+	// PulledAt is when a Warden's kinetic hit last pulled it (warden.go).
+	PulledAt float64
 }
 
 // Arrived reports whether the actor has finished its current step.
@@ -174,9 +181,18 @@ type Sim struct {
 	State  State
 	StateT float32
 	Kills  int
-	Best   int     // deepest floor ever reached
-	Time   float64 // seconds of play, ever
-	FX     FXBuf
+	// Army is the raised bodies carried down to the next floor (army.go);
+	// seq numbers extras as they come.
+	Army []Raised
+	seq  uint32
+	// Brace is the Warden's stored block (warden.go), braceT the seconds
+	// since it last grew; bursting is set while it goes off.
+	Brace    float32
+	braceT   float32
+	bursting bool
+	Best     int     // deepest floor ever reached
+	Time     float64 // seconds of play, ever
+	FX       FXBuf
 	// forms are the target areas hexes picked during the current firing
 	// (see form.go); Fired turns the ones that landed into effects.
 	forms  [maxForms]form
@@ -348,6 +364,7 @@ func (s *Sim) NewRun(seed uint64) {
 	s.Kills, s.Best, s.Time, s.Visits = 0, 0, 0, 0
 	s.Points = DefaultPoints
 	s.Cache, s.Deaths, s.LastDeathAt, s.LastDeath = Cache{}, 0, 0, Death{}
+	s.Army = nil
 	s.Visit = 0
 	s.Load = Loadout{}
 	s.CallGiven = true // the preset Arc Lance carries it; the ladder hands its own
@@ -480,7 +497,9 @@ func (s *Sim) enter(depth int, hpFrac float32, seed uint64) {
 		copy(grown, s.Actors)
 		s.Actors = grown
 	}
+	s.marchIn()
 	s.Stance = 0
+	s.Brace, s.braceT = 0, 0
 
 	s.Rig = skill.NewRig(s.Points)
 	s.loadLoot(lvl)
@@ -555,6 +574,7 @@ func (s *Sim) Step(dt float32) {
 		s.ageCorpses(dt)
 		if s.StateT >= DescendTime {
 			p := s.P()
+			s.Army = s.armyNow()
 			s.load(s.Depth+1, p.U.HP/p.U.MaxHP+HealOnDescend)
 		}
 		return
@@ -690,7 +710,9 @@ func (s *Sim) refreshField() {
 func (s *Sim) claw(attacker skill.EntityID, raw float32) {
 	p := s.P()
 	a := &s.Actors[attacker]
-	raw = s.soak(s.taunted(attacker, raw) * s.guard())
+	turned := s.taunted(attacker, raw) * s.guard()
+	block := max(0, raw-turned) // what a taunt and the bulwark turned aside
+	raw = s.soak(turned)
 	hit := min(raw, s.Rules.HitCap(a.U.Level, p.U.Level, p.U.MaxHP))
 	left := p.U.Soak(hit) // a shield takes it first
 	dealt := min(left, p.U.HP)
@@ -707,6 +729,7 @@ func (s *Sim) claw(attacker skill.EntityID, raw float32) {
 	}
 	s.addFX(FX{Kind: FXClaw, At: p.At, From: a.At, Life: 0.25})
 	if p.U.Alive {
+		s.blocked(block + hit - left)
 		s.thorns(attacker, hit)
 		s.Disp.Hurt(s.Player, attacker)
 	}
@@ -716,6 +739,7 @@ func (s *Sim) claw(attacker skill.EntityID, raw float32) {
 // vents for everyone.
 func (s *Sim) timers(dt float32) {
 	s.ageCorpses(dt)
+	s.fadeBrace(dt)
 	for i := range s.Actors {
 		a := &s.Actors[i]
 		a.Flash = max(0, a.Flash-dt)
@@ -807,6 +831,9 @@ func (s *Sim) died(id skill.EntityID) {
 		s.earnKill(id)
 		s.dropLoot(id)
 		s.wrecked(id)
+		if !a.Fell && a.LastHit == s.necroType() {
+			s.rise(id) // the Necromancer's dead get up (army.go)
+		}
 	}
 }
 
