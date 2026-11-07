@@ -9,7 +9,8 @@ package main
 // color. Keys 1 to 4 press them at a keyboard; Space is button 1.
 //
 // Workbenches are consoles on the floor (game/bench.go). The HEX button
-// only opens the editor beside one; anywhere else it says where to go.
+// shows only beside one. On a PC the key bar stands in for all of these
+// (hud.go).
 
 import (
 	"fmt"
@@ -21,7 +22,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"hexes/fx"
-	"hexes/game"
 	"hexes/skill"
 )
 
@@ -46,6 +46,12 @@ func (g *Game) layoutButtons(w, h int, r float64) {
 // castButton is which cast button (1 to Buttons) is under x, y, or 0.
 // Buttons with nothing on them don't answer, except button 1.
 func (g *Game) castButton(x, y float64) int {
+	if g.pcBar() {
+		if b := g.keyAt(x, y); b <= len(g.casts) {
+			return b
+		}
+		return 0
+	}
 	for i, b := range g.casts {
 		if (i == 0 || g.sim.Load.ButtonUsed(i+1)) && b.hit(x, y) {
 			return i + 1
@@ -108,6 +114,7 @@ func (g *Game) drawCastButtons(screen *ebiten.Image) {
 		if more > 0 {
 			name = fmt.Sprintf("%s+%d", name, more)
 		}
+		g.drawSchoolRound(screen, b, g.schoolOf(n), c)
 		g.outlined(screen, g.face, b.label, b.x, b.y-b.r*0.22, colText, 1)
 		g.outlined(screen, g.small, fitWord(g, []string{name, name[:min(len(name), 5)]}, b.r*1.8), b.x, b.y+b.r*0.34, c, 1)
 	}
@@ -125,21 +132,15 @@ func (g *Game) roundButton(screen *ebiten.Image, b button, c color.RGBA) {
 	vector.StrokeCircle(screen, float32(b.x), float32(b.y), float32(b.r), u(2.5), c, true)
 }
 
-// drawHexButton draws HEX: lit and pulsing at a bench, grey elsewhere.
+// drawHexButton draws HEX, lit and pulsing, while you stand at a bench.
 func (g *Game) drawHexButton(screen *ebiten.Image) {
 	if !g.hexOn() {
 		return
 	}
 	b := g.hexBtn
-	if g.sim.AtBench() {
-		pulse := float32(0.75 + 0.25*math.Sin(float64(g.frame)*0.12))
-		g.roundButton(screen, b, fade(colBench, pulse))
-		g.outlined(screen, g.face, "HEX", b.x, b.y, colText, 1)
-		return
-	}
-	g.roundButton(screen, b, fade(colDim, 0.6))
-	g.outlined(screen, g.small, "HEX", b.x, b.y-b.r*0.2, colDim, 1)
-	g.outlined(screen, g.small, "BENCH", b.x, b.y+b.r*0.32, fade(colDim, 0.8), 1)
+	pulse := float32(0.75 + 0.25*math.Sin(float64(g.frame)*0.12))
+	g.roundButton(screen, b, fade(colBench, pulse))
+	g.outlined(screen, g.face, "HEX", b.x, b.y, colText, 1)
 }
 
 // drawBenches draws the floor's workbenches where the lamp shows them: a
@@ -174,11 +175,13 @@ func (g *Game) drawBenches(screen *ebiten.Image) {
 		drawHex(screen, sx, sy, h*0.36, false, fade(colBench, 0.35*a), fade(colBench, a), g.u(1.5))
 		if on {
 			how := "TAB: edit hexes"
-			if g.touched || float64(g.w) < 700*g.k {
+			if !g.pcBar() {
 				how = "tap HEX to edit"
 			}
 			g.outlined(screen, g.small, "WORKBENCH", sx, sy-s*1.05, colBench, 1)
-			g.outlined(screen, g.small, how, sx, sy+s*0.95, colText, 1)
+			if g.sim.Depth <= 3 { // the early floors say how
+				g.outlined(screen, g.small, how, sx, sy+s*0.95, colText, 1)
+			}
 		}
 	}
 }
@@ -196,6 +199,5 @@ func (g *Game) drawHint(screen *ebiten.Image) {
 	}
 }
 
-// hexOn reports whether the HEX button shows: once the workbench is
-// taught, or standing at one before then.
-func (g *Game) hexOn() bool { return g.sim.Has(game.UBench) || g.sim.AtBench() }
+// hexOn reports whether the HEX button shows: only standing at a bench.
+func (g *Game) hexOn() bool { return g.sim.AtBench() }

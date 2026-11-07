@@ -8,6 +8,7 @@ package main
 // as batched sprites each frame.
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"math"
@@ -781,6 +782,14 @@ func (g *Game) drawRigArcs(screen *ebiten.Image, sx, sy, R float64) {
 	if hf > 0.01 {
 		g.ringPath(sx, sy, r, plain, t, 0, math.Pi*0.38-math.Pi*0.76*hf, math.Pi*0.38, false)
 		g.strokePath(screen, hc, ha, g.u(2.5))
+	}
+	// An overheat says so under the rig, where the bars used to say it.
+	if rig.Locked() {
+		msg := fmt.Sprintf("OVERHEAT %.1fs", rig.ShutdownLeft)
+		if rig.Heat <= 0 {
+			msg = fmt.Sprintf("VENTING %.1fs", rig.ShutdownLeft)
+		}
+		g.outlined(screen, g.small, msg, sx, sy+r+float64(g.u(14)), colHot, ha)
 	}
 }
 

@@ -18,7 +18,21 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"hexes/game"
+	"hexes/loot"
 )
+
+// toggleMove switches walking between following the finger and the
+// thumb stick, and remembers it.
+func (g *Game) toggleMove() {
+	g.stickMode = !g.stickMode
+	g.stick.End()
+	mode := "follow"
+	if g.stickMode {
+		mode = "stick"
+	}
+	savePref(stickPref, mode)
+	g.click(g.stickMode)
+}
 
 // saveKey is where progress lives: localStorage in the browser, a file
 // in the config folder on desktop.
@@ -79,12 +93,14 @@ type menuLayout struct {
 	panel, left, right rect
 	// The sound row: volume down, sound on/off (shows the level), up.
 	vdown, vmid, vup rect
+	// move switches walking between follow and the thumb stick.
+	move rect
 }
 
 func (g *Game) menuLayout() menuLayout {
 	W, H, k := float64(g.w), float64(g.h), g.k
 	pw := math.Min(W-28*k, 440*k)
-	ph := math.Min(H-28*k, 350*k)
+	ph := math.Min(H-28*k, 430*k)
 	px, py := (W-pw)/2, (H-ph)/2
 	gap, bh := 12*k, 50*k
 	bw := (pw - 3*gap) / 2
@@ -92,7 +108,9 @@ func (g *Game) menuLayout() menuLayout {
 	rh := 44 * k
 	ry := by - gap - rh
 	sq := rh * 1.3
+	my := ry - gap - rh
 	return menuLayout{
+		move:  rect{px + gap, my, pw - 2*gap, rh},
 		panel: rect{px, py, pw, ph},
 		left:  rect{px + gap, by, bw, bh},
 		right: rect{px + 2*gap + bw, by, bw, bh},
@@ -136,6 +154,8 @@ func (g *Game) updateMenu() bool {
 			g.nudgeVolume(10)
 		case open && l.vmid.hit(t[0], t[1]):
 			g.toggleMute()
+		case open && l.move.hit(t[0], t[1]):
+			g.toggleMove()
 		case l.left.hit(t[0], t[1]) && g.menu == menuOpen:
 			g.menu = menuConfirm
 		case l.left.hit(t[0], t[1]) && g.menu == menuConfirm:
@@ -162,7 +182,7 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	g.drawRect(screen, l.panel, color.RGBA{0x14, 0x18, 0x24, 0xff}, color.RGBA{0x3a, 0x42, 0x58, 0xff})
 	cx := l.panel.x + l.panel.w/2
 	ty := l.panel.y + 30*k
-	body := rect{l.panel.x + 8*k, ty + 22*k, l.panel.w - 16*k, l.vmid.y - ty - 30*k}
+	body := rect{l.panel.x + 8*k, ty + 22*k, l.panel.w - 16*k, l.move.y - ty - 30*k}
 	if g.menu == menuConfirm {
 		body.h = l.left.y - ty - 30*k
 	}
@@ -176,13 +196,26 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 		return
 	}
 	g.label(screen, g.big, "MENU", cx, ty, colText, true)
-	info := fmt.Sprintf("Deepest %d · deaths %d · kills %d. Progress saves on this device by itself. Every %dth depth is a checkpoint that secures your pack.",
-		sim.Best, sim.Deaths, sim.Kills, game.CheckpointEvery)
+	data := fmt.Sprintf("Data %d", sim.DataTotal())
+	if sim.Unbanked > 0 {
+		data += fmt.Sprintf(" (%d unbanked)", sim.Unbanked)
+	}
+	info := fmt.Sprintf("%s · level %d · pack %d/%d. Deepest %d · deaths %d · kills %d. Progress saves on this device by itself. Every %dth depth is a checkpoint that secures your pack.",
+		data, sim.P().U.Level, sim.Stash.Inv.Count(), loot.InventorySize, sim.Best, sim.Deaths, sim.Kills, game.CheckpointEvery)
+	if n := sim.Unsecured(); n > 0 {
+		info += fmt.Sprintf(" %d new parts are safe once you reach depth %d.", n, sim.NextCheckpoint())
+	}
 	if c := &sim.Cache; c.Active {
 		info += fmt.Sprintf(" Your salvage cache (%d parts) waits on depth %d.", c.N, c.Depth)
 	}
 	g.wrapLabel(screen, info, body, colDim)
 	g.drawSoundRow(screen, l)
+	move, mc := "MOVE: FOLLOW YOUR FINGER", colDim
+	if g.stickMode {
+		move, mc = "MOVE: THUMB STICK", colPlayer
+	}
+	g.drawRect(screen, l.move, colPanel, mc)
+	g.label(screen, g.face, move, l.move.x+l.move.w/2, l.move.y+l.move.h/2, mc, true)
 	g.drawRect(screen, l.left, colPanel, colHot)
 	g.label(screen, g.face, "START FRESH", l.left.x+l.left.w/2, l.left.y+l.left.h/2, colHot, true)
 	g.drawRect(screen, l.right, fade(colStairs, 0.25), colStairs)

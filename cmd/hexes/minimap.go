@@ -100,9 +100,38 @@ func mapPos(c skill.Coord) (float32, float32) {
 	return float32(2*col+c.R&1) + 1, float32(2*c.R) + 1
 }
 
-// drawMinimap draws the chart under the top right buttons (under the hex
-// slots on a narrow phone screen) with the player, the stairs once found
-// and the salvage cache when it's on this floor.
+// mapPlace is where the chart sits and its scale: under MENU in the top
+// right, or big in the middle of the screen once tapped.
+func (g *Game) mapPlace() (x0, y0, dw, dh float32, sc float64, ok bool) {
+	m := &g.mm
+	if m.img == nil || m.floor == nil {
+		return 0, 0, 0, 0, 0, false
+	}
+	f := m.floor
+	iw, ih := float64(2*f.W+1), float64(2*f.H)
+	if g.mapBig {
+		sc = min(float64(g.w)*0.86/iw, float64(g.h)*0.72/ih)
+		dw, dh = float32(iw*sc), float32(ih*sc)
+		return (float32(g.w) - dw) / 2, (float32(g.h) - dh) / 2, dw, dh, sc, true
+	}
+	sc = min(float64(g.u(mapMaxW))/iw, float64(g.u(mapMaxH))/ih)
+	dw, dh = float32(iw*sc), float32(ih*sc)
+	return float32(g.w) - g.u(14) - dw, g.u(44), dw, dh, sc, true
+}
+
+// mapHit is whether x, y is on the small chart, which a tap enlarges.
+func (g *Game) mapHit(x, y float64) bool {
+	if g.mapBig {
+		return false
+	}
+	x0, y0, dw, dh, _, ok := g.mapPlace()
+	pad := float64(g.u(8))
+	return ok && x >= float64(x0)-pad && y >= float64(y0)-pad && x <= float64(x0+dw)+pad && y <= float64(y0+dh)+pad
+}
+
+// drawMinimap draws the chart under MENU (or big, after a tap) with the
+// player, the stairs once found and the salvage cache when it's on this
+// floor.
 func (g *Game) drawMinimap(screen *ebiten.Image) {
 	g.updateMinimap()
 	m := &g.mm
@@ -110,16 +139,18 @@ func (g *Game) drawMinimap(screen *ebiten.Image) {
 		return
 	}
 	f := m.floor
-	iw, ih := float64(2*f.W+1), float64(2*f.H)
-	sc := min(float64(g.u(mapMaxW))/iw, float64(g.u(mapMaxH))/ih)
-	dw, dh := float32(iw*sc), float32(ih*sc)
-	pad := g.u(4)
-	x0 := float32(g.w) - g.u(14) - dw
-	y0 := g.u(44)
-	if float32(g.w) < g.u(700) { // narrow: the bars and slots fill the top
-		y0 = g.u(162)
+	x0, y0, dw, dh, sc, _ := g.mapPlace()
+	pad, dr := g.u(4), float32(1)
+	if g.mapBig {
+		dr = 2
+		vector.DrawFilledRect(screen, 0, 0, float32(g.w), float32(g.h), color.RGBA{0x05, 0x06, 0x0b, 0xb0}, false)
+		pad = g.u(10)
 	}
-	vector.DrawFilledRect(screen, x0-pad, y0-pad, dw+2*pad, dh+2*pad, colPanel, false)
+	panel := colPanel
+	if g.mapBig {
+		panel = color.RGBA{0x0e, 0x12, 0x1c, 0xff}
+	}
+	vector.DrawFilledRect(screen, x0-pad, y0-pad, dw+2*pad, dh+2*pad, panel, false)
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(sc, sc)
 	op.GeoM.Translate(float64(x0), float64(y0))
@@ -147,7 +178,12 @@ func (g *Game) drawMinimap(screen *ebiten.Image) {
 	}
 	g.drawPadMarks(screen, at)
 	if c := &g.sim.Cache; c.Active && c.Depth == g.sim.Depth {
-		dot(c.At, g.u(2.5), colSalvage)
+		dot(c.At, g.u(2.5)*dr, colSalvage)
 	}
-	dot(g.sim.P().At, g.u(2.5), colPlayer)
+	dot(g.sim.P().At, g.u(2.5)*dr, colPlayer)
+	if g.mapBig {
+		g.label(screen, g.small, "tap anywhere to close", float64(g.w)/2, float64(y0+dh+pad+g.u(16)), colDim, true)
+	} else if g.sim.Depth <= 3 {
+		g.label(screen, g.small, "tap to enlarge", float64(x0+dw/2), float64(y0+dh+pad+g.u(10)), fade(colDim, 0.8), true)
+	}
 }

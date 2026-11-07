@@ -33,3 +33,19 @@ func savePref(key, val string) {
 	}
 	ls.Call("setItem", key, val)
 }
+
+// touchDevice reports whether the browser says the screen takes touches,
+// so a phone shows thumb buttons from the start.
+func touchDevice() (on bool) {
+	defer func() {
+		if recover() != nil {
+			on = false
+		}
+	}()
+	n := js.Global().Get("navigator")
+	if n.IsUndefined() || n.IsNull() {
+		return false
+	}
+	m := n.Get("maxTouchPoints")
+	return m.Type() == js.TypeNumber && m.Int() > 0
+}

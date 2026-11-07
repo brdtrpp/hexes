@@ -42,3 +42,7 @@ func savePref(key, val string) {
 	}
 	_ = os.Rename(tmp, p)
 }
+
+// touchDevice is whether the screen takes touches: on desktop, only
+// when HEXES_TOUCH says so (for screenshots of the phone layout).
+func touchDevice() bool { return os.Getenv("HEXES_TOUCH") != "" }

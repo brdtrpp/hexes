@@ -27,9 +27,6 @@ var (
 	colNext = color.RGBA{0x8f, 0xd8, 0xa0, 0xff}
 )
 
-// holdPeek is how long a cast button is held before its card shows.
-const holdPeek = 0.45
-
 // openSheet shows a card until the next tap.
 func (g *Game) openSheet(s loot.Sheet) {
 	g.sheet, g.sheetOn, g.sheetHex = s, true, -1
@@ -248,33 +245,6 @@ func (g *Game) edSheet() {
 	}
 	g.openSheet(s)
 	g.sheetHex = e.hex
-}
-
-// peekCast tracks a held cast button and returns the slot whose card to
-// show, or -1.
-func (g *Game) peekCast() int {
-	b := 0
-	for _, id := range ebiten.AppendTouchIDs(nil) {
-		x, y := ebiten.TouchPosition(id)
-		if c := g.castButton(float64(x), float64(y)); c > 0 {
-			b = c
-		}
-	}
-	if ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft) {
-		x, y := ebiten.CursorPosition()
-		if c := g.castButton(float64(x), float64(y)); c > 0 {
-			b = c
-		}
-	}
-	if b == 0 || b != g.peekBtn {
-		g.peekBtn, g.peekT = b, 0
-		return -1
-	}
-	g.peekT += 1.0 / float64(ebiten.TPS())
-	if g.peekT < holdPeek {
-		return -1
-	}
-	return g.sim.Load.FirstOn(b)
 }
 
 // costTag is a cast's cost in a few characters, for the HUD card.

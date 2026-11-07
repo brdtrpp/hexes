@@ -14,6 +14,9 @@ package main
 // buttons show; HEXES_FRAMES=bind does that and opens the editor;
 // HEXES_FRAMES=bench stands still beside the start bench.
 // HEXES_FRAMES=pad stands hurt on a repair pad (HEXES_DEPTH, default 3).
+// HEXES_FRAMES=menu opens the menu; bigmap enlarges the chart.
+// HEXES_HOLD=1 holds button 1 most of the time; HEXES_TOUCH=1 shows the
+// phone's thumb buttons instead of the PC key bar.
 // HEXES_ZOOM=<z> starts the dungeon view at that zoom.
 // HEXES_FRAMES=grid opens the skill grid on a save a few floors in;
 // HEXES_FRAMES=locker opens the locker on that save.
@@ -93,7 +96,7 @@ func (g *Game) devInit() {
 				g.zm.z, g.zm.want = clampZoom(z), clampZoom(z)
 				g.size = g.zm.size()
 			}
-			d.still = m == "pad" || m == "sector" || m == "crossing" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits"
+			d.still = m == "pad" || m == "sector" || m == "crossing" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits" || m == "menu" || m == "bigmap"
 			d.gallery = m == "kinds" || m == "grades"
 		}
 	}
@@ -134,6 +137,14 @@ func (g *Game) devPilot(in *game.Input) {
 	}
 	if g.frame%30 == 0 && bd < 12 {
 		g.castAll(in)
+	}
+	// HEXES_HOLD keeps button 1 held most of the time, to show a charge
+	// or a raised guard.
+	if os.Getenv("HEXES_HOLD") != "" && g.frame%120 < 100 {
+		if g.frame%120 == 0 {
+			s.Load.Press(1, in)
+		}
+		s.Load.Hold(1, in)
 	}
 	in.Restart = true
 }
@@ -286,6 +297,10 @@ func (g *Game) devFrames(mode string) {
 		s.VisitMixed(envInt("HEXES_KINDS", 2))
 		s.DevToCrossing(envInt("HEXES_CROSS", 1), float64(envInt("HEXES_T", 50))/100)
 		g.camX, g.camY = s.P().Pos()
+	case "menu":
+		g.openMenu()
+	case "bigmap":
+		g.mapBig = true
 	case "pack":
 		// A deeper floor, with gunners, walking into the nearest pack.
 		s.DevDepth(envInt("HEXES_DEPTH", 5))

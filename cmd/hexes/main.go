@@ -144,6 +144,7 @@ type Game struct {
 	cd         condEd   // the condition editor, over the hex editor
 	tm         testMenu // the test menu of example builds, over the hex editor
 	touched    bool     // a touch has happened: show touch hints, not keys
+	mapBig     bool     // the chart is enlarged over the field (minimap.go)
 	// stickMode moves with a thumb joystick on the left half of the
 	// screen instead of walking toward the finger.
 	stickMode bool
@@ -216,9 +217,7 @@ func (g *Game) Layout(ow, oh int) (int, int) {
 		g.size = g.zm.size()
 		r := k * math.Max(34, math.Min(56, short/9))
 		g.layoutButtons(w, h, r)
-		g.modeBtn = pill{float64(w) - 128*k, 10 * k, 116 * k, 26 * k}
-		g.menuBtn = pill{g.modeBtn.x - 80*k, 10 * k, 70 * k, 26 * k}
-		g.sndBtn = pill{g.menuBtn.x - 52*k, 10 * k, 42 * k, 26 * k}
+		g.menuBtn = pill{float64(w) - 84*k, 10 * k, 70 * k, 26 * k}
 		g.stick.Radius = k * math.Max(44, math.Min(64, short/7))
 		g.face.Size, g.small.Size, g.big.Size = 15*k, 12*k, 30*k
 	}
@@ -306,32 +305,30 @@ func (g *Game) Update() error {
 		}
 	}
 	onButton := func(x, y float64) bool {
-		return g.castButton(x, y) > 0 || g.vent.hit(x, y) || g.modeBtn.hit(x, y) || g.menuBtn.hit(x, y) || (g.hexOn() && g.hexBtn.hit(x, y)) || g.sndBtn.hit(x, y)
+		return g.castButton(x, y) > 0 || g.ventHit(x, y) || g.menuBtn.hit(x, y) || g.hexHit(x, y) || g.mapHit(x, y)
 	}
 	press := func(id int, x, y float64) {
+		if g.mapBig {
+			// A tap anywhere puts the big chart away.
+			g.mapBig = false
+			g.click(false)
+			return
+		}
 		switch b := g.castButton(x, y); {
 		case b > 0:
 			in.Restart = true
 			g.sim.Load.Press(b, &in)
-		case g.vent.hit(x, y):
+		case g.ventHit(x, y):
 			in.Vent = true
-		case g.modeBtn.hit(x, y):
-			g.stickMode = !g.stickMode
-			g.stick.End()
-			mode := "follow"
-			if g.stickMode {
-				mode = "stick"
-			}
-			savePref(stickPref, mode)
-			g.click(g.stickMode)
-		case g.sndBtn.hit(x, y):
-			g.toggleMute()
 		case g.menuBtn.hit(x, y):
 			g.click(true)
 			g.openMenu()
-		case g.hexOn() && g.hexBtn.hit(x, y):
+		case g.hexHit(x, y):
 			g.click(true)
 			g.openEditor()
+		case g.mapHit(x, y):
+			g.mapBig = true
+			g.click(true)
 		default:
 			in.Restart = true
 			if g.stickMode && !g.stick.On && x < float64(g.w)/2 {
@@ -392,16 +389,6 @@ func (g *Game) Update() error {
 	}
 	if g.stick.On && !held {
 		g.stick.End()
-	}
-	if i := g.peekCast(); i != g.peek {
-		g.peek = i
-		if i >= 0 {
-			if sh, err := g.sim.SlotSheet(i); err == nil {
-				g.peekSheet = sh
-			} else {
-				g.peek = -1
-			}
-		}
 	}
 	if sx, sy := g.stick.Vector(); sx != 0 || sy != 0 {
 		// The stick points on screen; the floor runs squashed under it.
@@ -713,10 +700,9 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 	u := g.u
 	narrow := W < u(700)
 
-	// Top left: depth and kills.
-	// The kind of floor goes after the depth. Crossing from one kind to
-	// the next, both names show, and on a phone they take the line below,
-	// where there's room.
+	// Top left: depth, the kind of floor, and hull under them. Crossing
+	// from one kind to the next, both names show, and on a phone they take
+	// a line of their own.
 	depth := fmt.Sprintf("DEPTH %d", sim.Depth)
 	sector := ""
 	if sim.Depth > 1 {
@@ -727,139 +713,40 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		}
 	}
 	g.label(screen, g.face, depth, float64(u(14)), float64(u(20)), colText, false)
-	info := fmt.Sprintf("data %d  best %d  lv %d  pack %d/%d", sim.DataTotal(), sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)
-	if sim.Unbanked > 0 {
-		info = fmt.Sprintf("data %d (%d unbanked)  best %d  lv %d  pack %d/%d", sim.DataTotal(), sim.Unbanked, sim.Best, p.U.Level, sim.Stash.Inv.Count(), loot.InventorySize)
-	}
-	if n := sim.Unsecured(); n > 0 {
-		info += fmt.Sprintf(" (%d new, safe at %d)", n, sim.NextCheckpoint())
-	}
-	if c := &sim.Cache; c.Active && c.Depth != sim.Depth {
-		info += fmt.Sprintf("  cache on %d", c.Depth)
-	}
-	if sim.Visiting() {
-		info = fmt.Sprintf("visiting from depth %d: stairs or a death take you home", sim.Visit)
-		if narrow {
-			info = fmt.Sprintf("visit: stairs take you home to %d", sim.Visit)
-		}
-	}
+	by := u(36)
 	if sector != "" {
 		g.label(screen, g.small, sector, float64(u(14)), float64(u(40)), colText, false)
-		info = "  " + info
-		w, _ := text.Measure(sector, g.small, 0)
-		g.label(screen, g.small, info, float64(u(14))+w, float64(u(40)), colDim, false)
-	} else {
-		g.label(screen, g.small, info, float64(u(14)), float64(u(40)), colDim, false)
+		by = u(54)
 	}
-
-	// Bars: hull, power, heat. Centered on wide screens, under the depth
-	// line on narrow ones.
-	bw := min(W-u(28), u(360))
-	bx, by := (W-bw)/2, u(12)
-	if narrow {
-		bx, by, bw = u(14), u(56), W-u(28)
+	if sim.Visiting() {
+		g.label(screen, g.small, fmt.Sprintf("visit: stairs take you home to %d", sim.Visit), float64(u(14)), float64(by+u(4)), colDim, false)
+		by += u(18)
 	}
+	// The bar leaves the top right to MENU and the chart.
+	bw := min(u(240), W-u(28)-g.u(mapMaxW)-u(22))
 	hull := fmt.Sprintf("HULL %.0f / %.0f", p.U.HP, p.U.MaxHP)
 	if p.U.Shield >= 0.5 {
-		hull += fmt.Sprintf("  +%.0f shield", p.U.Shield)
+		hull += fmt.Sprintf("  +%.0f", p.U.Shield)
 	}
-	g.bar(screen, bx, by, bw, u(14), p.U.HP/p.U.MaxHP, colHP, hull)
+	g.bar(screen, u(14), by, bw, u(14), p.U.HP/p.U.MaxHP, colHP, hull)
 	if p.U.Shield > 0 {
 		// The shield rides along the top of the hull bar, fading as its
 		// last few seconds run out.
 		sw := bw * min(1, p.U.Shield/p.U.MaxHP)
 		sa := min(1, p.U.ShieldLeft/1.5)
-		vector.DrawFilledRect(screen, bx, by, sw, u(4), fade(colShield, 0.9*sa), false)
+		vector.DrawFilledRect(screen, u(14), by, sw, u(4), fade(colShield, 0.9*sa), false)
 	}
-	g.bar(screen, bx, by+u(20), bw, u(12), rig.Power/rig.MaxPower, colPower, fmt.Sprintf("POWER %.0f / %.0f", rig.Power, rig.MaxPower))
-	heatCol := colHeat
-	heatLabel := fmt.Sprintf("HEAT %.0f / %.0f", rig.Heat, rig.MaxHeat)
-	if rig.Locked() {
-		heatCol = colHot
-		if rig.Heat > 0 {
-			heatLabel = fmt.Sprintf("OVERHEAT  locked %.1fs", rig.ShutdownLeft)
-		} else {
-			heatLabel = fmt.Sprintf("VENTING  %.1fs", rig.ShutdownLeft)
-		}
-		if g.frame/8%2 == 0 {
-			heatCol = colHeat
-		}
-	} else if rig.Heat > rig.MaxHeat*0.75 {
-		heatLabel += "  vent!"
-	}
-	g.bar(screen, bx, by+u(38), bw, u(12), rig.Heat/rig.MaxHeat, heatCol, heatLabel)
 
-	// Hex slots: along the bottom on wide screens, a row under the bars on
-	// narrow ones (the bottom belongs to the thumbs).
-	cardH := u(46)
-	gap := u(6)
-	var cx0, cy float32
-	var cardW float32
-	if narrow {
-		cardH = u(38)
-		cx0, cy = u(14), by+u(60)
-		cardW = (W - u(28) - 3*gap) / game.MaxSlots
+	// Casting: the PC key bar, or the thumb arc with VENT and HEX.
+	pc := g.pcBar()
+	barTop := H
+	if pc {
+		g.drawKeyBar(screen)
+		if kb := g.keyBar(); len(kb) > 0 {
+			barTop = float32(kb[0].r.y)
+		}
 	} else {
-		room := float32(g.vent.x-g.vent.r) - u(30)
-		cardW = min(u(190), (room-u(14))/game.MaxSlots-gap)
-		cx0, cy = u(14), H-cardH-u(14)
-	}
-	for i := 0; i < sim.HexesOpen(); i++ {
-		x := cx0 + float32(i)*(cardW+gap)
-		g.newPulse(screen, rect{float64(x), float64(cy), float64(cardW), float64(cardH)}, g.hudPulse(i))
-		vector.DrawFilledRect(screen, x, cy, cardW, cardH, colPanel, false)
-		edge := fade(slotCol[i], 0.45)
-		sub := g.slotKey(i)
-		if fl := sim.SlotFlash[i]; fl > 0 {
-			if sim.SlotLast[i] == skill.Fired {
-				edge = slotCol[i]
-			} else {
-				edge = colHot
-				sub = sim.SlotLast[i].String()
-			}
-		}
-		if sim.StanceOn(i) && sim.SlotFlash[i] <= 0 {
-			// A stance that's on holds the card lit until you tap it off.
-			edge, sub = slotCol[i], "on"
-			vector.DrawFilledRect(screen, x, cy, cardW, cardH, fade(slotCol[i], 0.12), false)
-		}
-		if fl := sim.SlotFlash[i]; fl > 0 {
-			fc := slotCol[i]
-			if sim.SlotLast[i] != skill.Fired {
-				fc = colHot
-			}
-			vector.DrawFilledRect(screen, x, cy, cardW, cardH, fade(fc, 0.3*min(1, float32(fl)*3)), false)
-		}
-		vector.DrawFilledRect(screen, x, cy, cardW, cardH*0.45, fade(slotCol[i], 0.06), false)
-		vector.DrawFilledRect(screen, x, cy, u(4), cardH, slotCol[i], false)
-		vector.StrokeRect(screen, x, cy, cardW, cardH, u(2), edge, false)
-		bank, frac := g.bankText(i)
-		if frac >= 0 {
-			// A charge strip along the bottom fills toward the spend.
-			vector.DrawFilledRect(screen, x+u(2), cy+cardH-u(5), (cardW-u(4))*float32(frac), u(3), slotCol[i], false)
-		}
-		if bank != "" && sim.SlotFlash[i] <= 0 {
-			if narrow {
-				sub = bank
-			} else {
-				sub += "  ·  " + bank
-			}
-		}
-		if narrow {
-			g.label(screen, g.small, shortName(sim.Load.Names[i]), float64(x+cardW/2), float64(cy+cardH*0.32), slotCol[i], true)
-			g.label(screen, g.small, sub, float64(x+cardW/2), float64(cy+cardH*0.72), colDim, true)
-			continue
-		}
-		if pr := sim.Load.Progs[i]; pr != nil && sim.SlotFlash[i] <= 0 {
-			sub += "  ·  " + costTag(pr.Power, pr.Heat)
-		}
-		g.label(screen, g.small, sim.Load.Names[i]+"  ·  "+sub, float64(x+u(7)), float64(cy+cardH*0.3), slotCol[i], false)
-		g.label(screen, g.small, sim.Load.Blurb[i], float64(x+u(7)), float64(cy+cardH*0.7), colDim, false)
-	}
-
-	// Touch buttons (they work with the mouse too).
-	g.drawCastButtons(screen)
-	{
+		g.drawCastButtons(screen)
 		b := g.vent
 		c := color.RGBA{0xd8, 0xf4, 0xff, 0xff}
 		if rig.Heat > rig.MaxHeat*0.75 && g.frame/10%2 == 0 {
@@ -867,27 +754,16 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		}
 		g.roundButton(screen, b, c)
 		g.outlined(screen, g.face, b.label, b.x, b.y, colText, 1)
+		g.drawHexButton(screen)
 	}
-	g.drawHexButton(screen)
 	g.drawHint(screen)
 
-	// Sound, menu and movement mode toggles, and the stick itself.
-	g.drawSoundButton(screen)
+	// MENU, top right; the chart sits under it (minimap.go).
 	{
 		m := g.menuBtn
 		vector.DrawFilledRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), colPanel, false)
 		vector.StrokeRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), u(1.5), colDim, false)
 		g.label(screen, g.small, "MENU", m.x+m.w/2, m.y+m.h/2, colDim, true)
-	}
-	{
-		m := g.modeBtn
-		label, c := "MOVE: FOLLOW", colDim
-		if g.stickMode {
-			label, c = "MOVE: STICK", colPlayer
-		}
-		vector.DrawFilledRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), colPanel, false)
-		vector.StrokeRect(screen, float32(m.x), float32(m.y), float32(m.w), float32(m.h), u(1.5), c, false)
-		g.label(screen, g.small, label, m.x+m.w/2, m.y+m.h/2, c, true)
 	}
 	if g.stickMode {
 		st := &g.stick
@@ -896,9 +772,6 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		if !st.On {
 			// Resting ghost where a left thumb usually lands.
 			bx, by = st.Radius+float64(u(28)), float64(H)-st.Radius-float64(u(40))
-			if !narrow { // the hex cards sit along the bottom
-				by = float64(cy) - st.Radius - float64(u(16))
-			}
 			a = 0.35
 		}
 		vector.DrawFilledCircle(screen, float32(bx), float32(by), float32(st.Radius), fade(colPanel, a*0.6), true)
@@ -910,25 +783,22 @@ func (g *Game) drawHUD(screen *ebiten.Image) {
 		vector.DrawFilledCircle(screen, float32(kx), float32(ky), float32(st.Radius*0.42), fade(colPlayer, a*0.55), true)
 	}
 
-	// The lesson card sits under the bars (and the hex row on a phone).
-	cardTop := float64(by + u(60))
-	if narrow {
-		cardTop = float64(cy + cardH + u(8))
-	}
-	g.drawCard(screen, cardTop)
+	// The lesson card sits under the hull bar.
+	g.drawCard(screen, float64(by+u(26)))
 
 	// First-seconds hint, once the first card has gone.
 	if sim.Depth == 1 && sim.Time < 20 && sim.CardT <= 0 && sim.State == game.Playing {
-		if narrow || g.touched {
+		if !pc {
 			walk := "hold anywhere to walk"
 			if g.stickMode {
 				walk = "drag on the left half to steer"
 			}
-			g.label(screen, g.small, walk+" · strikes are automatic", float64(W/2), float64(cy+cardH+u(18)), colDim, true)
-			g.label(screen, g.small, "1 casts · VENT when hot · walk over glowing pickups", float64(W/2), float64(cy+cardH+u(36)), colDim, true)
+			hy := float64(H) * 0.24 // under the chart on a phone
+			g.label(screen, g.small, walk+" · strikes are automatic", float64(W/2), hy, colDim, true)
+			g.label(screen, g.small, "1 casts · VENT when hot · walk over glowing pickups", float64(W/2), hy+float64(u(18)), colDim, true)
 		} else {
 			g.label(screen, g.small, "WASD / mouse: move    1 or SPACE: cast    R: vent    walk over glowing pickups to learn    ▼ stairs",
-				float64(W/2), float64(cy-u(18)), colDim, true)
+				float64(W/2), float64(barTop-u(18)), colDim, true)
 		}
 	}
 
