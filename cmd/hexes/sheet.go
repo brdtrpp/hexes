@@ -432,11 +432,8 @@ func (g *Game) edCard() edCardView {
 		lead, c := "", colText
 		if what, ok := h.Use(e.at); laid && !h.Runs(e.at) && what != "" {
 			lead, c = upFirst(what)+".", colDim
-		} else if what != "" {
-			lead = "Here it " + what + "."
-			if !ok {
-				lead, c = "Does nothing here: "+what+".", colHot
-			}
+		} else if what != "" && !ok {
+			lead, c = "Does nothing here: "+what+".", colHot
 		}
 		if (p.UsesBank() || p.Kind == skill.KindCall) && e.msg != "" && !e.bad {
 			lead = e.msg + " " + lead
