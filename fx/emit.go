@@ -285,11 +285,13 @@ const (
 	AuraMark
 	AuraStun
 	AuraCloak
+	AuraRage // the Berserker's rage: hot motes boiling up off you
+	AuraHeat // the Mage's hot rig: plasma shimmer rising round you
 	NumAuras
 )
 
 // auraRate is particles per second for each aura.
-var auraRate = [NumAuras]float32{AuraBurn: 12, AuraToxin: 7, AuraChill: 4, AuraFrozen: 6, AuraMark: 2.5, AuraStun: 5, AuraCloak: 3}
+var auraRate = [NumAuras]float32{AuraBurn: 12, AuraToxin: 7, AuraChill: 4, AuraFrozen: 6, AuraMark: 2.5, AuraStun: 5, AuraCloak: 3, AuraRage: 14, AuraHeat: 12}
 
 // Aura spawns this frame's share of a status's particles round an actor
 // at x, y of radius rad, colored r, g, b. Call it every frame the status
@@ -332,6 +334,19 @@ func (p *Pool) Aura(k AuraKind, x, y, rad, r, g, b, dt float32) {
 		case AuraCloak:
 			q.VX, q.VY = cs*0.4, sn*0.4
 			q.Life, q.Size0, q.Size1, q.A = 0.8, 0.1, 0.3, 0.2
+		case AuraRage:
+			// Thrown out hard and jagged, then pulled up like sparks.
+			q.X, q.Y = x+cs*rad*p.rr(0.6, 1.1), y+sn*rad*p.rr(0.6, 1.1)
+			q.VX, q.VY = cs*p.rr(0.6, 1.4), sn*p.rr(0.6, 1.4)-0.6
+			q.Grav, q.Drag, q.Flicker, q.Stretch = -2, 2, 0.7, 0.04
+			q.Life, q.Size0, q.Size1, q.Sprite = p.rr(0.3, 0.55), 0.07, 0.02, SpriteShard
+			q.R0, q.G0, q.B0 = min(1, r+0.4), min(1, g+0.3), min(1, b+0.3)
+		case AuraHeat:
+			// Slow soft blobs that rise and fade, like air over a stove.
+			q.VX, q.VY = p.rr(-0.15, 0.15), p.rr(-1.0, -0.5)
+			q.Grav, q.Wobble = -0.6, 0.8
+			q.Life, q.Size0, q.Size1, q.A = p.rr(0.6, 1.0), 0.05, 0.16, 0.45
+			q.R1, q.G1, q.B1 = r*0.6, g*0.4, b*0.6
 		}
 		p.Add(q)
 	}

@@ -14,6 +14,7 @@ package main
 // buttons show; HEXES_FRAMES=bind does that and opens the editor;
 // HEXES_FRAMES=bench stands still beside the start bench.
 // HEXES_FRAMES=pad stands hurt on a repair pad (HEXES_DEPTH, default 3).
+// HEXES_FRAMES=stances shows rage, a hot rig, marked foes and a pull.
 // HEXES_FRAMES=menu opens the menu; bigmap enlarges the chart.
 // HEXES_HOLD=1 holds button 1 most of the time; HEXES_TOUCH=1 shows the
 // phone's thumb buttons instead of the PC key bar.
@@ -96,7 +97,7 @@ func (g *Game) devInit() {
 				g.zm.z, g.zm.want = clampZoom(z), clampZoom(z)
 				g.size = g.zm.size()
 			}
-			d.still = m == "pad" || m == "army" || m == "sector" || m == "crossing" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits" || m == "menu" || m == "bigmap"
+			d.still = m == "pad" || m == "army" || m == "stances" || m == "sector" || m == "crossing" || m == "bench" || m == "grid" || m == "locker" || m == "draft" || m == "kits" || m == "menu" || m == "bigmap"
 			d.gallery = m == "kinds" || m == "grades"
 		}
 	}
@@ -285,6 +286,10 @@ func (g *Game) devFrames(mode string) {
 	case "army":
 		// A raised army around you and a Brace half full.
 		s.DevArmy(envInt("HEXES_DEPTH", 3))
+		g.camX, g.camY = s.P().Pos()
+	case "stances":
+		// Rage full and the rig hot, marked foes round you, one pulled in.
+		s.DevStances(envInt("HEXES_DEPTH", 3))
 		g.camX, g.camY = s.P().Pos()
 	case "pad":
 		// Standing hurt on a floor's repair pad, foes cleared.

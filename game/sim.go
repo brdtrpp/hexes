@@ -202,6 +202,7 @@ type Sim struct {
 	furyStreak    int
 	furyAt        float64
 	berserk, mage bool
+	devStance     bool // screenshots: both stances on whatever you carry
 	cashing       bool
 	Best          int     // deepest floor ever reached
 	Time          float64 // seconds of play, ever

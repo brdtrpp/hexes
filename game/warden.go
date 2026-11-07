@@ -41,7 +41,7 @@ func (s *Sim) pull(id skill.EntityID) {
 	s.occ[s.Floor.Index(next)] = id
 	a.At, a.From, a.MoveT, a.MoveDur = next, start, 0, 0.12
 	a.PulledAt, a.HeldAt = s.Time, s.Time // the hit's own shove doesn't undo it
-	s.addFX(FX{Kind: FXPush, From: start, At: a.At, Life: 0.3})
+	s.addFX(FX{Kind: FXPull, From: p.At, At: a.At, Life: 0.45})
 }
 
 // blocked banks amount of a blow you turned aside into Brace, and sets

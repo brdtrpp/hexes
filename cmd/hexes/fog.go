@@ -41,10 +41,14 @@ const lampBoost = 0.35
 type fogState struct {
 	floor  *dungeon.Floor
 	shade  []float32 // per hex: 0 out of sight, 1 in it, eased
+	faced  []float32 // per wall hex: the light on the ground it faces, eased
 	r      float32   // the lamp's reach as drawn
 	lx, ly float64   // the lamp: the player, in pixel space
-	vs     [4]ebiten.Vertex
-	is     [6]uint16
+	meshes [2]mesh   // a floor quad and a wall's grid
+	// wall is set while a wall draws: face is how lit the ground it
+	// faces is, a cap on the wall's own light.
+	wall bool
+	face float32
 }
 
 // beginFog sets up this frame's light. drawFloor calls it first.
@@ -61,8 +65,12 @@ func (g *Game) beginFog() {
 		}
 		fs.shade = fs.shade[:n]
 		clear(fs.shade)
+		if cap(fs.faced) < n {
+			fs.faced = make([]float32, n)
+		}
+		fs.faced = fs.faced[:n]
+		clear(fs.faced)
 		fs.r = want
-		fs.is = [6]uint16{0, 1, 2, 1, 3, 2}
 	}
 	step := float32(fogRadRate / 60)
 	switch {
@@ -109,6 +117,17 @@ func (g *Game) drawLitTile(dst, img *ebiten.Image, t dungeon.Tile, i int, x, y, 
 		sh = max(0, sh-fogShadeRate/60)
 	}
 	fs.shade[i] = sh
+	if fs.wall {
+		// Ease what the wall faces too, so stepping round a corner fades
+		// it rather than popping it.
+		fc := fs.faced[i]
+		if fs.face > fc {
+			fc = min(fs.face, fc+fogShadeRate/60)
+		} else {
+			fc = max(fs.face, fc-fogShadeRate/60)
+		}
+		fs.faced[i], fs.face = fc, fc
+	}
 	if !seen && sh == 0 {
 		return
 	}
@@ -128,25 +147,81 @@ func (g *Game) drawLitTile(dst, img *ebiten.Image, t dungeon.Tile, i int, x, y, 
 	w, h := float64(b.Dx()), float64(b.Dy())
 	far := sh == 0 || math.Hypot(x-fs.lx, y-fs.ly) > (float64(r)+1.5)*math.Sqrt(3)
 	ts := g.tileSize
-	for k := range fs.vs {
-		u, v := float64(k&1), float64(k>>1)
-		wx, wy := x+(u*w-ox)/ts, y+(v*h-oy)/ts
+	// A floor tile is one quad. A wall is a fine grid, so the light can
+	// fade across it: lit where the lamp reaches, dark a hand's width on.
+	nx, ny := 2, 2
+	if fs.wall && !far {
+		nx, ny = wallGridX, wallGridY
+	}
+	vs, is := fs.grid(nx, ny)
+	lift := g.look.wallLift
+	for k := range vs {
+		u, v := float64(k%nx)/float64(nx-1), float64(k/nx)/float64(ny-1)
+		px0, py0 := u*w, v*h
+		wx, wy := x+(px0-ox)/ts, y+(py0-oy)/ts
 		var l float32
 		if !far {
-			l = sh * game.LightAt(fs.lx, fs.ly, wx, wy, r)
+			ly := wy
+			if fs.wall {
+				// The sprite's top face is drawn a wall's height up the
+				// screen from the hex it stands on: light it where it
+				// stands. The faces below the top run down to the base.
+				ly = y + (min(py0+lift, h)-oy)/ts
+			}
+			l = sh * game.LightAt(fs.lx, fs.ly, wx, ly, r)
+		}
+		if fs.wall {
+			// A wall is no brighter than the ground in front of it, and
+			// the faces at its foot that turn away from the lamp (it's
+			// standing behind them, up the screen) stay in shadow.
+			l = min(l, sh*fs.face)
+			if front := (py0 - (h - lift - ts*0.5)) / (ts * 0.75); front > 0 && fs.ly < y {
+				l *= float32(1 - min(1, front)*min(0.7, 0.47*(y-fs.ly)))
+			}
 		}
 		m := mem * (1 - l)
 		l *= 1 + lampBoost*l
 		px, py, _ := g.project(wx, wy)
-		vx := &fs.vs[k]
+		vx := &vs[k]
 		vx.DstX, vx.DstY = float32(px), float32(py)
-		vx.SrcX, vx.SrcY = float32(float64(b.Min.X)+u*w), float32(float64(b.Min.Y)+v*h)
+		vx.SrcX, vx.SrcY = float32(float64(b.Min.X)+px0), float32(float64(b.Min.Y)+py0)
 		vx.ColorR = cr * (fogTint[0]*m + lampTint[0]*l)
 		vx.ColorG = cg * (fogTint[1]*m + lampTint[1]*l)
 		vx.ColorB = cb * (fogTint[2]*m + lampTint[2]*l)
 		vx.ColorA = 1
 	}
-	dst.DrawTriangles(fs.vs[:], fs.is[:], img, nil)
+	dst.DrawTriangles(vs, is, img, nil)
+}
+
+// The grid a wall is lit on: columns and rows of vertices.
+const wallGridX, wallGridY = 5, 9
+
+// grid is a vertex grid nx by ny and its triangles, kept from frame to
+// frame (one for floor quads, one for walls).
+func (fs *fogState) grid(nx, ny int) ([]ebiten.Vertex, []uint16) {
+	m := &fs.meshes[0]
+	if nx != 2 || ny != 2 {
+		m = &fs.meshes[1]
+	}
+	if m.nx != nx || m.ny != ny {
+		m.nx, m.ny = nx, ny
+		m.vs = make([]ebiten.Vertex, nx*ny)
+		m.is = m.is[:0]
+		for j := 0; j < ny-1; j++ {
+			for i := 0; i < nx-1; i++ {
+				a := uint16(j*nx + i)
+				m.is = append(m.is, a, a+1, a+uint16(nx), a+1, a+uint16(nx)+1, a+uint16(nx))
+			}
+		}
+	}
+	return m.vs, m.is
+}
+
+// mesh is a lit grid's vertices and triangles.
+type mesh struct {
+	vs     []ebiten.Vertex
+	is     []uint16
+	nx, ny int
 }
 
 // seeAt is how visible a point in pixel space is: 0 in the dark or

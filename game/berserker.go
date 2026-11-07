@@ -79,3 +79,41 @@ func (s *Sim) furyMight() float32 {
 	}
 	return 0
 }
+
+// Stances is which signature stances your hexes hold right now, for the
+// looks: the Berserker's rage and the Mage's hot rig.
+func (s *Sim) Stances() (berserk, mage bool) { return s.berserk, s.mage }
+
+// RageStage is the stage your rage stands at, 1 to 3, for the looks.
+func (s *Sim) RageStage() int { return int(s.rageRung()) }
+
+// DevStances is for screenshots: depth d in both stances with rage full
+// and the rig hot, three foes stood round you carrying one, two and
+// three Rogue marks, and one just pulled in.
+func (s *Sim) DevStances(d int) {
+	s.load(d, 1)
+	s.devStance = true
+	p := s.P()
+	if l := s.Disp.Loadout(s.Player); l != nil {
+		l.Rage = skill.RageMax
+	}
+	s.Rig.Heat = 0.8 * s.Rig.MaxHeat
+	spots := s.openAround(p.At, 8)
+	n := 0
+	for i := range s.Actors {
+		a := &s.Actors[i]
+		if n >= 3 || n*2+1 >= len(spots) || !a.U.Alive || a.Kind == KindPlayer || a.extra() {
+			continue
+		}
+		to := spots[n*2+1]
+		s.occ[s.Floor.Index(a.At)] = skill.NoEntity
+		s.occ[s.Floor.Index(to)] = skill.EntityID(i)
+		a.At, a.From, a.MoveT = to, to, 1
+		a.X, a.Y = to.Pixel()
+		n++
+		a.Exposed, a.ExposedT = uint8(n), ExposeTime
+		if n == 3 {
+			s.addFX(FX{Kind: FXPull, From: p.At, At: a.At, Life: 30})
+		}
+	}
+}

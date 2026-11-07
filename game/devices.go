@@ -769,6 +769,9 @@ func (s *Sim) stances() {
 	s.Stance = m
 	p.U.Might = 1
 	s.berserk, s.mage = s.Carries(SchoolBerserker), s.Carries(SchoolMage)
+	if s.devStance {
+		s.berserk, s.mage = true, true
+	}
 	if s.berserk {
 		p.U.Might += s.furyMight() // rage stages (berserker.go)
 	}

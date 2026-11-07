@@ -424,7 +424,10 @@ func (g *Game) drawWallRow(screen *ebiten.Image, r int, x0, x1 float64, reach fl
 		h := tileHash(c)
 		v := 0.9 + 0.16*float32(h>>8&0xff)/255
 		tr, tg, tb := g.tintAt(c, zr, zg, zb)
+		fs := &g.fog
+		fs.wall, fs.face = true, g.sim.Sight.FacingLight(f, g.sim.Sight.At(), c, fs.lx, fs.ly, reach)
 		g.drawLitTile(screen, img, dungeon.Wall, f.Index(c), x, y, float64(b.Dx())/2, oy, v*tr, v*tg, v*tb, reach)
+		fs.wall = false
 	}
 }
 
@@ -719,6 +722,7 @@ func (g *Game) drawActorOverlays(screen *ebiten.Image) {
 		}
 		R, p, alpha := l.R, l.p, l.alpha
 		if a.Kind == game.KindPlayer {
+			g.drawStance(screen, l.gx, l.gy, R, p)
 			g.drawRigArcs(screen, l.gx, l.gy, R)
 			continue
 		}
@@ -754,6 +758,68 @@ func (g *Game) drawActorOverlays(screen *ebiten.Image) {
 			for q := 1; q < 4; q++ {
 				vector.DrawFilledRect(screen, bx0+bw*float32(q)/4, by0, g.u(1), bh, color.RGBA{0, 0, 0, 0x90}, false)
 			}
+		}
+		if a.Exposed > 0 && alpha > 0.3 {
+			g.drawExposed(screen, a, l.tx, l.ty-R*viewCos*p*p-float64(g.u(16)), p, alpha)
+		}
+	}
+}
+
+// drawExposed puts a Rogue's marks over a foe: one diamond per stack,
+// pulsing, and blinking out in the last second before they lapse.
+func (g *Game) drawExposed(screen *ebiten.Image, a *game.Actor, cx, cy, p float64, alpha float32) {
+	t := float64(g.frame) / 60
+	n := int(a.Exposed)
+	r := float64(g.u(5)) * max(0.7, p)
+	gap := r * 2.6
+	x0 := cx - gap*float64(n-1)/2
+	fa := alpha
+	if a.ExposedT < 1 && int(t*8)%2 == 0 {
+		fa *= 0.35
+	}
+	pulse := float32(0.75 + 0.25*math.Sin(t*6))
+	for k := 0; k < n; k++ {
+		x := x0 + gap*float64(k)
+		vector.DrawFilledCircle(screen, float32(x), float32(cy), float32(r*1.05), color.RGBA{0, 0, 0, uint8(0xa0 * fa)}, true)
+		path := &g.fxs.path
+		*path = vector.Path{}
+		path.MoveTo(float32(x), float32(cy-r))
+		path.LineTo(float32(x+r*0.75), float32(cy))
+		path.LineTo(float32(x), float32(cy+r))
+		path.LineTo(float32(x-r*0.75), float32(cy))
+		path.Close()
+		g.fillPath(screen, colBlink, fa*pulse)
+	}
+	if n == game.ExposeMax {
+		cr, cg, cb := colorF(colBlink)
+		g.glow(screen, cx, cy, r*3, cr, cg, cb, 0.35*fa*pulse)
+	}
+}
+
+// drawStance rings you in your stance: the rage stage as one to three
+// jagged nanite rings, and a hot Mage rig as a plasma halo.
+func (g *Game) drawStance(screen *ebiten.Image, x, y, R, p float64) {
+	sim := g.sim
+	t := float64(g.frame) / 60
+	berserk, mage := sim.Stances()
+	if mage && sim.Rig.MaxHeat > 0 {
+		if hf := sim.Rig.Heat / sim.Rig.MaxHeat; hf > 0.05 {
+			pc := typeColor(game.SchoolType(sim.Reg, game.SchoolMage))
+			cr, cg, cb := colorF(pc)
+			g.glow(screen, x, y, R*p*(1.6+0.8*float64(hf)), cr, cg, cb, 0.55*hf*float32(0.85+0.15*math.Sin(t*9)))
+		}
+	}
+	if berserk && sim.RageShare() > 0 {
+		nc := typeColor(game.SchoolType(sim.Reg, game.SchoolBerserker))
+		st := sim.RageStage()
+		for k := 1; k <= st; k++ {
+			r := R * (1.15 + 0.18*float64(k))
+			g.ringPath(x, y, r, fx.RingStyle{Sides: 6, Wobble: 0.06 * float32(k), Spin: 0.8 * float32(k%2*2-1)}, t, float64(k), 0, 2*math.Pi, true)
+			g.strokePath(screen, nc, float32(0.35+0.2*float64(k))*float32(0.8+0.2*math.Sin(t*7+float64(k))), g.u(1.2+0.6*float64(k)))
+		}
+		if st >= 3 {
+			cr, cg, cb := colorF(nc)
+			g.glow(screen, x, y, R*p*1.8, cr, cg, cb, 0.3)
 		}
 	}
 }

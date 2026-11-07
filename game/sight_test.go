@@ -235,3 +235,46 @@ func TestLensesDrop(t *testing.T) {
 		t.Fatal("no lens in 400 floors of kills")
 	}
 }
+
+// Walls light only on a face turned toward the lamp: every lit wall
+// opens onto lit ground nearer the lamp, the back of a thick wall stays
+// dark, and a wall round a corner the light only grazes stays dark.
+func TestWallsLightOnlyFacingTheLamp(t *testing.T) {
+	s := New(7)
+	for d := 1; d <= 12; d++ {
+		s.load(d, 1)
+		f := s.Floor
+		var v Sight
+		for i := range f.Tiles {
+			at := f.CoordOf(i)
+			if f.Tiles[i] == dungeon.Wall || i%7 != 0 {
+				continue
+			}
+			v.Update(f, at, 6)
+			for _, j := range v.list {
+				c := f.CoordOf(int(j))
+				if f.At(c) == dungeon.Wall && !v.facesLight(f, at, c) {
+					t.Fatalf("depth %d: wall %v lit from %v with no lit face toward it", d, c, at)
+				}
+			}
+		}
+	}
+
+	f := openFloor(40, 40)
+	at := center(f)
+	// A wall two thick, three hexes east: its near side lights, its far
+	// side doesn't.
+	for dr := -3; dr <= 3; dr++ {
+		for k := 3; k <= 4; k++ {
+			f.Set(skill.Coord{Q: at.Q + k - dr/2, R: at.R + dr}, dungeon.Wall)
+		}
+	}
+	var v Sight
+	v.Update(f, at, 8)
+	if near := (skill.Coord{Q: at.Q + 3, R: at.R}); !v.Lit(f, near) {
+		t.Fatalf("near face %v of the wall not lit", near)
+	}
+	if far := (skill.Coord{Q: at.Q + 4, R: at.R}); v.Lit(f, far) {
+		t.Fatalf("far side %v of a thick wall lit", far)
+	}
+}

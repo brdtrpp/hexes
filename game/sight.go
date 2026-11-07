@@ -25,9 +25,10 @@ type Sight struct {
 	// when there's something new.
 	Gen int
 
-	at   skill.Coord
-	r    float32
-	list []int32 // indices set in Vis, to clear them fast
+	at    skill.Coord
+	r     float32
+	list  []int32       // indices set in Vis, to clear them fast
+	walls []skill.Coord // walls in line, waiting on what's lit before them
 }
 
 // Light radius tuning.
@@ -97,22 +98,76 @@ func (v *Sight) Update(f *dungeon.Floor, at skill.Coord, r float32) {
 	}
 	reach := int(math.Ceil(float64(r)))
 	keep := r - RememberIn
+	v.walls = v.walls[:0]
 	for dr := -reach; dr <= reach; dr++ {
 		for dq := max(-reach, -dr-reach); dq <= min(reach, -dr+reach); dq++ {
 			c := skill.Coord{Q: at.Q + dq, R: at.R + dr}
 			if !f.In(c) || !clearLine(f, at, c) {
 				continue
 			}
-			i := f.Index(c)
-			v.Vis[i] = true
-			v.list = append(v.list, int32(i))
-			if !v.Seen[i] && float32(skill.Dist(at, c)) <= keep {
-				v.Seen[i] = true
-				v.Gen++
+			if f.At(c) == dungeon.Wall {
+				v.walls = append(v.walls, c)
+				continue
 			}
+			v.light(f, at, c, keep)
+		}
+	}
+	// A wall is lit only on a face turned toward the lamp: one of its
+	// sides must open onto lit ground nearer the lamp than the wall is.
+	// So a line that only grazes a corner lights nothing round it, and a
+	// wall's back stays dark.
+	for _, c := range v.walls {
+		if v.facesLight(f, at, c) {
+			v.light(f, at, c, keep)
 		}
 	}
 }
+
+// light marks hex c lit by the lamp at at, and remembered if it's keep
+// hexes or less away.
+func (v *Sight) light(f *dungeon.Floor, at, c skill.Coord, keep float32) {
+	i := f.Index(c)
+	v.Vis[i] = true
+	v.list = append(v.list, int32(i))
+	if !v.Seen[i] && float32(skill.Dist(at, c)) <= keep {
+		v.Seen[i] = true
+		v.Gen++
+	}
+}
+
+// facesLight reports whether wall c has a face turned toward the lamp at
+// at: a side that opens onto lit ground nearer the lamp than c.
+func (v *Sight) facesLight(f *dungeon.Floor, at, c skill.Coord) bool {
+	d := skill.Dist(at, c)
+	for _, dd := range skill.HexDirs {
+		n := c.Add(dd)
+		if f.In(n) && f.At(n) != dungeon.Wall && v.Vis[f.Index(n)] && skill.Dist(at, n) < d {
+			return true
+		}
+	}
+	return false
+}
+
+// FacingLight is how lit the ground in front of wall c is: the lamp's
+// light (LightAt, from lx, ly reaching r) at the brightest lit open hex
+// beside c that is nearer the lamp at at. A wall is never lit brighter
+// than the ground it faces.
+func (v *Sight) FacingLight(f *dungeon.Floor, at, c skill.Coord, lx, ly float64, r float32) float32 {
+	d := skill.Dist(at, c)
+	best := float32(0)
+	for _, dd := range skill.HexDirs {
+		n := c.Add(dd)
+		if !f.In(n) || f.At(n) == dungeon.Wall || !v.Vis[f.Index(n)] || skill.Dist(at, n) >= d {
+			continue
+		}
+		x, y := n.Pixel()
+		best = max(best, LightAt(lx, ly, x, y, r))
+	}
+	return best
+}
+
+// At is the hex the lamp was last lit from.
+func (v *Sight) At() skill.Coord { return v.at }
 
 // Lit reports whether hex c is in the lamp's sight now.
 func (v *Sight) Lit(f *dungeon.Floor, c skill.Coord) bool {

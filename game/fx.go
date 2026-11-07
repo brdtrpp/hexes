@@ -46,6 +46,7 @@ const (
 	FXBuff                     // thorns or haste came on at At; Slot is the effect
 	FXAmbush                   // a hit out of stealth landed on At
 	FXPadSpent                 // the repair pad at At ran dry
+	FXPull                     // a Warden hit dragged a foe in to At, toward you at From
 )
 
 // MaxChainPts is how many hops an FXChain draws (the caster plus seven).

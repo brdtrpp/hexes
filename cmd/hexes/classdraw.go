@@ -353,6 +353,32 @@ func (g *Game) classAuras(a *game.Actor, x, y, rad, dt float32) {
 		r, gg, b := colorF(colMinion)
 		p.Aura(fx.AuraToxin, x, y, rad*0.8, r*0.6, gg*0.6, b*0.6, dt*0.5)
 	}
+	if a.Kind == game.KindPlayer {
+		g.stanceAuras(x, y, rad, dt)
+	}
+}
+
+// stanceAuras shows the Berserker's rage and the Mage's heat on you: rage
+// boils off you harder at each stage, and drinks back in at the last;
+// a hot rig shimmers plasma in step with its heat.
+func (g *Game) stanceAuras(x, y, rad, dt float32) {
+	sim := g.sim
+	p := g.fxs.parts
+	berserk, mage := sim.Stances()
+	if berserk && sim.RageShare() > 0 {
+		st := float32(sim.RageStage())
+		r, gg, b := colorF(typeColor(game.SchoolType(sim.Reg, game.SchoolBerserker)))
+		p.Aura(fx.AuraRage, x, y, rad*(0.85+0.15*st), r, gg, b, dt*(0.15+0.85*(st-1)/2)*(0.5+0.5*sim.RageShare()))
+		if st >= 3 {
+			p.Aura(fx.AuraToxin, x, y, rad*1.2, fx.MendR, fx.MendG, fx.MendB, dt*0.8)
+		}
+	}
+	if mage && sim.Rig.MaxHeat > 0 {
+		if hf := sim.Rig.Heat / sim.Rig.MaxHeat; hf > 0.05 {
+			r, gg, b := colorF(typeColor(game.SchoolType(sim.Reg, game.SchoolMage)))
+			p.Aura(fx.AuraHeat, x, y, rad*(0.7+0.5*hf), r, gg, b, dt*hf)
+		}
+	}
 }
 
 // spawnClass bursts the particles of the class parts' effects. It reports
@@ -408,6 +434,13 @@ func (g *Game) spawnClass(e *game.FX, shot fx.Shot) bool {
 			c = colHaste
 		}
 		p.Wave(x, y, 0.4, fx.Shot{Sig: sigCol(c), Mag: 0.5})
+	case game.FXPull:
+		// The tether: kinetic grit dragged from the foe back toward you.
+		p.Z = chestLift
+		sg := sigCol(kineticCol(g.sim))
+		sg.Force = 0.7
+		p.Trail(x, y, fx0, fy0, fx.Shot{Sig: sg, Mag: 0.5})
+		p.Impact(x, y, fx0-x, fy0-y, fx.Shot{Sig: sg, Mag: 0.6})
 	case game.FXAmbush:
 		p.Z = chestLift
 		sg := sigCol(colBlink)
@@ -521,6 +554,17 @@ func (g *Game) drawClassForm(screen *ebiten.Image, e *game.FX, k float64, x, y, 
 		r := s * (0.5 + 0.7*easeOut(k))
 		g.ringPath(x, y, r, fx.RingStyle{Sides: 6, Spin: 0.6}, t, seed, 0, 2*math.Pi, true)
 		g.strokePath(screen, c, a, g.u(2))
+	case game.FXPull:
+		// A taut line from you to the foe it hauled in, snapping slack
+		// as it fades, with a grip round the foe.
+		fx0, fy0, _ := g.lifted(e.FromX, e.FromY, chestLift)
+		hx, hy, _ := g.lifted(e.X, e.Y, chestLift)
+		kc := kineticCol(g.sim)
+		w := g.u(4*float64(a) + 1)
+		vector.StrokeLine(screen, float32(fx0), float32(fy0), float32(hx), float32(hy), w, fade(kc, a*0.85), true)
+		vector.StrokeLine(screen, float32(fx0), float32(fy0), float32(hx), float32(hy), w*0.35, fade(color.RGBA{0xff, 0xff, 0xff, 0xff}, a*0.7), true)
+		g.local(func() { g.brackets(hx, hy, s*(0.75-0.25*easeOut(k)), t, true) })
+		g.strokePath(screen, kc, a, g.u(2.5))
 	case game.FXAmbush:
 		hx, hy, p := g.lifted(e.X, e.Y, chestLift)
 		cr, cg, cb := colorF(colBlink)
@@ -784,4 +828,9 @@ func (g *Game) classGlyph(dst *ebiten.Image, x, y, r float64, p skill.Part) bool
 	}
 	g.strokeUI(dst, c, a, g.u(2))
 	return true
+}
+
+// kineticCol is the Warden's kinetic colour.
+func kineticCol(sim *game.Sim) color.RGBA {
+	return typeColor(game.SchoolType(sim.Reg, game.SchoolWarden))
 }
