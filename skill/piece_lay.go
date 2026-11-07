@@ -545,6 +545,8 @@ func (h *Hex) EnsureLaid() {
 	h.Lay.Room = Board
 	if !h.Lay.Touch {
 		h.relayTouch()
+	} else if len(h.BoardPads()) == 0 {
+		h.RollPads() // a board from before the pads spread out
 	}
 }
 

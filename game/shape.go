@@ -240,6 +240,9 @@ func (s *Sim) SetShape(hex int, sh skill.Shape) error {
 		nh.Lay = old.Lay.Remap(where)
 		nh.Rebox(skill.Board)
 		nh.Trim()
+		if nh.Lay.Touch {
+			nh.RollPads()
+		}
 		nh.FillPads()
 	} else {
 		nh.EnsureLaid()

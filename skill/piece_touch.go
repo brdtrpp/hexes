@@ -69,7 +69,26 @@ func (h *Hex) Touch(a, b int) bool {
 // fitNear is the anchor where piece s fits nearest near, touching as
 // many of want as it can (laid pieces only).
 func (h *Hex) fitNear(s int, near Cell, want uint16) (Cell, bool) {
+	// Pieces laid for the player keep off the pads, so a pad's quirk is
+	// only ever had on purpose; with no room elsewhere, anywhere does.
+	if pads := h.padCells(); len(pads) > 0 {
+		if c, ok := h.fitWith(s, near, want, pads, nil); ok {
+			return c, true
+		}
+	}
 	return h.fitWith(s, near, want, nil, nil)
+}
+
+// padCells are the board's pad tiles.
+func (h *Hex) padCells() map[Cell]bool {
+	var out map[Cell]bool
+	for _, p := range h.BoardPads() {
+		if out == nil {
+			out = map[Cell]bool{}
+		}
+		out[p.At] = true
+	}
+	return out
 }
 
 // fitWith is fitNear keeping off the cells in keepOff, and, with must,
@@ -394,6 +413,7 @@ func (h *Hex) relayTouch() {
 			}
 		}
 	}
+	h.RollPads()
 }
 
 // FillPads puts a piece on each of the shape's pads that has none: the
@@ -418,3 +438,6 @@ func (h *Hex) FillPads() {
 		}
 	}
 }
+
+// CellsAt are the cells piece s would cover anchored on at.
+func (h *Hex) CellsAt(s int, at Cell) []Cell { return h.cellsAt(s, at) }

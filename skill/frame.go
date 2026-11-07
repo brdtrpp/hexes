@@ -386,6 +386,20 @@ func (h *Hex) Frame(s int) Frame {
 	if s < 0 || s >= Slots {
 		return Frame{}
 	}
+	if h.Lay.Touch {
+		// The open board: the pads under the piece.
+		switch {
+		case h.padOn(s, PadTwin):
+			f := NewFrame(BendTwin)
+			f.Shaped = true
+			return f
+		case h.padOn(s, PadSurge):
+			f := NewFrame(BendSurge)
+			f.Shaped = true
+			return f
+		}
+		return h.Frames[s]
+	}
 	if s == h.pad(h.Shape.Twin()) {
 		f := NewFrame(BendTwin)
 		f.Shaped = true

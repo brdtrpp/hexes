@@ -569,6 +569,9 @@ type Layout struct {
 	// Touch is set once the open board's pieces keep their silhouettes
 	// and wires only join pieces that touch (piece_touch.go).
 	Touch bool `json:",omitempty"`
+	// Pads are the open board's bonus tiles (piece_pads.go): whatever
+	// piece covers one gets its quirk. Rolled once per board.
+	Pads [MaxPads]BoardPad `json:",omitzero"`
 	// Out is the wires: bit b of Out[s] is a wire from piece s to piece
 	// b (from a multiplier, it boosts b). Arm0 and Arm1 are each wire's
 	// arm, 1 + bit + 2*bit: a gate's YES (1) or NO (2), or the rung an

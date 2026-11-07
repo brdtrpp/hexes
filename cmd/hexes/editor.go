@@ -84,6 +84,8 @@ type edView struct {
 	mouse   *pointer
 	pinch   float64
 	pinchOn bool
+	// drag is the piece or part being dragged now, once it has moved.
+	drag *edDrag
 }
 
 type rect struct{ x, y, w, h float64 }
@@ -1187,7 +1189,10 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	} else {
 		g.drawShapeEdges(screen, &l, h, true)
 	}
-	g.drawPorts(screen, &l, e.hex)
+	if !h.Lay.Touch {
+		// The open board marks its ways in and out on the pieces.
+		g.drawPorts(screen, &l, e.hex)
+	}
 
 	g.drawGridTabs(screen, &l)
 	if e.rack {
@@ -1235,6 +1240,7 @@ func (g *Game) drawEditor(screen *ebiten.Image) {
 	g.label(screen, g.face, "SCRAP", l.scrap.x+l.scrap.w/2, l.scrap.y+l.scrap.h/2, colHot, true)
 	g.drawRect(screen, l.close, fade(colStairs, 0.25), colStairs)
 	g.label(screen, g.face, "RESUME", l.close.x+l.close.w/2, l.close.y+l.close.h/2, colText, true)
+	g.drawEdDragTile(screen, &l)
 }
 
 // edLit reports, while a part is held (picked from the pack or a slot),

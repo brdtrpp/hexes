@@ -39,8 +39,9 @@ func (g *Game) edViewInput(l *edLayout) {
 		x, y := mid()
 		g.edZoom(0.8, x, y)
 	}
-	// press starts a pointer: on + or -, it zooms; on the board, it waits
-	// to see whether it drags; elsewhere it taps now.
+	// press starts a pointer: on + or -, it zooms; on a piece, a tray
+	// piece or a pack part, it waits to see whether it drags that; on the
+	// board, whether it pans; elsewhere it taps now.
 	press := func(x, y float64) *pointer {
 		switch {
 		case l.zin.hit(x, y):
@@ -51,11 +52,28 @@ func (g *Game) edViewInput(l *edLayout) {
 			mx, my := mid()
 			g.edZoom(0.8, mx, my)
 			return nil
-		case l.board.hit(x, y):
+		}
+		if d := g.edGrab(l, x, y); d != nil {
+			return &pointer{x0: x, y0: y, x: x, y: y, drag: d}
+		}
+		if l.board.hit(x, y) {
 			return &pointer{x0: x, y0: y, x: x, y: y}
 		}
 		g.edTap(x, y)
 		return nil
+	}
+	// lift ends a pointer: a press that never moved taps, a drag drops.
+	lift := func(p *pointer) {
+		switch {
+		case p == nil:
+		case !p.moved:
+			g.edTap(p.x0, p.y0)
+		case p.drag != nil && p.drag.live:
+			g.edDrop(p.drag, p.x, p.y)
+		}
+		if p != nil && p.drag != nil {
+			v.drag = nil
+		}
 	}
 	for _, id := range inpututil.AppendJustPressedTouchIDs(nil) {
 		g.touched = true
@@ -76,6 +94,7 @@ func (g *Game) edViewInput(l *edLayout) {
 		}
 		v.pinch, v.pinchOn = d, true
 		p.moved, q.moved = true, true
+		p.drag, q.drag, v.drag = nil, nil, nil // two fingers zoom, never carry
 		p.x, p.y, q.x, q.y = float64(x1), float64(y1), float64(x2), float64(y2)
 	} else if len(ids) == 1 {
 		if p := v.ptr[ids[0]]; p != nil {
@@ -89,8 +108,8 @@ func (g *Game) edViewInput(l *edLayout) {
 	for _, id := range inpututil.AppendJustReleasedTouchIDs(nil) {
 		p := v.ptr[id]
 		delete(v.ptr, id)
-		if p != nil && !p.moved && len(v.ptr) == 0 {
-			g.edTap(p.x0, p.y0)
+		if p != nil && (p.moved || len(v.ptr) == 0) {
+			lift(p)
 		}
 	}
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
@@ -102,9 +121,7 @@ func (g *Game) edViewInput(l *edLayout) {
 		g.edDrag(v.mouse, float64(x), float64(y), l)
 	}
 	if v.mouse != nil && inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft) {
-		if !v.mouse.moved {
-			g.edTap(v.mouse.x0, v.mouse.y0)
-		}
+		lift(v.mouse)
 		v.mouse = nil
 	}
 }
@@ -124,6 +141,16 @@ func (g *Game) edDrag(p *pointer, x, y float64, l *edLayout) {
 	if !p.moved && math.Hypot(x-p.x0, y-p.y0) > 10*g.k {
 		p.moved = true
 		g.edHold(l)
+		if p.drag != nil {
+			p.drag.live = true
+			g.ed.bv.drag = p.drag
+		}
+	}
+	if p.drag != nil {
+		// Carrying a piece: it follows the pointer; the board stays put.
+		p.drag.x, p.drag.y = x, y
+		p.x, p.y = x, y
+		return
 	}
 	if p.moved {
 		v := &g.ed.bv
@@ -163,7 +190,7 @@ func (g *Game) drawEdViewControls(dst *ebiten.Image, l *edLayout) {
 			vector.StrokeLine(dst, cx, cy-s, cx, cy+s, g.u(2), colText, true)
 		}
 	}
-	if l.zoomed {
-		g.label(dst, g.small, "drag to see more of the board", l.board.x+6*g.k, l.zin.y+l.zin.h/2, fade(colDim, 0.85), false)
+	if l.zoomed && g.ed.bv.drag == nil {
+		g.label(dst, g.small, "drag empty board to look around", l.board.x+6*g.k, l.zin.y+l.zin.h/2, fade(colDim, 0.85), false)
 	}
 }

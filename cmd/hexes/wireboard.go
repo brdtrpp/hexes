@@ -2,13 +2,15 @@ package main
 
 // The open board: a wired hex's pieces each keep their silhouette, a few
 // hexagons that never turn, anywhere on a big board, and pieces only join
-// where they touch. Tap a piece to pick it; tap an empty tile to move it
-// there (its whole shape has to fit), tap a piece it touches to step
-// their join (a gate's YES and NO, an overload's rungs, then off), tap
-// the tray to set it aside. The board drags and zooms (edview.go).
+// where they touch. Drag a piece to move it or onto the tray to set it
+// aside (eddrag.go); tap the bar where two pieces touch to step their
+// join (a gate's YES and NO, an overload's rungs, then off). Pads
+// scattered over the board give the piece on them a bonus. The board
+// drags and zooms (edview.go).
 
 import (
 	"image/color"
+	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -36,19 +38,14 @@ func (g *Game) drawWired(dst, full *ebiten.Image, l *edLayout, h *skill.Hex) {
 		picked = e.at
 	}
 	fit, _ := g.edFits(h)
-	// The board. The shape's own pads are marked: whatever piece covers
-	// one gets its quirk.
-	pads := map[skill.Cell]string{}
-	gr := h.Shape.Graph()
-	if i := h.Shape.Twin(); i >= 0 && gr.Has(i) {
-		pads[gr.At[i]] = "TWIN"
+	drag := -1
+	if d := g.ed.bv.drag; d != nil && d.live {
+		drag = d.slot
+		fit = nil
 	}
-	if i := h.Shape.Surge(); i >= 0 && gr.Has(i) {
-		pads[gr.At[i]] = "SURGE"
-	}
-	if i := gr.LoopFrom(); i >= 0 && gr.Has(i) {
-		pads[gr.At[i]] = "LOOP"
-	}
+	// The board. Its pads are marked: whatever piece covers one gets its
+	// quirk. A way out with a hex docked on it is a pad too.
+	pads := g.boardPads(h)
 	b := l.board
 	for _, c := range h.Lay.Room.Cells() {
 		cx, cy := l.cellXY(c)
@@ -84,6 +81,9 @@ func (g *Game) drawWired(dst, full *ebiten.Image, l *edLayout, h *skill.Hex) {
 		w := g.u(2.5)
 		if s == picked {
 			fill, edge, w = fade(col, 0.5), colText, g.u(4)
+		}
+		if s == drag {
+			fill, edge = fade(col, 0.08), fade(colDim, 0.5)
 		}
 		cells := h.PieceCells(s)
 		for _, c := range cells {
@@ -146,17 +146,24 @@ func (g *Game) drawWired(dst, full *ebiten.Image, l *edLayout, h *skill.Hex) {
 			}
 		}
 	}
-	// What the picked piece touches and can join.
-	if picked >= 0 {
-		for s := 0; s < skill.Slots; s++ {
-			if s == picked || !h.Lay.Pos[s].On {
-				continue
-			}
-			if _, _, ok := h.CanWireTouch(picked, s); ok || h.WireArm(picked, s) != 0 || h.WireArm(s, picked) != 0 {
-				for _, c := range h.PieceCells(s) {
-					cx, cy := l.cellXY(c)
-					drawHex(dst, cx, cy, r*0.82, true, color.RGBA{}, fade(colYes, 0.8), g.u(2))
+	// Where two touching pieces could join but don't: a faint bar to tap.
+	for _, j := range g.joinSpots(l, h) {
+		if j.on {
+			continue
+		}
+		for _, c := range h.PieceCells(j.a) {
+			for d, dir := range skill.CellDirs {
+				if h.PieceAt(c.Add(dir)) != j.b {
+					continue
 				}
+				cx, cy := l.cellXY(c)
+				ax, ay, bx, by := sideCorners(cx, cy, r, d)
+				mx, my := (ax+bx)/2, (ay+by)/2
+				if math.Hypot(mx-j.x, my-j.y) > r*0.2 {
+					continue // another edge of the same pair
+				}
+				ux, uy := (bx-ax)*0.3, (by-ay)*0.3
+				vector.StrokeLine(dst, float32(mx-ux), float32(my-uy), float32(mx+ux), float32(my+uy), g.u(3), fade(colDim, 0.55), true)
 			}
 		}
 	}
@@ -195,11 +202,25 @@ func (g *Game) drawWired(dst, full *ebiten.Image, l *edLayout, h *skill.Hex) {
 		}
 	}
 	for c, tag := range pads {
+		cx, cy := l.cellXY(c)
 		if h.PieceAt(c) < 0 {
-			cx, cy := l.cellXY(c)
 			g.label(dst, g.small, tag, cx, cy, fade(colShape, 0.8), true)
+		} else {
+			// Under a piece: a ring, so the pad still shows.
+			drawHex(dst, cx, cy, r*0.3, true, color.RGBA{}, fade(colShape, 0.8), g.u(1.5))
 		}
 	}
+	// Ways in and out: IN on the trigger when a hex docks into this one,
+	// OUT on the piece that carries a way out to a docked hex.
+	if trig := h.TriggerSlot(); trig >= 0 && h.Lay.Pos[trig].On && dockedInto(g.sim, g.ed.hex) {
+		g.pieceBadge(dst, l, h, trig, "IN", colDock)
+	}
+	for _, o := range g.outPads(h) {
+		if s := h.PieceAt(o); s >= 0 {
+			g.pieceBadge(dst, l, h, s, "OUT", colDock)
+		}
+	}
+	g.drawGhost(dst, l, h)
 	g.drawTray(full, l, h, picked)
 }
 
@@ -208,9 +229,9 @@ func (g *Game) drawTray(dst *ebiten.Image, l *edLayout, h *skill.Hex, picked int
 	loose := h.Loose()
 	g.drawRect(dst, l.tray, colPanel, fade(colDim, 0.35))
 	if len(loose) == 0 {
-		msg := "TRAY: pieces set aside wait here"
+		msg := "TRAY: drag a piece here to set it aside"
 		if picked >= 0 && h.Lay.Pos[picked].On {
-			msg = "tap here to set the piece aside"
+			msg = "drag the piece here, or tap, to set it aside"
 		}
 		if l.tray.h > l.tray.w {
 			msg = "TRAY"
@@ -230,9 +251,8 @@ func (g *Game) drawTray(dst *ebiten.Image, l *edLayout, h *skill.Hex, picked int
 // edWireTap handles a tap on a wired hex's board when a piece is picked
 // and the tap lands on another piece: it wires them if a wire can join
 // them, and reports whether it did anything.
-func (g *Game) edWireTap(h *skill.Hex, t int) bool {
+func (g *Game) edWireTap(h *skill.Hex, a, t int) bool {
 	e, sim := &g.ed, g.sim
-	a := e.at
 	if a < 0 || a >= skill.Slots || !h.Lay.Pos[a].On || t == a {
 		return false
 	}
@@ -265,4 +285,51 @@ func (g *Game) edWireTap(h *skill.Hex, t int) bool {
 	}
 	e.bad = false
 	return true
+}
+
+// boardPads are the board's pads by tile, with their labels: the rolled
+// pads, and each way out that has a hex docked on it.
+func (g *Game) boardPads(h *skill.Hex) map[skill.Cell]string {
+	pads := map[skill.Cell]string{}
+	for _, p := range h.BoardPads() {
+		pads[p.At] = p.Kind.Name()
+	}
+	for _, c := range g.outPads(h) {
+		pads[c] = "OUT"
+	}
+	return pads
+}
+
+// outPads are the tiles of the hex's ways out that have a hex docked on
+// them: the piece covering one passes its targets on.
+func (g *Game) outPads(h *skill.Hex) []skill.Cell {
+	var out []skill.Cell
+	gr := h.Shape.Graph()
+	ps, n := h.Shape.Ports()
+	for _, p := range ps[:n] {
+		if !p.In && h.Docks[p.Slot] != nil && gr.Has(int(p.Slot)) {
+			out = append(out, gr.At[p.Slot])
+		}
+	}
+	return out
+}
+
+// pieceBadge puts a small tag on piece s's top corner.
+func (g *Game) pieceBadge(dst *ebiten.Image, l *edLayout, h *skill.Hex, s int, tag string, col color.RGBA) {
+	cells := h.PieceCells(s)
+	if len(cells) == 0 {
+		return
+	}
+	// The cell highest up, then leftmost.
+	tx, ty := l.cellXY(cells[0])
+	for _, c := range cells[1:] {
+		x, y := l.cellXY(c)
+		if y < ty-1 || (math.Abs(y-ty) <= 1 && x < tx) {
+			tx, ty = x, y
+		}
+	}
+	r := l.slotR
+	bx, by := tx-r*0.5, ty-r*0.62
+	drawHex(dst, bx, by, r*0.3, true, colPanel, col, g.u(1.5))
+	g.label(dst, g.small, tag, bx, by, col, true)
 }

@@ -104,6 +104,9 @@ func (g *Game) edFits(h *skill.Hex) (fit map[skill.Cell]bool, held bool) {
 	s := -1
 	switch {
 	case e.pick == pickSlot && e.at >= 0 && e.at < skill.Slots && h.Slots[e.at].Kind == skill.SlotPart:
+		if h.Lay.Touch && h.Lay.Pos[e.at].On {
+			return nil, false // it moves by dragging
+		}
 		s = e.at
 	case e.pick == pickCell && sim.Stash.Inv.Has[e.at], e.pick == pickLocker && e.at < len(sim.Locker):
 		s = sim.FreeSlot(e.hex)
@@ -357,10 +360,25 @@ func (g *Game) edPieceTap(l *edLayout, x, y float64, confirm int) bool {
 		e.pick, e.msg = pickNone, ""
 		return true
 	}
+	if h.Lay.Wired && h.Lay.Touch && e.pick != pickFrame && e.pick != pickCell && e.pick != pickLocker {
+		// The bar where two pieces touch steps their join.
+		if j, ok := g.edJoinAt(l, h, x, y); ok {
+			g.edWireTap(h, j.a, j.b)
+			return true
+		}
+	}
 	c, ok := l.cellAt(h, x, y)
 	if !ok {
 		return false
 	}
+	return g.edCellTap(l, c, confirm)
+}
+
+// edCellTap handles a tap on tile c of a laid hex's room.
+func (g *Game) edCellTap(l *edLayout, c skill.Cell, confirm int) bool {
+	e, sim := &g.ed, g.sim
+	h := sim.Load.Hex(e.hex)
+	inv := &sim.Stash.Inv
 	t := h.PieceAt(c)
 	keep := func(err error) {
 		// A move keeps the piece picked, so it can be turned next.
@@ -413,12 +431,13 @@ func (g *Game) edPieceTap(l *edLayout, x, y float64, confirm int) bool {
 			return true
 		}
 		keep(sim.TurnPiece(e.hex, t))
-	case e.pick == pickSlot && t >= 0 && h.Lay.Wired && g.edWireTap(h, t):
+	case e.pick == pickSlot && t >= 0 && h.Lay.Wired && !h.Lay.Touch && g.edWireTap(h, e.at, t):
 	case t >= 0:
 		e.pick, e.at, e.msg = pickSlot, t, ""
-		if h.Lay.Wired {
-			e.msg = "Tap an empty tile to move it (green: its shape fits), or a piece it touches to step their join."
-		}
+	case e.pick == pickSlot && h.Lay.Touch && h.Lay.Pos[e.at].On:
+		// On the open board a piece moves by dragging; a tap on an empty
+		// tile puts it down.
+		e.pick, e.msg = pickNone, ""
 	case e.pick == pickSlot && h.Slots[e.at].Kind == skill.SlotPart:
 		keep(sim.MovePiece(e.hex, e.at, c))
 	default:

@@ -55,6 +55,9 @@ type boardView struct {
 type pointer struct {
 	x0, y0, x, y float64
 	moved        bool
+	// drag is the piece or part this press carries, in the hex editor
+	// (eddrag.go); nil for a press that pans the board or taps.
+	drag *edDrag
 }
 
 func (g *Game) setBoard(on bool) {

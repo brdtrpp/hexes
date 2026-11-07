@@ -442,6 +442,18 @@ func (h *Hex) merge(s int) bool { return h.Graph().Ins(s) >= 2 }
 // slot in flow of an original Loop if it links back to the first, or a
 // generated shape's loop-back.
 func (h *Hex) loopSlot(start int) int {
+	if h.Laid() && h.Lay.Touch {
+		// The first LOOP pad whose piece runs carries the loop.
+		for _, p := range h.Lay.Pads {
+			if p.Kind != PadLoop {
+				continue
+			}
+			if s := h.PieceAt(p.At); s >= 0 && s != start && h.Runs(s) && h.padOn(s, PadLoop) {
+				return s
+			}
+		}
+		return -1
+	}
 	if h.Laid() {
 		// The piece on the shape's loop pad carries the loop.
 		s := h.pad(h.Shape.Graph().LoopFrom())

@@ -392,7 +392,7 @@ func (g *Game) edCard() edCardView {
 	green := "Green slots are where it does something."
 	switch {
 	case wired:
-		green = fmt.Sprintf("Tap any free tile to lay it (%d of %d on the board), or a piece to swap it in.", h.Held(), h.Budget())
+		green = fmt.Sprintf("Drag it onto the board or tap a free tile to lay it (%d of %d on the board); onto a piece swaps it in.", h.Held(), h.Budget())
 		if fit, held := g.edFits(h); held && len(fit) == 0 {
 			green = fmt.Sprintf("The board holds %d: drop it on a piece to swap them, or set one aside first.", h.Budget())
 		}
@@ -443,9 +443,9 @@ func (g *Game) edCard() edCardView {
 		}
 		if wired && e.msg == "" {
 			if h.Lay.Pos[e.at].On {
-				lead += " Pieces join where they touch: tap a free tile to move it there, a piece it touches to step their join, the tray to set it aside."
+				lead += " Drag it to move it, or onto the tray to set it aside. Tap the bar where two pieces touch to step their join."
 			} else {
-				lead = "In the tray. Tap a free tile to lay it."
+				lead = "In the tray. Drag it onto the board, or tap a free tile to lay it."
 			}
 		} else if laid && e.msg == "" {
 			if h.Lay.Pos[e.at].On {
