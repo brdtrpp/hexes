@@ -27,8 +27,8 @@ import (
 
 // Death and checkpoint tuning. Placeholder balance, all constants.
 const (
-	// SaveVersion 3 is the skill grid: saves from before it don't load,
-	// so they start fresh with a new grid. (2 was the teaching ladder.)
+	// SaveVersion 3 is the skill grid. (2 was the teaching ladder.) A
+	// bump needs a migration step: see migrate.go.
 	SaveVersion     = 3
 	CheckpointEvery = 5   // every 5th depth secures the pack and banks Data
 	FallMin         = 1   // floors lost on death, at least, before mercy
@@ -350,6 +350,10 @@ func (s *Sim) Save() ([]byte, error) {
 // LoadSave decodes a save and starts its floor. A save that won't decode or
 // whose hexes don't compile leaves the sim as it was and returns an error.
 func (s *Sim) LoadSave(b []byte) error {
+	b, err := Upgrade(b)
+	if err != nil {
+		return err
+	}
 	var sv Save
 	if err := json.Unmarshal(b, &sv); err != nil {
 		return err

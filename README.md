@@ -357,6 +357,8 @@ Skills come from one big hexagon grid rolled from the save's seed, as the design
 
 Save version 3 adds the grid marks, Data, locker and signals; older saves start fresh.
 
+**Save versions.** From version 3 on, an update never starts anyone over. A format change Go's JSON copes with (a new field) needs nothing. Any other change bumps `SaveVersion` and adds a step to `migrations` (`game/migrate.go`) that rewrites the old save's JSON into the new shape; `game.Upgrade` runs every step from the save's version up before loading. A save this build can't read (from a newer version, or one a change broke) isn't overwritten: it moves to `hexes.save.kept`, the run starts fresh for now, and each start tries the kept save again, taking it back once it reads and went at least as deep. START FRESH clears it too. `game/testdata/saves` holds saves written by this build and by older v3 builds (named by commit); `TestFrozenSavesLoad` loads every one, and `TestCurrentVersionIsFrozen` fails if `SaveVersion` goes up without a step and a new frozen save (`HEXES_FREEZE_SAVE=1 go test ./game -run TestFreezeSave`).
+
 ## Cast buttons and workbenches (`game/bench.go`, `cmd/hexes/bench.go`)
 
 Cast buttons: every hex whose trigger is on cast or hold gets a cast button, 1 to 4. A hex that becomes castable (a CAST trigger swapped in) takes the lowest free button, so two cast hexes are two buttons, not one press that fires both. At a workbench the editor's BUTTON switch moves the hex on show to the next button; two hexes on the same button make a combo, one press fires both in slot order. Hexes with any other trigger (on hit, on kill, every N s, watch) have no button: the trigger part decides whether a hex is cast by hand, the button only decides where. Nothing auto-casts.

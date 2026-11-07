@@ -7,6 +7,7 @@ package main
 // it asks twice. Every control is a tap; nothing is typed.
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"log"
@@ -38,6 +39,11 @@ func (g *Game) toggleMove() {
 // in the config folder on desktop.
 const saveKey = "hexes.save"
 
+// keptKey holds a save this build couldn't read (one from a newer
+// version, or one a format change broke), so it's never overwritten.
+// Each start tries it again: once a build reads it, it's back.
+const keptKey = "hexes.save.kept"
+
 type menuState uint8
 
 const (
@@ -46,18 +52,45 @@ const (
 	menuConfirm // asking whether to wipe everything
 )
 
-// loadSave picks up where the player left off, if there's a save.
+// loadSave picks up where the player left off, if there's a save. Old
+// saves are upgraded on the way in (game.Upgrade), so an update never
+// starts anyone over. A save that still won't load is set aside, not lost.
 func (g *Game) loadSave() {
-	s := loadPref(saveKey)
+	s, kept := loadPref(saveKey), loadPref(keptKey)
+	if kept != "" && kept != s {
+		// A save set aside earlier: if this build reads it and it's the
+		// deeper run, it's the one to play.
+		if kb := game.SaveBest([]byte(kept)); kb >= 0 && kb >= game.SaveBest([]byte(s)) {
+			if err := g.sim.LoadSave([]byte(kept)); err == nil {
+				savePref(saveKey, kept)
+				savePref(keptKey, "")
+				g.showHint("Your earlier save is back")
+				g.camX, g.camY = g.sim.P().Pos()
+				return
+			}
+		}
+	}
 	if s == "" {
 		return
 	}
-	if err := g.sim.LoadSave([]byte(s)); err != nil {
-		log.Printf("hexes: save not loaded: %v", err)
-		g.showHint("This version teaches the game a floor at a time,\nso your run starts fresh")
+	err := g.sim.LoadSave([]byte(s))
+	if err == nil {
+		if kept != "" && game.SaveBest([]byte(kept)) >= 0 {
+			// The set-aside save reads now but this one went further.
+			savePref(keptKey, "")
+		}
+		g.camX, g.camY = g.sim.P().Pos()
 		return
 	}
-	g.camX, g.camY = g.sim.P().Pos()
+	log.Printf("hexes: save not loaded: %v", err)
+	if kept == "" {
+		savePref(keptKey, s)
+	}
+	if errors.Is(err, game.ErrNewerSave) {
+		g.showHint("Your save is from a newer version of the game.\nIt's kept safe and comes back once this page updates")
+		return
+	}
+	g.showHint("Your save couldn't be read, so it's kept safe\nand comes back once an update can read it")
 }
 
 // autosave writes progress when the sim says something changed. While
@@ -160,6 +193,7 @@ func (g *Game) updateMenu() bool {
 			g.menu = menuConfirm
 		case l.left.hit(t[0], t[1]) && g.menu == menuConfirm:
 			g.sim.NewRun(uint64(time.Now().UnixNano()))
+			savePref(keptKey, "") // a wipe wipes a set-aside save too
 			g.resetTeach()
 			g.sim.OfferKits()
 			g.camX, g.camY = g.sim.P().Pos()

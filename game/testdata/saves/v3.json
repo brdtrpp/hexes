@@ -1,0 +1,2369 @@
+{
+ "Version": 3,
+ "RunSeed": 4242,
+ "Depth": 7,
+ "Best": 7,
+ "HPFrac": 0.6,
+ "Kills": 57,
+ "Picked": 0,
+ "Visits": 2,
+ "Points": {
+  "Capacity": 8,
+  "Recharge": 8,
+  "Cooling": 0,
+  "Processing": 5,
+  "Optics": 0
+ },
+ "Hexes": [
+  {
+   "Name": "Arc Lance",
+   "Seed": 0,
+   "Sockets": [
+    0,
+    3,
+    3,
+    3,
+    3,
+    3,
+    2,
+    3,
+    3
+   ],
+   "Linked": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "Slots": [
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 1,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 1,
+      "Count": 0,
+      "Power": 2,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 2,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 4,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 4,
+      "Count": 3,
+      "Power": 3,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 3,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 30,
+      "Count": 0,
+      "Power": 6,
+      "Heat": 3,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 4,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 2,
+      "Count": 0,
+      "Power": 3,
+      "Heat": 5,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 7,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 4,
+      "Value": 0,
+      "Count": 0,
+      "Power": 1,
+      "Heat": 0.5,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    }
+   ],
+   "Shape": {},
+   "Lay": {
+    "Room": "ffffffffffffffff.ffffffffffffffff.1ffffffffff",
+    "Pos": [
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": -1,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": -2,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": -2,
+       "R": 1
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": -1,
+       "R": 1
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     }
+    ],
+    "Wired": true,
+    "Touch": true,
+    "Pads": [
+     {
+      "At": {
+       "Q": 2,
+       "R": -5
+      },
+      "Kind": 2
+     },
+     {
+      "At": {
+       "Q": 3,
+       "R": -3
+      },
+      "Kind": 1
+     },
+     {
+      "At": {
+       "Q": 3,
+       "R": 3
+      },
+      "Kind": 1
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 6
+      },
+      "Kind": 3
+     },
+     {
+      "At": {
+       "Q": -6,
+       "R": 1
+      },
+      "Kind": 2
+     },
+     {
+      "At": {
+       "Q": -3,
+       "R": 0
+      },
+      "Kind": 3
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     }
+    ],
+    "Out": [
+     34,
+     4,
+     0,
+     4,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "Arm0": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "Arm1": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "Name": "Kinetic Ram",
+   "Seed": 0,
+   "Sockets": [
+    0,
+    3,
+    3,
+    3,
+    3,
+    3,
+    2,
+    3,
+    3
+   ],
+   "Linked": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "Slots": [
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 1,
+      "Rarity": 0,
+      "Trigger": 1,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 1,
+      "Count": 0,
+      "Power": 2,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 3,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 1,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 2,
+      "Count": 0,
+      "Power": 4,
+      "Heat": 1,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 5,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0.4,
+      "Count": 0,
+      "Power": 1,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 3,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 2,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 18,
+      "Count": 0,
+      "Power": 3.6000001,
+      "Heat": 1.8000001,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 3,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 2,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 6,
+      "Count": 0,
+      "Power": 1.2,
+      "Heat": 0.6,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    }
+   ],
+   "Shape": {},
+   "Lay": {
+    "Room": "ffffffffffffffff.ffffffffffffffff.1ffffffffff",
+    "Pos": [
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": -1,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": -1
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": -2
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 1,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     }
+    ],
+    "Wired": true,
+    "Touch": true,
+    "Pads": [
+     {
+      "At": {
+       "Q": 2,
+       "R": -4
+      },
+      "Kind": 2
+     },
+     {
+      "At": {
+       "Q": 5,
+       "R": -2
+      },
+      "Kind": 1
+     },
+     {
+      "At": {
+       "Q": 1,
+       "R": 3
+      },
+      "Kind": 3
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 6
+      },
+      "Kind": 2
+     },
+     {
+      "At": {
+       "Q": -3,
+       "R": 3
+      },
+      "Kind": 3
+     },
+     {
+      "At": {
+       "Q": -6,
+       "R": 0
+      },
+      "Kind": 1
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     }
+    ],
+    "Out": [
+     2,
+     4,
+     24,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "Arm0": [
+     0,
+     0,
+     16,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "Arm1": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "Name": "Cryo Bloom",
+   "Seed": 0,
+   "Sockets": [
+    0,
+    3,
+    3,
+    3,
+    3,
+    3,
+    2,
+    3,
+    3
+   ],
+   "Linked": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "Slots": [
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 1,
+      "Rarity": 0,
+      "Trigger": 2,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 1,
+      "Count": 0,
+      "Power": 2,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 6,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 1,
+      "Count": 0,
+      "Power": 0.5,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 3,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 2,
+      "Type": 1,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 2.5,
+      "Count": 0,
+      "Power": 4.5,
+      "Heat": 1,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 2,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 3,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 2,
+      "Count": 0,
+      "Power": 2,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 5,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 5,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 5,
+      "Power": 1,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 3,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 1,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 45,
+      "Count": 0,
+      "Power": 9,
+      "Heat": 4.5,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    }
+   ],
+   "Shape": {},
+   "Lay": {
+    "Room": "ffffffffffffffff.ffffffffffffffff.1ffffffffff",
+    "Pos": [
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": -1,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 1,
+       "R": 1
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 1,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": -1
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": -2
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     }
+    ],
+    "Wired": true,
+    "Touch": true,
+    "Pads": [
+     {
+      "At": {
+       "Q": 2,
+       "R": -3
+      },
+      "Kind": 3
+     },
+     {
+      "At": {
+       "Q": 4,
+       "R": -3
+      },
+      "Kind": 3
+     },
+     {
+      "At": {
+       "Q": 1,
+       "R": 2
+      },
+      "Kind": 1
+     },
+     {
+      "At": {
+       "Q": -1,
+       "R": 3
+      },
+      "Kind": 2
+     },
+     {
+      "At": {
+       "Q": -3,
+       "R": 2
+      },
+      "Kind": 2
+     },
+     {
+      "At": {
+       "Q": -3,
+       "R": -2
+      },
+      "Kind": 1
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     }
+    ],
+    "Out": [
+     10,
+     0,
+     0,
+     20,
+     32,
+     0,
+     0,
+     0,
+     0
+    ],
+    "Arm0": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "Arm1": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  {
+   "Name": "Nanite Swarm",
+   "Seed": 0,
+   "Sockets": [
+    0,
+    3,
+    3,
+    3,
+    3,
+    3,
+    2,
+    3,
+    3
+   ],
+   "Linked": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "Slots": [
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 1,
+      "Rarity": 0,
+      "Trigger": 5,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 1,
+      "Count": 0,
+      "Power": 2,
+      "Heat": 0,
+      "Period": 4,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 2,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 3,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 2,
+      "Count": 0,
+      "Power": 2,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 3,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 3,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 30,
+      "Count": 0,
+      "Power": 6,
+      "Heat": 3,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 1,
+     "Part": {
+      "Name": "",
+      "Kind": 3,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 1,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 20,
+      "Count": 0,
+      "Power": 4,
+      "Heat": 2,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    },
+    {
+     "Kind": 0,
+     "Part": {
+      "Name": "",
+      "Kind": 0,
+      "Rarity": 0,
+      "Trigger": 0,
+      "Target": 0,
+      "Effect": 0,
+      "Type": 0,
+      "Verb": 0,
+      "Gate": 0,
+      "Charge": 0,
+      "Bank": 0,
+      "Call": 0,
+      "Value": 0,
+      "Count": 0,
+      "Power": 0,
+      "Heat": 0,
+      "Period": 0,
+      "Quirk": 0
+     },
+     "Nested": null
+    }
+   ],
+   "Shape": {},
+   "Lay": {
+    "Room": "ffffffffffffffff.ffffffffffffffff.1ffffffffff",
+    "Pos": [
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": -1,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": -1
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": -2,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": true
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      },
+      "Rot": 0,
+      "On": false
+     }
+    ],
+    "Wired": true,
+    "Touch": true,
+    "Pads": [
+     {
+      "At": {
+       "Q": 4,
+       "R": -6
+      },
+      "Kind": 1
+     },
+     {
+      "At": {
+       "Q": 3,
+       "R": -2
+      },
+      "Kind": 2
+     },
+     {
+      "At": {
+       "Q": 2,
+       "R": 1
+      },
+      "Kind": 3
+     },
+     {
+      "At": {
+       "Q": -3,
+       "R": 4
+      },
+      "Kind": 3
+     },
+     {
+      "At": {
+       "Q": -6,
+       "R": 4
+      },
+      "Kind": 2
+     },
+     {
+      "At": {
+       "Q": -1,
+       "R": -3
+      },
+      "Kind": 1
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     },
+     {
+      "At": {
+       "Q": 0,
+       "R": 0
+      }
+     }
+    ],
+    "Out": [
+     2,
+     20,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "Arm0": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "Arm1": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   }
+  }
+ ],
+ "Names": [
+  "Frost Lance",
+  "Kinetic Ram",
+  "Cryo Bloom",
+  "Nanite Swarm"
+ ],
+ "Blurb": [
+  "plasma chains 3, calls Swarm",
+  "shove, then hits weak foes 3x",
+  "chill, every 5th kill a nova",
+  "around · nanite · cryo"
+ ],
+ "Edited": [
+  false,
+  false,
+  false,
+  true
+ ],
+ "Keys": [
+  1,
+  0,
+  0,
+  0
+ ],
+ "Inv": {
+  "Parts": [
+   {
+    "Name": "",
+    "Kind": 3,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 1,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 1,
+    "Count": 0,
+    "Power": 2,
+    "Heat": 1,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   }
+  ],
+  "Has": [
+   true,
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   false
+  ]
+ },
+ "Fresh": [
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false,
+  false
+ ],
+ "Cache": {
+  "Active": false,
+  "Depth": 0,
+  "At": {
+   "Q": 0,
+   "R": 0
+  },
+  "N": 0,
+  "Parts": [
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   },
+   {
+    "Name": "",
+    "Kind": 0,
+    "Rarity": 0,
+    "Trigger": 0,
+    "Target": 0,
+    "Effect": 0,
+    "Type": 0,
+    "Verb": 0,
+    "Gate": 0,
+    "Charge": 0,
+    "Bank": 0,
+    "Call": 0,
+    "Value": 0,
+    "Count": 0,
+    "Power": 0,
+    "Heat": 0,
+    "Period": 0,
+    "Quirk": 0
+   }
+  ]
+ },
+ "Deaths": 0,
+ "LastDeathAt": 0,
+ "PlayTime": 0,
+ "CallGiven": true,
+ "Shapes": [
+  {
+   "Kind": 2,
+   "Quirk": 4,
+   "ID": 101
+  }
+ ],
+ "ShapeGiven": true,
+ "FrameGiven": true,
+ "SustainGiven": true,
+ "Taught": 17,
+ "Board": [
+  {
+   "At": {
+    "Q": 0,
+    "R": 0
+   }
+  },
+  {
+   "At": {
+    "Q": 0,
+    "R": -1
+   }
+  },
+  {
+   "At": {
+    "Q": 1,
+    "R": -1
+   }
+  },
+  {
+   "At": {
+    "Q": 1,
+    "R": 0
+   }
+  }
+ ],
+ "Data": 12,
+ "Unbanked": 65,
+ "Own": [
+  0
+ ],
+ "Seen": [
+  0
+ ],
+ "PartsV": 2,
+ "Pads": [
+  0.6,
+  0.6
+ ],
+ "PadsAt": 7
+}
