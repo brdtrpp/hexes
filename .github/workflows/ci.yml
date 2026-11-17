@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build + vet + test (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ebitengine system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev libasound2-dev
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        # cmd/* are Ebitengine entrypoints; their init needs a display, so they
+        # are covered by the Build step above rather than executed here.
+        run: go test -timeout 10m $(go list ./... | grep -v '/cmd/')
+
+  wasm:
+    name: wasm build artifact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build wasm
+        env:
+          GOOS: js
+          GOARCH: wasm
+        run: |
+          go build ./...
+          go build -o dist/hexes.wasm ./cmd/hexes
+      - name: Upload wasm
+        uses: actions/upload-artifact@v4
+        with:
+          name: hexes-wasm
+          path: dist/hexes.wasm
+          if-no-files-found: error
